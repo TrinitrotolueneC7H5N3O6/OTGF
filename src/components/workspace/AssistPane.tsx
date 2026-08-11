@@ -7,7 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import type { Client, Message } from "@/lib/types";
+import type { Artifact, Client, Message } from "@/lib/types";
 import {
   ASSIST_BEHAVIOR_MAX,
   DEFAULT_ASSIST_BEHAVIOR,
@@ -60,6 +60,7 @@ type CoachPayload = {
 interface AssistPaneProps {
   client?: Client;
   messages: Message[];
+  artifacts?: Artifact[];
   businessName: string;
   trade: string;
   behavior: string;
@@ -84,6 +85,7 @@ function stanceLabel(stance: AssistStance) {
 
 function paceLabel(pace: AssistPace) {
   const map: Record<AssistPace, string> = {
+    wait: "Wait",
     hold: "Hold",
     probe: "Probe",
     advance: "Advance",
@@ -95,6 +97,7 @@ function paceLabel(pace: AssistPace) {
 export function AssistPane({
   client,
   messages,
+  artifacts = [],
   businessName,
   trade,
   behavior,
@@ -153,7 +156,8 @@ export function AssistPane({
       if (expandThoughts) setThoughtsOpen(true);
     }
     if (data.moves) setMoves(data.moves);
-    if (data.replies) setReplies(data.replies);
+    // Always apply replies (including []) so stale drafts clear after the employee speaks.
+    if ("replies" in data) setReplies(data.replies ?? []);
   }
 
   function applyCoachChannels(data: CoachPayload, expandThoughts = false) {
@@ -173,7 +177,7 @@ export function AssistPane({
 
   useEffect(() => {
     if (!behaviorOpen) return;
-    function onKey(e: KeyboardEvent) {
+    function onKey(e: globalThis.KeyboardEvent) {
       if (e.key === "Escape") setBehaviorOpen(false);
     }
     window.addEventListener("keydown", onKey);
@@ -232,6 +236,15 @@ export function AssistPane({
     }));
   }
 
+  function artifactPayload() {
+    return artifacts.slice(0, 16).map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      title: a.title,
+      ...(a.meta ? { meta: a.meta } : {}),
+    }));
+  }
+
   async function observe(signal?: AbortSignal) {
     if (!enabled || !client) {
       clearCoachChannels();
@@ -253,6 +266,7 @@ export function AssistPane({
       trade,
       behavior,
       messages: threadPayload(),
+      artifacts: artifactPayload(),
     };
 
     async function loadWhisper() {
@@ -342,6 +356,7 @@ export function AssistPane({
           trade,
           behavior,
           messages: threadPayload(),
+          artifacts: artifactPayload(),
           question,
           chat: nextChat.map((t) => ({
             role: t.role,
@@ -404,7 +419,7 @@ export function AssistPane({
       window.clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, client?.id, messages.at(-1)?.id, businessName, trade, behavior]);
+  }, [enabled, client?.id, messages.at(-1)?.id, businessName, trade, behavior, artifacts.length]);
 
   const headCopy = !client
     ? "Open a chat to think along with the thread."
@@ -465,8 +480,8 @@ export function AssistPane({
           <div>
             <h2 id="assist-behavior-title">Assist behavior</h2>
             <p>
-              Mode-switching coach instructions — read the room, catch
-              mistakes, pace, then coach.
+              Mode-switching coach — who spoke last, when to wait, when to
+              draft, then coach.
             </p>
           </div>
           <button

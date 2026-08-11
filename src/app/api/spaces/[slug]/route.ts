@@ -4,14 +4,23 @@ import { getSessionUser } from "@/lib/auth";
 import {
   dbEnsureSpace,
   dbGetSpace,
+  dbGetSpaceMeta,
   dbSaveSpace,
 } from "@/lib/spaceServer";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await context.params;
+  const metaOnly = new URL(request.url).searchParams.get("meta") === "1";
+  if (metaOnly) {
+    const meta = await dbGetSpaceMeta(slug);
+    if (!meta) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json(meta);
+  }
   const space = await dbGetSpace(slug);
   if (!space) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

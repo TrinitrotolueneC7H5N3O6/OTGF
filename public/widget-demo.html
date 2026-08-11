@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fake storefront — OTGF widget demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1a1c20;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --bg: #f6f4ef;
+        --surface: #fff;
+        --accent: #c45c26;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--ink);
+        background:
+          radial-gradient(80% 60% at 10% 0%, #efe8dc 0%, transparent 55%),
+          var(--bg);
+        min-height: 100vh;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--line);
+        background: color-mix(in srgb, var(--surface) 88%, transparent);
+        backdrop-filter: blur(8px);
+        position: sticky;
+        top: 0;
+      }
+      .logo {
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        font-size: 0.95rem;
+      }
+      nav {
+        display: flex;
+        gap: 1rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      main {
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 3rem 1.5rem 6rem;
+      }
+      h1 {
+        font-size: clamp(2.2rem, 6vw, 3.4rem);
+        line-height: 1.05;
+        margin: 0 0 0.75rem;
+        letter-spacing: -0.03em;
+      }
+      .lede {
+        font-size: 1.15rem;
+        line-height: 1.5;
+        color: var(--muted);
+        margin: 0 0 1.75rem;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        padding: 1.25rem 1.35rem;
+        box-shadow: 0 10px 30px rgba(16, 24, 40, 0.06);
+      }
+      .card h2 {
+        margin: 0 0 0.4rem;
+        font-size: 1.15rem;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .hint {
+        margin-top: 2rem;
+        font-size: 0.92rem;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.85em;
+        background: #efece6;
+        padding: 0.1rem 0.35rem;
+        border-radius: 0.35rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo">River Salon</div>
+      <nav>
+        <span>Services</span>
+        <span>Team</span>
+        <span>Book</span>
+      </nav>
+    </header>
+
+    <main>
+      <h1>Color, cuts, and quiet floors.</h1>
+      <p class="lede">
+        This is a fake storefront page — pretend it’s the salon’s real website.
+        The chat bubble in the corner is the OTGF widget.
+      </p>
+
+      <div class="card">
+        <h2>Try the widget</h2>
+        <p>
+          Click the round button bottom-right. It should open the same chat your
+          floor uses for slug <code>riveryogi</code>.
+        </p>
+      </div>
+
+      <p class="hint">
+        Dev tip: keep <code>npm run dev</code> on port 3010, then open
+        <code>http://localhost:3010/widget-demo.html</code>.
+      </p>
+    </main>
+
+    <!-- OTGF widget — same snippet stores would paste -->
+    <script src="http://localhost:3010/widget.js" data-slug="riveryogi" async></script>
+  </body>
+</html>

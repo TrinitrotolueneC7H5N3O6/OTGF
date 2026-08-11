@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Figtree, Syne } from "next/font/google";
+import { LatencyHud } from "@/components/shared/LatencyHud";
 import "./globals.css";
 
 const syne = Syne({
@@ -29,7 +30,10 @@ export default function RootLayout({
       lang="en"
       className={`${syne.variable} ${figtree.variable} h-full antialiased`}
     >
-      <body className="h-full">{children}</body>
+      <body className="h-full">
+        {children}
+        <LatencyHud />
+      </body>
     </html>
   );
 }

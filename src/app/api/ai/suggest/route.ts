@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import {
   ASSIST_PACES,
   ASSIST_STANCES,
+  assistTurnState,
   resolveAssistBehavior,
   type AssistPace,
   type AssistStance,
 } from "@/lib/assistBehavior";
+import { formatArtifactCatalog } from "@/lib/artifactMeta";
 
 export const runtime = "nodejs";
 
@@ -28,6 +30,7 @@ type AssistBody = {
   businessName?: string;
   trade?: string;
   messages?: ThreadMessage[];
+  artifacts?: { id?: string; kind?: string; title?: string; meta?: string }[];
   chat?: ChatTurn[];
   question?: string;
   behavior?: string;
@@ -61,6 +64,8 @@ const QUALITY_MODEL =
 
 const WHISPER_BRIEF = `You are a senior floor coach whispering to an employee during a live customer chat.
 Be high-signal and brief. Never invent prices, availability, or policies.
+Thread lines are labeled CUSTOMER vs EMPLOYEE — trust them for who is speaking.
+Respect turn-taking: if EMPLOYEE spoke last, pace should usually be "wait" and you are not drafting replies here anyway.
 Read stance, catch real risks only, set pace. JSON only.`;
 
 function extractJson(text: string): unknown {
@@ -86,8 +91,11 @@ function formatThread(
 ) {
   return messages
     .slice(-limit)
-    .map((m) => {
-      const who = m.from === "client" ? clientName : businessName;
+    .map((m, index, arr) => {
+      const who =
+        m.from === "client"
+          ? `CUSTOMER (${clientName})`
+          : `EMPLOYEE (${businessName})`;
       let text =
         m.body?.trim() ||
         (m.kind === "image"
@@ -96,9 +104,12 @@ function formatThread(
             ? "[sent a video]"
             : m.kind === "link"
               ? "[sent a link]"
-              : "[message]");
+              : m.kind === "receipt"
+                ? "[sent a receipt]"
+                : "[message]");
       if (text.length > maxBody) text = `${text.slice(0, maxBody)}…`;
-      return `${who}: ${text}`;
+      const marker = index === arr.length - 1 ? " ← LATEST" : "";
+      return `${who}: ${text}${marker}`;
     })
     .join("\n");
 }
@@ -233,17 +244,26 @@ function parseWhisper(parsed: Record<string, unknown>) {
   };
 }
 
-function parseCoach(parsed: Record<string, unknown>) {
+function parseCoach(parsed: Record<string, unknown>, allowDrafts: boolean) {
   return {
     thoughts: normalizeThoughts(parsed.thoughts),
     moves: normalizeMoves(parsed.moves),
-    replies: normalizeReplies(parsed.replies),
+    replies: allowDrafts ? normalizeReplies(parsed.replies) : [],
   };
 }
 
 function resolveMode(raw?: string): AssistMode {
   if (raw === "whisper" || raw === "coach" || raw === "chat") return raw;
   return "observe";
+}
+
+function preferWaitPace(
+  pace: AssistPace | null,
+  ball: ReturnType<typeof assistTurnState>["ball"],
+): AssistPace | null {
+  if (ball === "customer") return pace === "close" ? "close" : "wait";
+  if (pace === "wait" && ball === "employee") return "probe";
+  return pace;
 }
 
 export async function POST(req: Request) {
@@ -267,6 +287,19 @@ export async function POST(req: Request) {
   const businessName = body.businessName?.trim() || "the business";
   const trade = body.trade?.trim() || "shop";
   const behavior = resolveAssistBehavior(body.behavior);
+  const turn = assistTurnState(body.messages);
+  const artifactCatalog = formatArtifactCatalog(
+    (body.artifacts ?? []).map((a) => ({
+      id: String(a.id ?? ""),
+      kind: String(a.kind ?? "item"),
+      title: String(a.title ?? ""),
+      meta: a.meta,
+    })),
+    10,
+  );
+  const artifactBlock = artifactCatalog
+    ? `\nArtifact library (send if useful — prefer meta matches):\n${artifactCatalog}\n`
+    : "";
 
   try {
     if (mode === "whisper") {
@@ -282,19 +315,25 @@ export async function POST(req: Request) {
 Business: ${businessName} (${trade})
 Customer: ${clientName}
 
-Thread:
+Turn state (authoritative):
+${turn.summary}
+
+Thread (CUSTOMER vs EMPLOYEE; ← LATEST marks the newest line):
 ${thread || "(no messages yet)"}
 
 Return ONLY JSON:
 {
   "stance":"curious|anxious|transactional|offended|ready|confused|neutral",
   "risks":[{"label":"short","detail":"only real catches"}],
-  "pace":"hold|probe|advance|close",
-  "paceNote":"≤12 words",
+  "pace":"wait|hold|probe|advance|close",
+  "paceNote":"≤12 words about whose turn / what to do",
   "nudge":"optional sharp employee question or empty string"
 }
 
-Rules: 0–2 risks max; empty nudge is fine; no drafts; no essays.`;
+Rules:
+- 0–2 risks max; empty nudge is fine; no drafts; no essays
+- If EMPLOYEE spoke last, pace should usually be "wait" (unless closing)
+- If CUSTOMER spoke last, do not pick "wait"`;
 
       const content = await callOpenRouter(
         apiKey,
@@ -316,7 +355,23 @@ Rules: 0–2 risks max; empty nudge is fine; no drafts; no essays.`;
         );
       });
       const parsed = extractJson(content) as Record<string, unknown>;
-      return NextResponse.json(parseWhisper(parsed));
+      const whisper = parseWhisper(parsed);
+      return NextResponse.json({
+        ...whisper,
+        pace: preferWaitPace(whisper.pace, turn.ball),
+        paceNote:
+          whisper.paceNote ||
+          (turn.ball === "customer"
+            ? "Ball is with the customer — wait."
+            : turn.ball === "employee"
+              ? "Customer is waiting on you."
+              : ""),
+        turn: {
+          lastFrom: turn.lastFrom,
+          ball: turn.ball,
+          shouldDraft: turn.shouldDraft,
+        },
+      });
     }
 
     if (mode === "coach" || mode === "observe") {
@@ -329,29 +384,35 @@ Rules: 0–2 risks max; empty nudge is fine; no drafts; no essays.`;
       );
       const system = `You coach employees on a live customer chat for a brick-and-mortar ${trade}.
 JSON only. No markdown.
+Thread lines are labeled CUSTOMER vs EMPLOYEE — trust them.
 
 Follow this Assist behavior:
 ${behavior}`;
 
-      const prompt = `Coach the next minute on this live chat. Focus on moves, drafts, and a short thought trail.
+      const prompt = `Coach the next minute on this live chat.
 
 Business: ${businessName}
 Customer: ${clientName}
 
-Thread:
+Turn state (authoritative):
+${turn.summary}
+Draft replies allowed: ${turn.shouldDraft ? "YES" : "NO — return an empty replies array"}
+${artifactBlock}
+Thread (CUSTOMER vs EMPLOYEE; ← LATEST marks the newest line):
 ${thread || "(no messages yet)"}
 
 Return ONLY JSON:
 {
   "thoughts":[{"label":"short step","detail":"thinking out loud"}],
   "moves":[{"title":"Try this","detail":"concrete next action"}],
-  "replies":[{"title":"short label","text":"optional customer-facing draft"}]
+  "replies":[{"title":"short label","text":"customer-facing draft — only if drafts are allowed"}]
 }
 
 Rules:
 - 2–3 thoughts max
-- 1–2 moves
-- 0–2 drafts
+- 1–2 moves (if waiting on customer, moves should be wait/watch oriented, not “send another message”)
+- drafts: ${turn.shouldDraft ? "0–2 short natural customer-facing lines" : "MUST be [] — employee already has the floor / ball is with customer"}
+- if an artifact fits the moment, suggest sending it by name in a move (do not invent artifacts)
 - stay concrete; no stance/pace fields here`;
 
       const content = await callOpenRouter(
@@ -361,13 +422,13 @@ Rules:
           { role: "user", content: prompt },
         ],
         {
-          model: mode === "observe" ? QUALITY_MODEL : QUALITY_MODEL,
+          model: QUALITY_MODEL,
           maxTokens: 650,
           temperature: 0.45,
         },
       );
       const parsed = extractJson(content) as Record<string, unknown>;
-      const coach = parseCoach(parsed);
+      const coach = parseCoach(parsed, turn.shouldDraft);
 
       if (coach.moves.length === 0 && coach.thoughts.length === 0) {
         return NextResponse.json(
@@ -381,14 +442,21 @@ Rules:
         return NextResponse.json({
           stance: "neutral",
           risks: [],
-          pace: null,
-          paceNote: "",
+          pace: turn.ball === "customer" ? "wait" : null,
+          paceNote: turn.ball === "customer" ? "Ball is with the customer." : "",
           nudge: "",
           ...coach,
         });
       }
 
-      return NextResponse.json(coach);
+      return NextResponse.json({
+        ...coach,
+        turn: {
+          lastFrom: turn.lastFrom,
+          ball: turn.ball,
+          shouldDraft: turn.shouldDraft,
+        },
+      });
     }
 
     const question = body.question?.trim();
@@ -413,6 +481,7 @@ Rules:
 
     const system = `You coach employees on a live customer chat for a brick-and-mortar ${trade}.
 JSON only. No markdown.
+Thread lines are labeled CUSTOMER vs EMPLOYEE — trust them.
 
 Follow this Assist behavior:
 ${behavior}`;
@@ -422,7 +491,11 @@ ${behavior}`;
 Business: ${businessName}
 Customer: ${clientName}
 
-Thread:
+Turn state (authoritative):
+${turn.summary}
+Draft replies allowed: ${turn.shouldDraft ? "YES" : "NO — return an empty replies array unless they explicitly ask you to rewrite what they already sent"}
+${artifactBlock}
+Thread (CUSTOMER vs EMPLOYEE; ← LATEST marks the newest line):
 ${thread || "(no messages yet)"}
 
 Prior assist chat:
@@ -435,7 +508,7 @@ Return ONLY JSON:
 {
   "stance":"curious|anxious|transactional|offended|ready|confused|neutral",
   "risks":[{"label":"short risk","detail":"optional catch"}],
-  "pace":"hold|probe|advance|close",
+  "pace":"wait|hold|probe|advance|close",
   "paceNote":"one-line why, or empty",
   "thoughts":[{"label":"short step","detail":"how you reached the answer"}],
   "reply":"direct answer to the employee",
@@ -444,7 +517,11 @@ Return ONLY JSON:
   "nudge":"optional sharp question, or empty string"
 }
 
-Rules: reply is for the employee unless they asked for a customer-facing draft.`;
+Rules:
+- reply is for the employee unless they asked for a customer-facing draft
+- if drafts are not allowed, replies must be []
+- if EMPLOYEE spoke last, prefer pace "wait"
+- mention artifacts by name when relevant; never invent ones`;
 
     const content = await callOpenRouter(
       apiKey,
@@ -456,7 +533,13 @@ Rules: reply is for the employee unless they asked for a customer-facing draft.`
     );
     const parsed = extractJson(content) as Record<string, unknown>;
     const whisper = parseWhisper(parsed);
-    const coach = parseCoach(parsed);
+    // In chat, allow a customer draft only if it's their turn — or they clearly asked to rewrite/draft.
+    const askedForDraft =
+      /\b(draft|rewrite|rephrase|reword|say this|message for|what (should|can) i (say|send)|write (a |me )?(reply|message))\b/i.test(
+        question,
+      );
+    const allowDrafts = turn.shouldDraft || askedForDraft;
+    const coach = parseCoach(parsed, allowDrafts);
     const reply = String(parsed.reply ?? "").trim();
 
     if (!reply) {
@@ -466,7 +549,17 @@ Rules: reply is for the employee unless they asked for a customer-facing draft.`
       );
     }
 
-    return NextResponse.json({ ...whisper, ...coach, reply });
+    return NextResponse.json({
+      ...whisper,
+      ...coach,
+      pace: preferWaitPace(whisper.pace, turn.ball),
+      reply,
+      turn: {
+        lastFrom: turn.lastFrom,
+        ball: turn.ball,
+        shouldDraft: allowDrafts,
+      },
+    });
   } catch (err) {
     const detail =
       err && typeof err === "object" && "detail" in err

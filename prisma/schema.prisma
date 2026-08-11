@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -46,4 +47,14 @@ model Feedback {
   page      String?
   userId    String?
   createdAt DateTime @default(now())
+}
+
+/// Live customer-tab heartbeats — kept off Space.data so they don't rewrite photos.
+model SpacePresence {
+  slug      String
+  clientId  String
+  presentAt DateTime
+
+  @@id([slug, clientId])
+  @@index([slug])
 }

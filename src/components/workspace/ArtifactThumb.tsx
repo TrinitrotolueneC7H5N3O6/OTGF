@@ -7,6 +7,32 @@ interface ArtifactThumbProps {
 }
 
 export function ArtifactThumb({ artifact }: ArtifactThumbProps) {
+  if (artifact.kind === "collection") {
+    const shots = (
+      artifact.urls?.length ? artifact.urls : artifact.url ? [artifact.url] : []
+    ).slice(0, 3);
+    return (
+      <div
+        className={`library-thumb library-thumb-fan count-${Math.min(shots.length, 3)}`}
+        aria-hidden
+      >
+        {Array.from({ length: shots.length }, (_, order) => {
+          const fan = shots.length - 1 - order;
+          const src = shots[fan];
+          return (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={`${fan}-${src.slice(0, 24)}`}
+              src={src}
+              alt=""
+              className={`library-thumb-fan-card is-fan-${fan}`}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
   if (artifact.kind === "video") {
     return (
       <div className="library-thumb library-thumb-video">

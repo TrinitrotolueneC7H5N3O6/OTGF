@@ -9,24 +9,17 @@ import {
   rememberChat,
 } from "@/lib/chatMemory";
 import { ensureSpace } from "@/lib/store";
+import { ClientChat } from "./ClientChat";
 
-interface ChatEntryProps {
+interface EmbedChatProps {
   slug: string;
 }
 
-function goToChat(spaceSlug: string, chatId: string) {
-  // Hard navigation is more reliable through tunnels than client router.
-  window.location.replace(`/${spaceSlug}/c/${chatId}`);
-}
-
 /**
- * Entry link:
- * - This device remembered a chat in localStorage → resume that URL
- * - Else open chat matching a remembered email (same conversation)
- * - If that chat was ended (or deleted), mint a new one
- * - Otherwise mint a new chat id locally (floor only sees them after they message)
+ * Boots a remembered (or new) chat id, then renders ClientChat for iframe embeds.
  */
-export function ChatEntry({ slug }: ChatEntryProps) {
+export function EmbedChat({ slug }: EmbedChatProps) {
+  const [chatId, setChatId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,34 +32,33 @@ export function ChatEntry({ slug }: ChatEntryProps) {
         const spaceSlug = space.business.slug;
 
         const existingId = recallChat(spaceSlug);
-        let chatId = existingId || createChatId();
+        let nextId = existingId || createChatId();
 
         if (existingId) {
           const remembered = space.clients.find((c) => c.id === existingId);
           if (!remembered || remembered.chatEndedAt) {
             forgetChat(spaceSlug, existingId);
-            chatId = createChatId();
+            nextId = createChatId();
           }
         }
 
-        // Resume by email when this device lost the chat id but still has email.
-        if (!existingId || chatId !== existingId) {
+        if (!existingId || nextId !== existingId) {
           const email = recallChatEmail(spaceSlug)?.toLowerCase();
           if (email) {
             const byEmail = space.clients.find(
               (c) =>
                 c.email?.trim().toLowerCase() === email && !c.chatEndedAt,
             );
-            if (byEmail) chatId = byEmail.id;
+            if (byEmail) nextId = byEmail.id;
           }
         }
 
-        rememberChat(spaceSlug, chatId);
-        if (!cancelled) goToChat(spaceSlug, chatId);
+        rememberChat(spaceSlug, nextId);
+        if (!cancelled) setChatId(nextId);
       } catch (err) {
         console.error(err);
         if (!cancelled) {
-          setError("Could not open chat. Pull to refresh and try again.");
+          setError("Could not open chat. Refresh and try again.");
         }
       }
     }
@@ -81,5 +73,9 @@ export function ChatEntry({ slug }: ChatEntryProps) {
     return <div className="client-chat-loading">{error}</div>;
   }
 
-  return <div className="client-chat-loading">Opening your chat…</div>;
+  if (!chatId) {
+    return <div className="client-chat-loading">Opening chat…</div>;
+  }
+
+  return <ClientChat slug={slug} chatId={chatId} embedded />;
 }

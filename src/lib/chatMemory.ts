@@ -1,7 +1,12 @@
 const CHAT_KEY_PREFIX = "otgf:chat:";
+const CHAT_EMAIL_PREFIX = "otgf:chat-email:";
 
 export function chatMemoryKey(slug: string) {
   return `${CHAT_KEY_PREFIX}${slug}`;
+}
+
+function chatEmailKey(slug: string) {
+  return `${CHAT_EMAIL_PREFIX}${slug}`;
 }
 
 /** Remembers this device's chat for a business (survives browser restart). */
@@ -29,6 +34,24 @@ export function recallChat(slug: string): string | null {
 export function recallChatSession(slug: string): string | null {
   try {
     return sessionStorage.getItem(chatMemoryKey(slug));
+  } catch {
+    return null;
+  }
+}
+
+export function rememberChatEmail(slug: string, email: string) {
+  const clean = email.trim().toLowerCase();
+  if (!clean) return;
+  try {
+    localStorage.setItem(chatEmailKey(slug), clean);
+  } catch {
+    // ignore
+  }
+}
+
+export function recallChatEmail(slug: string): string | null {
+  try {
+    return localStorage.getItem(chatEmailKey(slug));
   } catch {
     return null;
   }

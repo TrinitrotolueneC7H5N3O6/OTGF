@@ -39,8 +39,9 @@ yarn-error.log*
 /prisma/dev.db-journal
 /src/generated/prisma
 
-# vercel
+# vercel / railway
 .vercel
+.railway
 
 # typescript
 *.tsbuildinfo

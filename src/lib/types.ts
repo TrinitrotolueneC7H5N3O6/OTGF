@@ -1,10 +1,18 @@
 export type ClientStatus = "unknown" | "client";
 
-export type MessageKind = "text" | "image" | "video" | "link" | "item";
+export type MessageKind = "text" | "image" | "video" | "link" | "item" | "receipt";
 
 export type Trade = "salon" | "hair" | "food";
 
-export type ArtifactKind = "photo" | "video" | "url" | "text";
+export type ArtifactKind = "photo" | "video" | "url" | "text" | "collection";
+
+export type PaymentMethodKind =
+  | "url"
+  | "in_person"
+  | "zelle"
+  | "venmo"
+  | "cashapp"
+  | "other";
 
 export interface Business {
   id: string;
@@ -39,6 +47,36 @@ export interface Client {
   chatEndedAt?: string;
 }
 
+export interface ReceiptPayload {
+  productId?: string;
+  productTitle: string;
+  productPrice?: string;
+  productNote?: string;
+  /** Per-product checkout URL when paymentKind is url */
+  productLinkUrl?: string;
+  paymentId?: string;
+  paymentKind: PaymentMethodKind;
+  paymentLabel: string;
+  paymentDetail: string;
+}
+
+export interface MessageReplyRef {
+  id: string;
+  from: "business" | "client";
+  fromName?: string;
+  /** Short preview of the message being replied to */
+  preview: string;
+  kind?: MessageKind;
+}
+
+export interface MessageReaction {
+  emoji: string;
+  from: "business" | "client";
+  /** Floor member who reacted (business side) */
+  fromMemberId?: string;
+  fromName?: string;
+}
+
 export interface Message {
   id: string;
   clientId: string;
@@ -46,9 +84,16 @@ export interface Message {
   kind: MessageKind;
   body: string;
   imageUrl?: string;
+  /** Gallery images when sending a collection (imageUrl is cover) */
+  imageUrls?: string[];
   videoUrl?: string;
   linkUrl?: string;
   artifactId?: string;
+  /** Official service/product acceptance + payment ask */
+  receipt?: ReceiptPayload;
+  /** Snapshot of the message this replies to */
+  replyTo?: MessageReplyRef;
+  reactions?: MessageReaction[];
   at: string;
   /** ISO timestamp when the message was created (for wait timers) */
   createdAt?: string;
@@ -67,13 +112,37 @@ export interface Artifact {
   id: string;
   categoryId: string;
   kind: ArtifactKind;
+  /** Personal label shown on the floor (employee-facing) */
   title: string;
-  /** Image/video/link src — https, data:, or blob: */
+  /** Short AI/search note — keep brief for Assist token cost */
+  meta?: string;
+  /** Image/video/link src — https, data:, or blob:; cover for collections */
   url: string;
+  /** Extra image urls for kind=collection (url is the cover / first) */
+  urls?: string[];
   /** Text body for kind=text; optional caption otherwise */
   body?: string;
   caption?: string;
   uses: number;
+}
+
+/** How the store collects payment for a receipt */
+export interface ReceiptPayment {
+  id: string;
+  kind: PaymentMethodKind;
+  label: string;
+  /** URL, handle, or short instruction */
+  detail: string;
+}
+
+/** Product or service that can be attached to a receipt */
+export interface ReceiptProduct {
+  id: string;
+  title: string;
+  price?: string;
+  note?: string;
+  /** Checkout / pay URL for this product (when using payment-link style) */
+  linkUrl?: string;
 }
 
 /** @deprecated legacy shape — migrated in store.normalizeSpace */
@@ -153,6 +222,10 @@ export interface BusinessSpace {
   settings: FloorSettings;
   /** Staff / employees who can own chats */
   members: FloorMember[];
+  /** Ways customers can pay when a receipt is sent */
+  receiptPayments: ReceiptPayment[];
+  /** Products / services attachable to receipts */
+  receiptProducts: ReceiptProduct[];
   /** Clients removed on the floor — kept so merges don't resurrect them */
   deletedClientIds?: string[];
   /** legacy — removed after normalize */

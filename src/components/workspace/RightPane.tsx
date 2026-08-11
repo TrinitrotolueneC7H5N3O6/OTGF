@@ -1,18 +1,22 @@
 "use client";
 
-import { useState } from "react";
 import type {
   Artifact,
   Client,
   LibraryCategory,
   Message,
+  ReceiptPayment,
+  ReceiptProduct,
 } from "@/lib/types";
 import { LibraryPane } from "./LibraryPane";
 import { AssistPane } from "./AssistPane";
+import { ReceiptsPane } from "./ReceiptsPane";
 
-type RightTab = "artifacts" | "assist";
+export type RightTab = "artifacts" | "assist" | "receipts";
 
 interface RightPaneProps {
+  tab: RightTab;
+  onTabChange: (tab: RightTab) => void;
   categories: LibraryCategory[];
   artifacts: Artifact[];
   filter: string;
@@ -30,9 +34,19 @@ interface RightPaneProps {
   assistBehavior: string;
   onChangeAssistBehavior: (behavior: string) => void;
   onUseSuggestion: (text: string) => void;
+  receiptPayments: ReceiptPayment[];
+  receiptProducts: ReceiptProduct[];
+  onChangeReceiptPayments: (payments: ReceiptPayment[]) => void;
+  onChangeReceiptProducts: (products: ReceiptProduct[]) => void;
+  onSendReceipt: (input: {
+    product: ReceiptProduct;
+    payment: ReceiptPayment;
+  }) => void;
 }
 
 export function RightPane({
+  tab,
+  onTabChange,
   categories,
   artifacts,
   filter,
@@ -47,9 +61,12 @@ export function RightPane({
   assistBehavior,
   onChangeAssistBehavior,
   onUseSuggestion,
+  receiptPayments,
+  receiptProducts,
+  onChangeReceiptPayments,
+  onChangeReceiptProducts,
+  onSendReceipt,
 }: RightPaneProps) {
-  const [tab, setTab] = useState<RightTab>("artifacts");
-
   return (
     <div className="right-pane">
       <div className="right-pane-tabs" role="tablist" aria-label="Side tools">
@@ -58,7 +75,7 @@ export function RightPane({
           role="tab"
           aria-selected={tab === "artifacts"}
           className={tab === "artifacts" ? "is-active" : undefined}
-          onClick={() => setTab("artifacts")}
+          onClick={() => onTabChange("artifacts")}
         >
           Artifacts
         </button>
@@ -67,9 +84,18 @@ export function RightPane({
           role="tab"
           aria-selected={tab === "assist"}
           className={tab === "assist" ? "is-active" : undefined}
-          onClick={() => setTab("assist")}
+          onClick={() => onTabChange("assist")}
         >
           Assist
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "receipts"}
+          className={tab === "receipts" ? "is-active" : undefined}
+          onClick={() => onTabChange("receipts")}
+        >
+          Receipts
         </button>
       </div>
 
@@ -85,20 +111,35 @@ export function RightPane({
             sentFlash={sentFlash}
             activeClientName={activeClient?.name}
           />
-        ) : (
+        ) : null}
+        {tab === "assist" ? (
           <AssistPane
             client={activeClient}
             messages={thread}
+            artifacts={artifacts}
             businessName={businessName}
             trade={trade}
             behavior={assistBehavior}
             onChangeBehavior={onChangeAssistBehavior}
             onUseSuggestion={(text) => {
               onUseSuggestion(text);
-              setTab("assist");
+              onTabChange("assist");
             }}
           />
-        )}
+        ) : null}
+        {tab === "receipts" ? (
+          <ReceiptsPane
+            client={activeClient}
+            payments={receiptPayments}
+            products={receiptProducts}
+            onChangePayments={onChangeReceiptPayments}
+            onChangeProducts={onChangeReceiptProducts}
+            onSendReceipt={(input) => {
+              onSendReceipt(input);
+              onTabChange("receipts");
+            }}
+          />
+        ) : null}
       </div>
     </div>
   );

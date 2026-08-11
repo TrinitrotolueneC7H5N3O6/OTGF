@@ -95,10 +95,11 @@ export function FeedbackWidget() {
           setError(null);
         }}
         aria-label="Send feedback"
-        title="Send feedback"
       >
         <IconFeedback size={18} />
-        <span className="feedback-fab-label">Feedback</span>
+        <span className="feedback-fab-label" aria-hidden="true">
+          Feedback
+        </span>
       </button>
 
       {open ? (

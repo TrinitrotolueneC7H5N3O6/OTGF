@@ -1,4 +1,5 @@
 import type { Business, BusinessSpace, Client, Message, Trade } from "./types";
+import { applySpaceOpToSpace, type SpaceOp } from "./spaceOps";
 import {
   defaultFloorSettings,
   normalizeSpace,
@@ -8,6 +9,8 @@ import {
 import { newerPresentAt } from "./presence";
 import { defaultCategories } from "./data";
 import { prisma } from "./db";
+import { emitSpaceEvent } from "./spaceEvents";
+import { toggleMessageReaction } from "./messageSocial";
 
 const writeChains = new Map<string, Promise<unknown>>();
 
@@ -40,6 +43,8 @@ function blankSpace(business: Business): BusinessSpace {
     artifacts: [],
     settings: defaultFloorSettings(),
     members: [],
+    receiptPayments: [],
+    receiptProducts: [],
   };
 }
 
@@ -116,17 +121,259 @@ function mergeSpaces(
     artifacts: Array.isArray(incoming.artifacts)
       ? incoming.artifacts
       : current.artifacts,
+    receiptPayments: Array.isArray(incoming.receiptPayments)
+      ? incoming.receiptPayments
+      : current.receiptPayments ?? [],
+    receiptProducts: Array.isArray(incoming.receiptProducts)
+      ? incoming.receiptProducts
+      : current.receiptProducts ?? [],
     clients: ordered,
     messages: [...messagesById.values()],
     deletedClientIds: [...deleted],
   });
 }
 
+export type PresenceMap = Record<string, string>;
+
+export async function dbListPresence(slug: string): Promise<PresenceMap> {
+  const clean = slugify(slug);
+  const rows = await prisma.spacePresence.findMany({
+    where: { slug: clean },
+    select: { clientId: true, presentAt: true },
+  });
+  const map: PresenceMap = {};
+  for (const row of rows) {
+    map[row.clientId] = row.presentAt.toISOString();
+  }
+  return map;
+}
+
+export function applyPresence(
+  space: BusinessSpace,
+  presence: PresenceMap,
+): BusinessSpace {
+  if (!space.clients.length) return space;
+  let changed = false;
+  const clients = space.clients.map((c) => {
+    const next = presence[c.id];
+    if (!next) return c;
+    const merged = newerPresentAt(c.presentAt, next);
+    if (merged === c.presentAt) return c;
+    changed = true;
+    return { ...c, presentAt: merged };
+  });
+  return changed ? { ...space, clients } : space;
+}
+
+export async function notifySpaceListeners(slug: string) {
+  const meta = await dbGetSpaceMeta(slug);
+  if (!meta) return;
+  emitSpaceEvent(slug, { type: "meta", ...meta });
+}
+
+export async function dbTouchPresence(
+  slug: string,
+  clientId: string,
+): Promise<{ presentAt: string }> {
+  const clean = slugify(slug);
+  const id = clientId.trim();
+  if (!id) throw new Error("clientId required");
+  const presentAt = new Date();
+  await prisma.spacePresence.upsert({
+    where: { slug_clientId: { slug: clean, clientId: id } },
+    create: { slug: clean, clientId: id, presentAt },
+    update: { presentAt },
+  });
+  void notifySpaceListeners(clean);
+  return { presentAt: presentAt.toISOString() };
+}
+
 export async function dbGetSpace(slug: string): Promise<BusinessSpace | null> {
   const clean = slugify(slug);
   const row = await prisma.space.findUnique({ where: { slug: clean } });
   if (!row) return null;
-  return parseSpace(row.data);
+  const space = parseSpace(row.data);
+  const presence = await dbListPresence(clean);
+  return applyPresence(space, presence);
+}
+
+/** Lightweight poll payload — avoids shipping the full space JSON. */
+export async function dbGetSpaceMeta(
+  slug: string,
+): Promise<{ updatedAt: string; presence: PresenceMap } | null> {
+  const clean = slugify(slug);
+  const row = await prisma.space.findUnique({
+    where: { slug: clean },
+    select: { updatedAt: true },
+  });
+  if (!row) return null;
+  return {
+    updatedAt: row.updatedAt.toISOString(),
+    presence: await dbListPresence(clean),
+  };
+}
+
+export async function dbToggleReaction(
+  slug: string,
+  input: {
+    messageId: string;
+    emoji: string;
+    actor: {
+      from: "business" | "client";
+      fromMemberId?: string;
+      fromName?: string;
+    };
+  },
+): Promise<{ messageId: string; reactions: Message["reactions"] }> {
+  const clean = slugify(slug);
+  const result = await withSpaceLock(clean, async () => {
+    const existing = await dbGetSpace(clean);
+    if (!existing) throw new Error("Space not found");
+    const target = existing.messages.find((m) => m.id === input.messageId);
+    if (!target) throw new Error("Message not found");
+
+    const reactions = toggleMessageReaction(
+      target.reactions,
+      input.emoji,
+      input.actor,
+    );
+    emitSpaceEvent(clean, {
+      type: "reactions",
+      messageId: input.messageId,
+      reactions,
+    });
+    const toStore: BusinessSpace = {
+      ...existing,
+      messages: existing.messages.map((m) =>
+        m.id === input.messageId ? { ...m, reactions } : m,
+      ),
+    };
+    await prisma.space.update({
+      where: { slug: clean },
+      data: { data: JSON.stringify(toStore) },
+    });
+    return { messageId: input.messageId, reactions };
+  });
+  void notifySpaceListeners(clean);
+  return result;
+}
+
+export type AppendMessageInput = {
+  message: Message;
+  /** Full client row when creating, or partial patch when updating */
+  client: Client;
+  /** When true, treat client as upsert (insert if missing) */
+  upsertClient?: boolean;
+  /** Revive client if it was soft-deleted */
+  clearDeleted?: boolean;
+  /** Re-order this client to front of the list */
+  bumpClient?: boolean;
+};
+
+export async function dbAppendMessage(
+  slug: string,
+  input: AppendMessageInput,
+): Promise<{
+  message: Message;
+  client: Client;
+  updatedAt: string;
+}> {
+  const clean = slugify(slug);
+  emitSpaceEvent(clean, {
+    type: "message",
+    message: input.message,
+    client: input.client,
+  });
+  return withSpaceLock(clean, async () => {
+    const existing = await dbGetSpace(clean);
+    if (!existing) throw new Error("Space not found");
+
+    if (existing.messages.some((m) => m.id === input.message.id)) {
+      const client =
+        existing.clients.find((c) => c.id === input.client.id) ?? input.client;
+      const meta = await dbGetSpaceMeta(clean);
+      return {
+        message: input.message,
+        client,
+        updatedAt: meta?.updatedAt ?? new Date().toISOString(),
+      };
+    }
+
+    let clients = existing.clients;
+    const idx = clients.findIndex((c) => c.id === input.client.id);
+    let nextClient: Client;
+    if (idx >= 0) {
+      nextClient = { ...clients[idx], ...input.client, id: clients[idx].id };
+      const rest = clients.filter((c) => c.id !== nextClient.id);
+      clients = input.bumpClient ? [nextClient, ...rest] : clients.map((c, i) =>
+        i === idx ? nextClient : c,
+      );
+    } else if (input.upsertClient !== false) {
+      nextClient = input.client;
+      clients = [nextClient, ...clients];
+    } else {
+      throw new Error("Client not found");
+    }
+
+    let deletedClientIds = existing.deletedClientIds ?? [];
+    if (input.clearDeleted) {
+      deletedClientIds = deletedClientIds.filter((id) => id !== input.client.id);
+    }
+
+    const toStore: BusinessSpace = normalizeSpace({
+      ...existing,
+      clients,
+      messages: [...existing.messages, input.message],
+      deletedClientIds,
+      business: { ...existing.business, slug: clean },
+    });
+
+    const row = await prisma.space.update({
+      where: { slug: clean },
+      data: { data: JSON.stringify(toStore) },
+      select: { updatedAt: true },
+    });
+
+    return {
+      message: input.message,
+      client: nextClient,
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }).then(async (result) => {
+    emitSpaceEvent(clean, {
+      type: "message",
+      message: result.message,
+      client: result.client,
+      updatedAt: result.updatedAt,
+    });
+    void notifySpaceListeners(clean);
+    return result;
+  });
+}
+
+export async function dbApplySpaceOp(
+  slug: string,
+  op: SpaceOp,
+): Promise<BusinessSpace> {
+  const clean = slugify(slug);
+  if (op.type === "endChat") {
+    emitSpaceEvent(clean, {
+      type: "message",
+      message: op.message,
+    });
+  }
+  const result = await withSpaceLock(clean, async () => {
+    const existing = await dbGetSpace(clean);
+    if (!existing) throw new Error("Space not found");
+    const toStore = applySpaceOpToSpace(existing, op);
+    await prisma.space.update({
+      where: { slug: clean },
+      data: { data: JSON.stringify(toStore) },
+    });
+    return toStore;
+  });
+  void notifySpaceListeners(clean);
+  return result;
 }
 
 export async function dbSaveSpace(space: BusinessSpace): Promise<BusinessSpace> {
@@ -151,6 +398,9 @@ export async function dbSaveSpace(space: BusinessSpace): Promise<BusinessSpace> 
       },
     });
     return toStore;
+  }).then(async (result) => {
+    void notifySpaceListeners(clean);
+    return result;
   });
 }
 

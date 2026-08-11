@@ -1,14 +1,33 @@
 "use client";
 
-import { useLayoutEffect, useEffect, useRef, useState } from "react";
-import type { Artifact, Client, Message } from "@/lib/types";
+import { useLayoutEffect, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  Artifact,
+  ChatBanner,
+  Client,
+  Message,
+  MessageReplyRef,
+  ResponseWindow,
+} from "@/lib/types";
 import { isClientLive } from "@/lib/presence";
+import { formatResponseWindows } from "@/lib/spaceNormalize";
+import { actorKey, reactorKey } from "@/lib/messageSocial";
+import {
+  clusterClassName,
+  messageCluster,
+} from "@/lib/messageCluster";
 import {
   recallThreadScroll,
   saveThreadScroll,
 } from "@/lib/threadScroll";
 import { MessageMedia } from "@/components/shared/MessageMedia";
+import { ReceiptCard } from "@/components/shared/ReceiptCard";
+import { MessageReplyQuote } from "@/components/shared/MessageReplyQuote";
+import { MessageReactions } from "@/components/shared/MessageReactions";
+import { MessageActionBar } from "@/components/shared/MessageActionBar";
+import { ComposerTextarea } from "@/components/shared/ComposerTextarea";
 import { ArtifactThumb } from "./ArtifactThumb";
+import type { RightTab } from "./RightPane";
 import {
   IconArrowSend,
   IconClock,
@@ -23,16 +42,35 @@ interface ThreadPaneProps {
   draft: string;
   pendingArtifact: Artifact | null;
   scrollToBottomTick: number;
+  floorMemberName?: string;
+  floorMemberId?: string;
+  artifacts: Artifact[];
+  windows: ResponseWindow[];
+  responseNote: string;
+  banners: ChatBanner[];
+  replyTo: MessageReplyRef | null;
   onDraftChange: (value: string) => void;
   onSend: () => void;
   onSendImage: (file: File) => Promise<void> | void;
   onConfirmPending: () => void;
   onDismissPending: () => void;
   onEndChat: () => void;
+  onOpenTool: (tab: RightTab) => void;
+  onStageArtifact: (item: Artifact) => void;
+  onReplyTo: (message: Message) => void;
+  onClearReply: () => void;
+  onReact: (messageId: string, emoji: string) => void;
+  pendingIds?: Set<string>;
+  failedIds?: Set<string>;
 }
 
 function nearBottom(el: HTMLElement, threshold = 72) {
   return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+}
+
+function appendDraft(current: string, snippet: string) {
+  const trim = current.trim();
+  return trim ? `${trim} ${snippet}` : snippet;
 }
 
 export function ThreadPane({
@@ -42,12 +80,26 @@ export function ThreadPane({
   draft,
   pendingArtifact,
   scrollToBottomTick,
+  floorMemberName,
+  floorMemberId,
+  artifacts,
+  windows,
+  responseNote,
+  banners,
+  replyTo,
   onDraftChange,
   onSend,
   onSendImage,
   onConfirmPending,
   onDismissPending,
   onEndChat,
+  onOpenTool,
+  onStageArtifact,
+  onReplyTo,
+  onClearReply,
+  onReact,
+  pendingIds,
+  failedIds,
 }: ThreadPaneProps) {
   const [showTimes, setShowTimes] = useState(false);
   const [attaching, setAttaching] = useState(false);
@@ -60,6 +112,23 @@ export function ThreadPane({
   const ended = Boolean(client.chatEndedAt);
   const live = !ended && isClientLive(client, now);
 
+  const hoursLabel = useMemo(
+    () => formatResponseWindows(windows),
+    [windows],
+  );
+
+  const shoutouts = useMemo(
+    () =>
+      banners.filter((b) => b.enabled && b.text.trim()).slice(0, 3),
+    [banners],
+  );
+
+  const quickArtifacts = useMemo(() => {
+    return [...artifacts]
+      .sort((a, b) => (b.uses ?? 0) - (a.uses ?? 0))
+      .slice(0, 4);
+  }, [artifacts]);
+
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 8_000);
     return () => window.clearInterval(timer);
@@ -70,6 +139,14 @@ export function ThreadPane({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     saveThreadScroll(scrollKey, el.scrollTop);
+  }
+
+  function scheduleJumpToBottom() {
+    jumpToBottom();
+    requestAnimationFrame(() => {
+      jumpToBottom();
+      requestAnimationFrame(jumpToBottom);
+    });
   }
 
   useLayoutEffect(() => {
@@ -89,7 +166,7 @@ export function ThreadPane({
     const grew = messages.length > messageCountRef.current;
     messageCountRef.current = messages.length;
     if (grew && nearBottom(el)) {
-      jumpToBottom();
+      scheduleJumpToBottom();
     }
   }, [scrollKey, messages]);
 
@@ -97,17 +174,20 @@ export function ThreadPane({
     if (scrollToBottomTick === lastTickRef.current) return;
     lastTickRef.current = scrollToBottomTick;
     if (scrollToBottomTick === 0) return;
-    // Wait a frame so the new bubble / draft is laid out first.
-    requestAnimationFrame(() => {
-      jumpToBottom();
-      requestAnimationFrame(jumpToBottom);
-    });
+    scheduleJumpToBottom();
   }, [scrollToBottomTick, scrollKey, messages, pendingArtifact]);
 
   useLayoutEffect(() => {
     if (!pendingArtifact) return;
-    jumpToBottom();
+    scheduleJumpToBottom();
   }, [pendingArtifact, scrollKey]);
+
+  // Reply composer chrome changes stream height — stay pinned like customer chat
+  useLayoutEffect(() => {
+    if (!replyTo) return;
+    if (activeKeyRef.current !== scrollKey) return;
+    scheduleJumpToBottom();
+  }, [replyTo, scrollKey]);
 
   function onStreamScroll() {
     const el = streamRef.current;
@@ -126,6 +206,36 @@ export function ThreadPane({
     }
   }
 
+  function insertText(snippet: string) {
+    onDraftChange(appendDraft(draft, snippet));
+  }
+
+  function insertHours() {
+    const note = responseNote.trim();
+    const line = hoursLabel
+      ? note
+        ? `We're usually around ${hoursLabel} — ${note}`
+        : `We're usually around ${hoursLabel}.`
+      : note || "Happy to help with hours.";
+    insertText(line);
+  }
+
+  function jumpToMessage(id: string) {
+    const el = streamRef.current?.querySelector(
+      `[data-message-id="${CSS.escape(id)}"]`,
+    );
+    if (el instanceof HTMLElement) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("is-flash");
+      window.setTimeout(() => el.classList.remove("is-flash"), 1200);
+    }
+  }
+
+  const myReactorKey = actorKey({
+    from: "business",
+    fromMemberId: floorMemberId,
+  });
+
   return (
     <div className="thread">
       <header className="thread-head">
@@ -141,7 +251,10 @@ export function ThreadPane({
                 />
               ) : null}
               {live ? (
-                <span className="thread-live-pill" title="Customer is on the chat right now">
+                <span
+                  className="thread-live-pill"
+                  title="Customer is on the chat right now"
+                >
                   <span className="client-live-dot" aria-hidden />
                   Live
                 </span>
@@ -150,6 +263,11 @@ export function ThreadPane({
             {client.email ? (
               <p className="thread-email">
                 <a href={`mailto:${client.email}`}>{client.email}</a>
+              </p>
+            ) : null}
+            {floorMemberName ? (
+              <p className="thread-floor-member">
+                Replying as {floorMemberName}
               </p>
             ) : null}
             {client.note ? <p className="thread-note">{client.note}</p> : null}
@@ -196,19 +314,67 @@ export function ThreadPane({
             <p>No messages yet.</p>
           </div>
         ) : (
-          messages.map((message) => (
-            <article
-              key={message.id}
-              className={`bubble bubble-${message.from} bubble-${message.kind}`}
-            >
-              {message.from === "business" && message.fromName ? (
-                <span className="bubble-speaker">{message.fromName}</span>
-              ) : null}
-              <MessageMedia message={message} />
-              {message.body ? <p>{message.body}</p> : null}
-              {showTimes ? <time>{message.at}</time> : null}
-            </article>
-          ))
+          messages.map((message, index) => {
+            const mine = message.from === "business";
+            const { role, continued } = messageCluster(messages, index);
+            const myEmojis = new Set(
+              (message.reactions ?? [])
+                .filter((r) => reactorKey(r) === myReactorKey)
+                .map((r) => r.emoji),
+            );
+            const mediaOnly =
+              (message.kind === "image" || message.kind === "video") &&
+              !message.body?.trim();
+            const showSpeaker =
+              message.from === "business" &&
+              Boolean(message.fromName) &&
+              !continued;
+            return (
+              <div
+                key={message.id}
+                className={`msg-wrap ${mine ? "is-mine" : "is-theirs"} ${clusterClassName(role, continued)}`}
+                data-message-id={message.id}
+              >
+                <article
+                  className={`bubble bubble-${message.from} bubble-${message.kind}${mediaOnly ? " is-media-only" : ""}${pendingIds?.has(message.id) ? " is-pending" : ""}${failedIds?.has(message.id) ? " is-failed" : ""}`}
+                >
+                  {showSpeaker ? (
+                    <span className="bubble-speaker">{message.fromName}</span>
+                  ) : null}
+                  {message.replyTo ? (
+                    <MessageReplyQuote
+                      reply={message.replyTo}
+                      onJump={jumpToMessage}
+                    />
+                  ) : null}
+                  {message.kind === "receipt" && message.receipt ? (
+                    <ReceiptCard
+                      receipt={message.receipt}
+                      linkUrl={message.linkUrl}
+                    />
+                  ) : (
+                    <>
+                      <MessageMedia message={message} />
+                      {message.body ? <p>{message.body}</p> : null}
+                    </>
+                  )}
+                  <MessageReactions
+                    reactions={message.reactions}
+                    myEmojis={myEmojis}
+                    disabled={ended}
+                    onToggle={(emoji) => onReact(message.id, emoji)}
+                  />
+                  {showTimes ? <time>{message.at}</time> : null}
+                </article>
+                <MessageActionBar
+                  align={mine ? "end" : "start"}
+                  disabled={ended}
+                  onReply={() => onReplyTo(message)}
+                  onReact={(emoji) => onReact(message.id, emoji)}
+                />
+              </div>
+            );
+          })
         )}
 
         {pendingArtifact ? (
@@ -224,7 +390,9 @@ export function ThreadPane({
                   </p>
                 ) : null}
                 {pendingArtifact.kind === "url" && pendingArtifact.url ? (
-                  <p className="pending-artifact-copy">{pendingArtifact.url}</p>
+                  <p className="pending-artifact-copy">
+                    {pendingArtifact.url}
+                  </p>
                 ) : null}
               </div>
               <div className="pending-artifact-actions">
@@ -252,56 +420,135 @@ export function ThreadPane({
         ) : null}
       </div>
 
+      {!ended ? (
+        <div className="composer-shortcuts" aria-label="Quick actions">
+          <div className="composer-shortcut-row">
+            <button
+              type="button"
+              className="composer-chip"
+              onClick={() => onOpenTool("assist")}
+            >
+              Assist
+            </button>
+            <button
+              type="button"
+              className="composer-chip"
+              onClick={() => onOpenTool("artifacts")}
+            >
+              Artifacts
+            </button>
+            <button
+              type="button"
+              className="composer-chip"
+              onClick={() => onOpenTool("receipts")}
+            >
+              Receipt
+            </button>
+
+            {hoursLabel || responseNote.trim() ? (
+              <button
+                type="button"
+                className="composer-chip is-insert"
+                onClick={insertHours}
+                title="Insert hours into message"
+              >
+                Hours
+              </button>
+            ) : null}
+
+            {shoutouts.map((banner) => (
+              <button
+                key={banner.id}
+                type="button"
+                className="composer-chip is-insert"
+                onClick={() => insertText(banner.text.trim())}
+                title={banner.text.trim()}
+              >
+                {banner.label?.trim() ||
+                  banner.text.trim().slice(0, 22) +
+                    (banner.text.trim().length > 22 ? "…" : "")}
+              </button>
+            ))}
+
+            {quickArtifacts.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="composer-chip is-artifact"
+                onClick={() => onStageArtifact(item)}
+                title={`Load ${item.title || item.kind} into chat`}
+              >
+                {item.title?.trim() || item.kind}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {ended ? (
         <footer className="composer composer-ended" role="status">
           <p>Chat ended</p>
         </footer>
       ) : (
-        <footer className="composer">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            className="sr-only"
-            id="floor-attach-image"
-            onChange={(e) => void onFileChange(e.target.files?.[0] ?? null)}
-          />
-          <label
-            htmlFor="floor-attach-image"
-            className={`composer-attach ${attaching ? "is-busy" : ""}`}
-            aria-label="Attach image"
-            title="Attach image"
-          >
-            <PaperclipIcon />
-          </label>
-          <label className="composer-field">
-            <span className="sr-only">Message</span>
+        <>
+          {replyTo ? (
+            <div className="composer-reply" role="status">
+              <div className="composer-reply-body">
+                <span className="composer-reply-label">
+                  Replying to{" "}
+                  {replyTo.fromName ||
+                    (replyTo.from === "client" ? client.name : "shop")}
+                </span>
+                <span className="composer-reply-text">{replyTo.preview}</span>
+              </div>
+              <button
+                type="button"
+                className="btn-text icon-btn"
+                onClick={onClearReply}
+                aria-label="Cancel reply"
+                title="Cancel reply"
+              >
+                <IconX size={14} />
+              </button>
+            </div>
+          ) : null}
+          <footer className="composer">
             <input
-              value={draft ?? ""}
-              onChange={(e) => onDraftChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  onSend();
-                }
-              }}
-              placeholder="Message…"
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              id="floor-attach-image"
+              onChange={(e) => void onFileChange(e.target.files?.[0] ?? null)}
             />
-          </label>
-          <button
-            type="button"
-            className="composer-send"
-            onClick={onSend}
-            aria-label="Send"
-          >
-            <IconArrowSend />
-          </button>
-        </footer>
+            <label
+              htmlFor="floor-attach-image"
+              className={`composer-attach ${attaching ? "is-busy" : ""}`}
+              aria-label="Attach image"
+              title="Attach image"
+            >
+              <IconPaperclip />
+            </label>
+            <label className="composer-field">
+              <span className="sr-only">Message</span>
+              <ComposerTextarea
+                value={draft ?? ""}
+                onChange={onDraftChange}
+                onSubmit={onSend}
+                placeholder={replyTo ? "Write a reply…" : "Message…"}
+              />
+            </label>
+            <button
+              type="button"
+              className="composer-send"
+              onClick={onSend}
+              aria-label="Send"
+            >
+              <IconArrowSend />
+            </button>
+          </footer>
+        </>
       )}
     </div>
   );
-}
-
-function PaperclipIcon() {
-  return <IconPaperclip />;
 }
