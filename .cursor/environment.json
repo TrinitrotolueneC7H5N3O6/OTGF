@@ -1,0 +1,9 @@
+{
+  "install": "npm install\nnpx prisma generate\nif [ ! -f .env ]; then cp .env.example .env; fi\ngrep -q '^DATABASE_URL=' .env 2>/dev/null || echo 'DATABASE_URL=\"file:./dev.db\"' >> .env\nnpm run db:push",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "npm run dev"
+    }
+  ]
+}
