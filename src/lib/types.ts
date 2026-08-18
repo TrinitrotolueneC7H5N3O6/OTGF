@@ -1,6 +1,13 @@
 export type ClientStatus = "unknown" | "client";
 
-export type MessageKind = "text" | "image" | "video" | "link" | "item" | "receipt";
+export type MessageKind =
+  | "text"
+  | "image"
+  | "video"
+  | "link"
+  | "item"
+  | "receipt"
+  | "system";
 
 export type Trade = "salon" | "hair" | "food";
 
@@ -45,6 +52,18 @@ export interface Client {
   presentAt?: string;
   /** ISO time when the floor ended this chat */
   chatEndedAt?: string;
+  /** People who joined this thread via a forward link */
+  participants?: ChatParticipant[];
+  /** Active forward-invite token for this chat */
+  forwardToken?: string;
+  forwardExpiresAt?: string;
+}
+
+export interface ChatParticipant {
+  id: string;
+  name: string;
+  department?: string;
+  joinedAt: string;
 }
 
 export interface ReceiptPayload {
@@ -190,6 +209,13 @@ export interface ChatBanner {
   color?: string;
 }
 
+/** Public profile link (YouTube-style) shown on customer chat */
+export interface ProfileLink {
+  id: string;
+  label: string;
+  url: string;
+}
+
 export interface FloorSettings {
   /** Business is currently available for live replies */
   live: boolean;
@@ -207,11 +233,40 @@ export interface FloorSettings {
   brandBannerUrl?: string;
   /** Circular logo beside the business name on customer chat */
   logoUrl?: string;
+  /** Short intro under the business name on customer chat */
+  intro: string;
+  /** Optional links under the intro (Instagram, booking, etc.) */
+  profileLinks: ProfileLink[];
   /** Emails that receive floor notifications */
   notifyEmails: string[];
   /** Custom instructions for AI Assist tone / behavior */
   assistBehavior?: string;
+  /**
+   * Composer shortcut bar — pin common artifacts / phrases for one-tap send.
+   * Tool chips (Assist / Artifacts / Receipt) stay fixed in the UI.
+   */
+  shortcuts: ComposerShortcut[];
 }
+
+/** One-tap chips above the floor composer */
+export type ComposerShortcut =
+  | {
+      id: string;
+      kind: "artifact";
+      artifactId: string;
+      /** Optional override label; defaults to artifact title */
+      label?: string;
+    }
+  | {
+      id: string;
+      kind: "text";
+      label: string;
+      text: string;
+    }
+  | {
+      id: string;
+      kind: "hours";
+    };
 
 export interface BusinessSpace {
   business: Business;

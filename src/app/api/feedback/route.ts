@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { getSessionUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { applyDbCookieFromRequest, prisma } from "@/lib/db";
 
 function newId() {
   return `fb_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`;
 }
 
 export async function POST(req: Request) {
+  applyDbCookieFromRequest(req);
   let body: { message?: string; email?: string; page?: string };
   try {
     body = (await req.json()) as {

@@ -1,14 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  createChatId,
-  forgetChat,
-  recallChat,
-  recallChatEmail,
-  rememberChat,
-} from "@/lib/chatMemory";
-import { ensureSpace } from "@/lib/store";
+import { resolveCustomerChatId } from "@/lib/store";
 import { ClientChat } from "./ClientChat";
 
 interface EmbedChatProps {
@@ -27,33 +20,7 @@ export function EmbedChat({ slug }: EmbedChatProps) {
 
     async function open() {
       try {
-        const space = await ensureSpace(slug);
-        if (cancelled) return;
-        const spaceSlug = space.business.slug;
-
-        const existingId = recallChat(spaceSlug);
-        let nextId = existingId || createChatId();
-
-        if (existingId) {
-          const remembered = space.clients.find((c) => c.id === existingId);
-          if (!remembered || remembered.chatEndedAt) {
-            forgetChat(spaceSlug, existingId);
-            nextId = createChatId();
-          }
-        }
-
-        if (!existingId || nextId !== existingId) {
-          const email = recallChatEmail(spaceSlug)?.toLowerCase();
-          if (email) {
-            const byEmail = space.clients.find(
-              (c) =>
-                c.email?.trim().toLowerCase() === email && !c.chatEndedAt,
-            );
-            if (byEmail) nextId = byEmail.id;
-          }
-        }
-
-        rememberChat(spaceSlug, nextId);
+        const { chatId: nextId } = await resolveCustomerChatId(slug);
         if (!cancelled) setChatId(nextId);
       } catch (err) {
         console.error(err);

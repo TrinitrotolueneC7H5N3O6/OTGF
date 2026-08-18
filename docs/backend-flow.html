@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OTGF System Map</title>
+  <style>
+    :root {
+      --bg: #0c0e14;
+      --lane: #141820;
+      --lane-border: #252a38;
+      --text: #e8eaef;
+      --muted: #7d849a;
+      --read: #3b82f6;
+      --write: #22c55e;
+      --live: #a855f7;
+      --cache: #f59e0b;
+      --db: #14b8a6;
+      --ui: #64748b;
+      --action: #e879f9;
+      --panel: #181c26;
+      --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      flex-shrink: 0;
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--lane-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      background: #10131a;
+    }
+    header h1 { margin: 0; font-size: 1.05rem; font-weight: 650; }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .legend i {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 0.3rem;
+      vertical-align: middle;
+    }
+
+    .workspace {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+
+    .map-scroll {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      background:
+        radial-gradient(circle at 1px 1px, #1e2433 1px, transparent 0) 0 0 / 24px 24px,
+        var(--bg);
+    }
+
+    #map { display: block; }
+
+    /* Nodes */
+    .node { cursor: pointer; transition: filter 0.12s; }
+    .node:hover { filter: brightness(1.15); }
+    .node.is-selected .node-bg { stroke-width: 2.5; filter: drop-shadow(0 0 6px rgba(255,255,255,0.15)); }
+    .node.is-action .node-bg { stroke: var(--action); stroke-width: 2.2; filter: drop-shadow(0 0 8px rgba(232,121,249,0.35)); }
+    .node.is-dimmed { opacity: 0.22; }
+    .edge.is-dimmed { opacity: 0.08; }
+
+    .node-bg { fill: #12151d; stroke-width: 1.5; }
+    .node-ui .node-bg { stroke: var(--ui); }
+    .node-read .node-bg { stroke: var(--read); }
+    .node-write .node-bg { stroke: var(--write); }
+    .node-live .node-bg { stroke: var(--live); }
+    .node-cache .node-bg { stroke: var(--cache); }
+    .node-db .node-bg { stroke: var(--db); }
+    .node-api .node-bg { stroke: #6366f1; }
+    .node-server .node-bg { stroke: #06b6d4; }
+
+    .node-title {
+      fill: var(--text);
+      font-size: 11px;
+      font-weight: 600;
+      pointer-events: none;
+    }
+    .node-sub {
+      fill: var(--muted);
+      font-size: 9px;
+      pointer-events: none;
+    }
+
+    .lane-label {
+      fill: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .lane-bg {
+      fill: var(--lane);
+      stroke: var(--lane-border);
+      stroke-width: 1;
+      rx: 8;
+    }
+
+    .edge {
+      fill: none;
+      stroke-width: 1.3;
+      opacity: 0.55;
+    }
+    .edge-read { stroke: var(--read); }
+    .edge-write { stroke: var(--write); }
+    .edge-live { stroke: var(--live); }
+    .edge-cache { stroke: var(--cache); stroke-dasharray: 5 4; opacity: 0.7; }
+    .edge-db { stroke: var(--db); }
+    .edge.is-highlight { opacity: 1; stroke-width: 2.2; }
+
+    /* Detail panel — built on top of map selection */
+    aside {
+      width: 320px;
+      flex-shrink: 0;
+      border-left: 1px solid var(--lane-border);
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    aside.hidden { display: none; }
+    .panel-head {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--lane-border);
+    }
+    .panel-head h2 { margin: 0; font-size: 0.95rem; }
+    .panel-head p { margin: 0.35rem 0 0; font-size: 0.78rem; color: var(--muted); }
+    .panel-body {
+      padding: 0.85rem 1rem 1.25rem;
+      overflow-y: auto;
+      font-size: 0.8rem;
+    }
+    .panel-body h3 {
+      margin: 1rem 0 0.4rem;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .panel-body h3:first-child { margin-top: 0; }
+    .panel-body ul { margin: 0; padding-left: 1rem; color: var(--muted); }
+    .panel-body li { margin: 0.25rem 0; }
+    .panel-body code {
+      font-size: 0.72rem;
+      background: #0c0e14;
+      padding: 0.08rem 0.3rem;
+      border-radius: 3px;
+      color: #cbd5e1;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      margin-right: 0.35rem;
+    }
+    .badge-read { background: rgba(59,130,246,0.2); color: #93c5fd; }
+    .badge-write { background: rgba(34,197,94,0.2); color: #86efac; }
+    .badge-live { background: rgba(168,85,247,0.2); color: #d8b4fe; }
+    .badge-cache { background: rgba(245,158,11,0.2); color: #fcd34d; }
+    .badge-db { background: rgba(20,184,166,0.2); color: #5eead4; }
+
+    .hint {
+      padding: 0.85rem 1rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .close-btn {
+      margin-top: 0.5rem;
+      background: transparent;
+      border: 1px solid var(--lane-border);
+      color: var(--muted);
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.75rem;
+    }
+    .close-btn:hover { color: var(--text); border-color: #4b5568; }
+
+    /* Action items column */
+    .actions-col {
+      width: 248px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--lane-border);
+      background: #10131a;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .actions-head {
+      padding: 0.75rem 0.85rem;
+      border-bottom: 1px solid var(--lane-border);
+    }
+    .actions-head h2 {
+      margin: 0;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .actions-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.45rem;
+    }
+    .action-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      padding: 0.55rem 0.65rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font: inherit;
+      margin-bottom: 0.25rem;
+    }
+    .action-btn:hover { background: var(--lane); border-color: var(--lane-border); }
+    .action-btn.is-active {
+      background: rgba(232,121,249,0.1);
+      border-color: rgba(232,121,249,0.45);
+    }
+    .action-btn .label { display: block; font-size: 0.8rem; font-weight: 600; }
+    .action-btn .meta {
+      display: block;
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 0.15rem;
+    }
+    .action-group {
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 0.65rem 0.65rem 0.25rem;
+    }
+
+    .workflow-steps {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: step;
+    }
+    .workflow-steps li {
+      counter-increment: step;
+      position: relative;
+      padding: 0 0 0.85rem 1.75rem;
+      color: var(--muted);
+      border-left: 2px solid var(--lane-border);
+      margin-left: 0.55rem;
+    }
+    .workflow-steps li:last-child { border-left-color: transparent; padding-bottom: 0; }
+    .workflow-steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: -0.55rem;
+      top: 0;
+      width: 1.1rem;
+      height: 1.1rem;
+      border-radius: 50%;
+      background: var(--lane);
+      border: 2px solid var(--action);
+      color: var(--text);
+      font-size: 0.62rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .workflow-steps li strong { color: var(--text); font-weight: 600; }
+    .fn-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.35rem;
+    }
+    .fn-chip {
+      background: #0c0e14;
+      border: 1px solid var(--lane-border);
+      color: #cbd5e1;
+      font-size: 0.68rem;
+      padding: 0.2rem 0.45rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: ui-monospace, monospace;
+    }
+    .fn-chip:hover { border-color: var(--action); color: var(--text); }
+    .db-reads {
+      margin-top: 0.75rem;
+      padding: 0.55rem 0.65rem;
+      background: rgba(20,184,166,0.08);
+      border: 1px solid rgba(20,184,166,0.25);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      color: #5eead4;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OTGF system map</h1>
+    <div class="legend">
+      <span><i style="background:var(--ui)"></i>UI</span>
+      <span><i style="background:var(--read)"></i>Read</span>
+      <span><i style="background:var(--write)"></i>Write</span>
+      <span><i style="background:var(--live)"></i>Live / SSE</span>
+      <span><i style="background:var(--cache)"></i>RAM cache</span>
+      <span><i style="background:var(--db)"></i>Database</span>
+      <span style="margin-left:0.5rem">Actions → workflow · Map nodes → connections</span>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <nav class="actions-col" aria-label="Main action items">
+      <div class="actions-head"><h2>Main actions</h2></div>
+      <div class="actions-list" id="actions-list"></div>
+    </nav>
+
+    <div class="map-scroll">
+      <svg id="map" width="1280" height="920" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arr-read" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="#3b82f6"/>
+          </marker>
+          <marker id="arr-write" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="#22c55e"/>
+          </marker>
+          <marker id="arr-live" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="#a855f7"/>
+          </marker>
+          <marker id="arr-cache" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="#f59e0b"/>
+          </marker>
+          <marker id="arr-db" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="#14b8a6"/>
+          </marker>
+        </defs>
+        <g id="lanes"></g>
+        <g id="edges"></g>
+        <g id="nodes"></g>
+      </svg>
+    </div>
+
+    <aside id="panel">
+      <div class="panel-head">
+        <h2 id="panel-title">System map</h2>
+        <p id="panel-sub">Select a node to see how it connects.</p>
+        <button class="close-btn" type="button" id="panel-close">Clear selection</button>
+      </div>
+      <div class="panel-body" id="panel-body">
+        <p class="hint" style="padding:0;margin:0">
+          Pick an <strong>action</strong> (left) to trace its workflow and highlight affected functions on the map.
+          Or click any map node for its direct connections.
+        </p>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    // ─── Lane layout ─────────────────────────────────────────────
+    const LANES = [
+      { id: "ui",     label: "UI components",     x: 24,  w: 200 },
+      { id: "store",  label: "store.ts",          x: 264, w: 200 },
+      { id: "api",    label: "API routes",        x: 504, w: 220 },
+      { id: "server", label: "spaceServer.ts",    x: 764, w: 220 },
+      { id: "db",     label: "Supabase (Prisma)", x: 1024, w: 200 },
+    ];
+
+    // ─── Nodes (id must be unique) ─────────────────────────────────
+    const NODES = [
+      // UI
+      { id: "ui-floor",       lane: "ui", y: 72,  kind: "ui",    title: "WorkspaceShell", sub: "/floor" },
+      { id: "ui-dashboard",   lane: "ui", y: 148, kind: "ui",    title: "EmployeeDashboard", sub: "/dashboard" },
+      { id: "ui-chat",        lane: "ui", y: 224, kind: "ui",    title: "ClientChat", sub: "/c/:chatId" },
+      { id: "ui-entry",       lane: "ui", y: 300, kind: "ui",    title: "ChatEntry", sub: "/:slug" },
+      { id: "ui-embed",       lane: "ui", y: 364, kind: "ui",    title: "EmbedChat", sub: "iframe widget" },
+      { id: "ui-auth",        lane: "ui", y: 440, kind: "ui",    title: "FloorAuthGate", sub: "access check" },
+      { id: "ui-home",        lane: "ui", y: 516, kind: "ui",    title: "HomeSetup", sub: "create business" },
+
+      // store
+      { id: "st-ensure",      lane: "store", y: 72,  kind: "read",  title: "ensureSpace", sub: "POST space" },
+      { id: "st-get",         lane: "store", y: 132, kind: "read",  title: "getSpace", sub: "?chatId threadOnly" },
+      { id: "st-meta",        lane: "store", y: 192, kind: "read",  title: "getSpaceMeta", sub: "?meta=1" },
+      { id: "st-entry",       lane: "store", y: 252, kind: "read",  title: "getSpaceEntry", sub: "?entry=1" },
+      { id: "st-resolve",     lane: "store", y: 312, kind: "read",  title: "resolveCustomerChatId", sub: "entry boot" },
+      { id: "st-sub",         lane: "store", y: 384, kind: "live",  title: "subscribeSpace", sub: "SSE + refresh" },
+      { id: "st-append",      lane: "store", y: 456, kind: "write", title: "appendMessage", sub: "send chat" },
+      { id: "st-op",          lane: "store", y: 516, kind: "write", title: "applySpaceOp", sub: "floor ops" },
+      { id: "st-react",       lane: "store", y: 576, kind: "write", title: "toggleReaction", sub: "" },
+      { id: "st-present",     lane: "store", y: 636, kind: "write", title: "beatPresence", sub: "heartbeat" },
+      { id: "st-list",        lane: "store", y: 696, kind: "read",  title: "listBusinesses", sub: "" },
+      { id: "st-create",      lane: "store", y: 756, kind: "write", title: "createBusiness", sub: "" },
+      { id: "st-cache",       lane: "store", y: 828, kind: "cache", title: "threadCacheRef", sub: "floor RAM only" },
+
+      // API
+      { id: "api-space-get",  lane: "api", y: 72,  kind: "api",   title: "GET /spaces/:slug", sub: "read space" },
+      { id: "api-space-post", lane: "api", y: 132, kind: "api",   title: "POST /spaces/:slug", sub: "ensure" },
+      { id: "api-space-put",  lane: "api", y: 192, kind: "api",   title: "PUT /spaces/:slug", sub: "full save" },
+      { id: "api-msg",        lane: "api", y: 264, kind: "api",   title: "POST …/messages", sub: "" },
+      { id: "api-ops",        lane: "api", y: 324, kind: "api",   title: "POST …/ops", sub: "" },
+      { id: "api-react",      lane: "api", y: 384, kind: "api",   title: "POST …/reactions", sub: "" },
+      { id: "api-present",    lane: "api", y: 444, kind: "api",   title: "POST …/present", sub: "" },
+      { id: "api-events",     lane: "api", y: 516, kind: "api",   title: "GET …/events", sub: "SSE stream" },
+      { id: "api-access",     lane: "api", y: 576, kind: "api",   title: "GET …/access", sub: "" },
+      { id: "api-spaces",     lane: "api", y: 648, kind: "api",   title: "GET/POST /spaces", sub: "businesses" },
+
+      // spaceServer
+      { id: "sv-get",         lane: "server", y: 72,  kind: "server", title: "dbGetSpace", sub: "parallel queries" },
+      { id: "sv-meta",        lane: "server", y: 132, kind: "server", title: "dbGetSpaceMeta", sub: "updatedAt + presence" },
+      { id: "sv-entry",       lane: "server", y: 192, kind: "server", title: "dbGetSpaceEntry", sub: "slim clients" },
+      { id: "sv-append",      lane: "server", y: 264, kind: "server", title: "dbAppendMessage", sub: "upsert chat row" },
+      { id: "sv-op",          lane: "server", y: 324, kind: "server", title: "dbApplySpaceOp", sub: "patch chat/space" },
+      { id: "sv-treact",      lane: "server", y: 384, kind: "server", title: "dbToggleReaction", sub: "messagesData JSON" },
+      { id: "sv-present",     lane: "server", y: 444, kind: "server", title: "dbTouchPresence", sub: "" },
+      { id: "sv-exists",      lane: "server", y: 492, kind: "server", title: "dbChatExists", sub: "light check" },
+      { id: "sv-save",        lane: "server", y: 552, kind: "server", title: "dbSaveSpace", sub: "bulk PUT path" },
+      { id: "sv-ensure",      lane: "server", y: 612, kind: "server", title: "dbEnsureSpace", sub: "create space" },
+      { id: "sv-list",        lane: "server", y: 672, kind: "server", title: "dbListBusinesses", sub: "" },
+      { id: "sv-create",      lane: "server", y: 732, kind: "server", title: "dbCreateBusiness", sub: "" },
+      { id: "sv-claim",       lane: "server", y: 792, kind: "server", title: "dbClaimSpace", sub: "auth register" },
+      { id: "sv-own",         lane: "server", y: 852, kind: "server", title: "dbUserOwnsSpace", sub: "" },
+      { id: "sv-notify",      lane: "server", y: 516, kind: "server", title: "notifySpaceListeners", sub: "→ spaceEvents" },
+
+      // DB
+      { id: "db-space",       lane: "db", y: 120, kind: "db", title: "Space", sub: "settings · library · members" },
+      { id: "db-chat",        lane: "db", y: 280, kind: "db", title: "Chat", sub: "clientData · messagesData" },
+      { id: "db-presence",    lane: "db", y: 440, kind: "db", title: "SpacePresence", sub: "live tab beats" },
+      { id: "db-user",        lane: "db", y: 600, kind: "db", title: "User · Session", sub: "auth" },
+    ];
+
+    // ─── Edges: from → to, type ───────────────────────────────────
+    const EDGES = [
+      // UI → store
+      { from: "ui-floor", to: "st-ensure", type: "read" },
+      { from: "ui-floor", to: "st-get", type: "read" },
+      { from: "ui-floor", to: "st-sub", type: "live" },
+      { from: "ui-floor", to: "st-append", type: "write" },
+      { from: "ui-floor", to: "st-op", type: "write" },
+      { from: "ui-floor", to: "st-react", type: "write" },
+      { from: "ui-floor", to: "st-cache", type: "cache" },
+      { from: "ui-dashboard", to: "st-ensure", type: "read" },
+      { from: "ui-dashboard", to: "st-sub", type: "live" },
+      { from: "ui-dashboard", to: "st-op", type: "write" },
+      { from: "ui-chat", to: "st-get", type: "read" },
+      { from: "ui-chat", to: "st-sub", type: "live" },
+      { from: "ui-chat", to: "st-append", type: "write" },
+      { from: "ui-chat", to: "st-present", type: "write" },
+      { from: "ui-chat", to: "st-react", type: "write" },
+      { from: "ui-entry", to: "st-resolve", type: "read" },
+      { from: "ui-embed", to: "st-resolve", type: "read" },
+      { from: "ui-home", to: "st-list", type: "read" },
+      { from: "ui-home", to: "st-create", type: "write" },
+
+      // UI → API direct
+      { from: "ui-auth", to: "api-access", type: "read" },
+
+      // store internal
+      { from: "st-resolve", to: "st-entry", type: "read" },
+      { from: "st-resolve", to: "st-meta", type: "read" },
+      { from: "st-sub", to: "st-get", type: "read" },
+      { from: "st-sub", to: "st-meta", type: "read" },
+      { from: "st-sub", to: "api-events", type: "live" },
+      { from: "st-get", to: "st-cache", type: "cache" },
+      { from: "st-sub", to: "st-cache", type: "cache" },
+
+      // store → API
+      { from: "st-ensure", to: "api-space-post", type: "read" },
+      { from: "st-get", to: "api-space-get", type: "read" },
+      { from: "st-meta", to: "api-space-get", type: "read" },
+      { from: "st-entry", to: "api-space-get", type: "read" },
+      { from: "st-append", to: "api-msg", type: "write" },
+      { from: "st-op", to: "api-ops", type: "write" },
+      { from: "st-react", to: "api-react", type: "write" },
+      { from: "st-present", to: "api-present", type: "write" },
+      { from: "st-list", to: "api-spaces", type: "read" },
+      { from: "st-create", to: "api-spaces", type: "write" },
+
+      // API → spaceServer
+      { from: "api-space-get", to: "sv-get", type: "read" },
+      { from: "api-space-get", to: "sv-meta", type: "read" },
+      { from: "api-space-get", to: "sv-entry", type: "read" },
+      { from: "api-space-post", to: "sv-get", type: "read" },
+      { from: "api-space-post", to: "sv-ensure", type: "write" },
+      { from: "api-space-post", to: "sv-claim", type: "write" },
+      { from: "api-space-put", to: "sv-save", type: "write" },
+      { from: "api-msg", to: "sv-append", type: "write" },
+      { from: "api-ops", to: "sv-op", type: "write" },
+      { from: "api-react", to: "sv-treact", type: "write" },
+      { from: "api-present", to: "sv-exists", type: "read" },
+      { from: "api-present", to: "sv-present", type: "write" },
+      { from: "api-events", to: "sv-meta", type: "live" },
+      { from: "api-access", to: "sv-own", type: "read" },
+      { from: "api-spaces", to: "sv-list", type: "read" },
+      { from: "api-spaces", to: "sv-create", type: "write" },
+
+      // spaceServer → DB
+      { from: "sv-get", to: "db-space", type: "db" },
+      { from: "sv-get", to: "db-chat", type: "db" },
+      { from: "sv-get", to: "db-presence", type: "db" },
+      { from: "sv-meta", to: "db-space", type: "db" },
+      { from: "sv-meta", to: "db-presence", type: "db" },
+      { from: "sv-entry", to: "db-space", type: "db" },
+      { from: "sv-entry", to: "db-chat", type: "db" },
+      { from: "sv-append", to: "db-space", type: "db" },
+      { from: "sv-append", to: "db-chat", type: "db" },
+      { from: "sv-append", to: "sv-notify", type: "live" },
+      { from: "sv-op", to: "db-space", type: "db" },
+      { from: "sv-op", to: "db-chat", type: "db" },
+      { from: "sv-op", to: "sv-notify", type: "live" },
+      { from: "sv-treact", to: "db-chat", type: "db" },
+      { from: "sv-present", to: "db-presence", type: "db" },
+      { from: "sv-present", to: "sv-notify", type: "live" },
+      { from: "sv-exists", to: "db-chat", type: "db" },
+      { from: "sv-save", to: "db-space", type: "db" },
+      { from: "sv-save", to: "db-chat", type: "db" },
+      { from: "sv-ensure", to: "db-space", type: "db" },
+      { from: "sv-list", to: "db-space", type: "db" },
+      { from: "sv-create", to: "db-space", type: "db" },
+      { from: "sv-claim", to: "db-space", type: "db" },
+      { from: "sv-own", to: "db-space", type: "db" },
+      { from: "sv-notify", to: "api-events", type: "live" },
+    ];
+
+    // ─── Node detail (panel content) ─────────────────────────────
+    const DETAILS = {
+      "ui-floor": {
+        badge: "ui", desc: "Staff floor inbox + thread + library.",
+        calls: ["ensureSpace → inbox clients", "getSpace(chatId) → first thread + cache", "subscribeSpace(initialSpace) → SSE", "threadCacheRef for re-clicks"],
+        db: "Boot: 2 Supabase reads (ensure + first thread). Re-open cached chat: 0 reads.",
+      },
+      "st-sub": {
+        badge: "live", desc: "Live sync hub. Opens SSE, polls meta on focus, patches RAM on events.",
+        calls: ["EventSource → GET /events", "getSpace on fullRefresh", "getSpaceMeta for watermark", "Patches threadCacheRef on floor"],
+        db: "Avoids GET when SSE delivers message body. fullRefresh on updatedAt change.",
+      },
+      "sv-get": {
+        badge: "read", desc: "Main read path. Parallel Prisma queries.",
+        calls: ["threadOnly: Space ∥ one Chat row", "Full: Space ∥ all clientData ∥ presence", "Optional chatId → messagesData"],
+        db: "Tables: Space, Chat, SpacePresence. Dominant cost = Supabase RTT (~0.4–1s/query).",
+      },
+      "db-chat": {
+        badge: "db", desc: "One row per conversation.",
+        calls: ["clientData → inbox preview, name, unread", "messagesData → JSON array of messages"],
+        db: "Composite key (spaceSlug, id). Deleted flag for soft delete.",
+      },
+      "st-cache": {
+        badge: "cache", desc: "Floor-only in-memory Map. Not localStorage.",
+        calls: ["loadedThreadsRef tracks fetched chatIds", "SSE merges new msgs into cache", "Switch chat = filter RAM, no network"],
+        db: "Lost on page refresh. Chats never opened = never cached.",
+      },
+      "sv-append": {
+        badge: "write", desc: "Atomic message write.",
+        calls: ["Upsert Chat.clientData", "Append to messagesData JSON", "touch Space.updatedAt", "emitSpaceEvent(message)"],
+        db: "All connected SSE clients receive patch without full GET.",
+      },
+    };
+
+    // ─── Main action items (workflow → map nodes) ────────────────
+    const ACTIONS = [
+      {
+        id: "floor-boot",
+        group: "Staff floor",
+        label: "Floor boot",
+        meta: "Open /floor inbox",
+        nodes: ["ui-floor", "st-ensure", "st-get", "st-sub", "st-cache", "api-space-get", "api-space-post", "api-events", "sv-get", "sv-ensure", "sv-meta", "db-space", "db-chat", "db-presence"],
+        path: [
+          ["ui-floor", "st-ensure"], ["st-ensure", "api-space-post"], ["api-space-post", "sv-get"], ["api-space-post", "sv-ensure"],
+          ["sv-get", "db-space"], ["sv-get", "db-chat"], ["sv-get", "db-presence"],
+          ["ui-floor", "st-get"], ["st-get", "api-space-get"], ["api-space-get", "sv-get"],
+          ["ui-floor", "st-sub"], ["st-sub", "api-events"], ["st-sub", "st-cache"],
+        ],
+        dbReads: "~2 Supabase round-trips (ensure inbox + first thread). SSE skips duplicate full GET.",
+        steps: [
+          { title: "WorkspaceShell mounts", fns: ["ui-floor"] },
+          { title: "ensureSpace(slug) — inbox clients only", fns: ["st-ensure", "api-space-post", "sv-get", "sv-ensure", "db-space", "db-chat"] },
+          { title: "Paint inbox; pick most recent chat", fns: ["ui-floor"] },
+          { title: "getSpace(slug, chatId) — first thread", fns: ["st-get", "api-space-get", "sv-get", "db-chat"] },
+          { title: "Seed threadCacheRef", fns: ["st-cache", "ui-floor"] },
+          { title: "subscribeSpace(initialSpace) — open SSE", fns: ["st-sub", "api-events", "sv-meta", "db-presence"] },
+        ],
+      },
+      {
+        id: "open-thread",
+        group: "Staff floor",
+        label: "Open thread",
+        meta: "Click inbox row",
+        nodes: ["ui-floor", "st-get", "st-cache", "api-space-get", "sv-get", "db-chat"],
+        path: [
+          ["ui-floor", "st-cache"], ["ui-floor", "st-get"], ["st-get", "api-space-get"], ["api-space-get", "sv-get"], ["sv-get", "db-chat"],
+        ],
+        dbReads: "Cached chat: 0 reads. First open: 1 read (one Chat row + messagesData).",
+        steps: [
+          { title: "User clicks client in inbox", fns: ["ui-floor"] },
+          { title: "If loadedThreadsRef has chatId → filter RAM", fns: ["st-cache", "ui-floor"] },
+          { title: "Else getSpace(slug, chatId)", fns: ["st-get", "api-space-get", "sv-get", "db-chat"] },
+          { title: "Store messages in threadCacheRef", fns: ["st-cache"] },
+        ],
+      },
+      {
+        id: "send-message-floor",
+        group: "Staff floor",
+        label: "Send message",
+        meta: "Staff reply in thread",
+        nodes: ["ui-floor", "st-append", "api-msg", "sv-append", "sv-notify", "api-events", "st-sub", "st-cache", "db-space", "db-chat"],
+        path: [
+          ["ui-floor", "st-append"], ["st-append", "api-msg"], ["api-msg", "sv-append"],
+          ["sv-append", "db-chat"], ["sv-append", "db-space"], ["sv-append", "sv-notify"], ["sv-notify", "api-events"],
+          ["st-sub", "st-cache"],
+        ],
+        dbReads: "1 write (Chat.messagesData + clientData). SSE fans out to all tabs.",
+        steps: [
+          { title: "Staff sends reply", fns: ["ui-floor"] },
+          { title: "appendMessage(slug, payload)", fns: ["st-append", "api-msg", "sv-append"] },
+          { title: "Upsert Chat row + touch Space.updatedAt", fns: ["db-chat", "db-space"] },
+          { title: "notifySpaceListeners → SSE message event", fns: ["sv-notify", "api-events"] },
+          { title: "subscribeSpace patches threadCacheRef", fns: ["st-sub", "st-cache", "ui-floor"] },
+        ],
+      },
+      {
+        id: "floor-op",
+        group: "Staff floor",
+        label: "Floor operation",
+        meta: "Archive, rename, settings…",
+        nodes: ["ui-floor", "st-op", "api-ops", "sv-op", "sv-notify", "api-events", "st-sub", "db-space", "db-chat"],
+        path: [
+          ["ui-floor", "st-op"], ["st-op", "api-ops"], ["api-ops", "sv-op"],
+          ["sv-op", "db-space"], ["sv-op", "db-chat"], ["sv-op", "sv-notify"], ["sv-notify", "api-events"],
+        ],
+        dbReads: "1 write patch. May trigger fullRefresh if updatedAt changes.",
+        steps: [
+          { title: "User triggers op (archive, pin, library…)", fns: ["ui-floor"] },
+          { title: "Optimistic applySpaceOpToSpace locally", fns: ["ui-floor"] },
+          { title: "applySpaceOp(slug, op)", fns: ["st-op", "api-ops", "sv-op"] },
+          { title: "Patch Space JSON and/or Chat.clientData", fns: ["db-space", "db-chat"] },
+          { title: "SSE notifies subscribers", fns: ["sv-notify", "api-events", "st-sub"] },
+        ],
+      },
+      {
+        id: "customer-boot",
+        group: "Customer chat",
+        label: "Customer chat boot",
+        meta: "Open /c/:chatId",
+        nodes: ["ui-chat", "st-get", "st-sub", "api-space-get", "api-events", "sv-get", "db-space", "db-chat"],
+        path: [
+          ["ui-chat", "st-get"], ["st-get", "api-space-get"], ["api-space-get", "sv-get"], ["sv-get", "db-space"], ["sv-get", "db-chat"],
+          ["ui-chat", "st-sub"], ["st-sub", "api-events"],
+        ],
+        dbReads: "~1 read (threadOnly: settings + one Chat). No ensureSpace.",
+        steps: [
+          { title: "ClientChat mounts with chatId", fns: ["ui-chat"] },
+          { title: "getSpace(slug, chatId, { threadOnly: true })", fns: ["st-get", "api-space-get", "sv-get", "db-space", "db-chat"] },
+          { title: "subscribeSpace with initialSpace", fns: ["st-sub", "api-events", "sv-meta"] },
+          { title: "Start presence heartbeat interval", fns: ["ui-chat", "st-present"] },
+        ],
+      },
+      {
+        id: "customer-entry",
+        group: "Customer chat",
+        label: "Customer entry resolve",
+        meta: "ChatEntry / EmbedChat",
+        nodes: ["ui-entry", "ui-embed", "st-resolve", "st-entry", "st-meta", "api-space-get", "sv-entry", "sv-meta", "db-space", "db-chat"],
+        path: [
+          ["ui-entry", "st-resolve"], ["ui-embed", "st-resolve"],
+          ["st-resolve", "st-entry"], ["st-entry", "api-space-get"], ["api-space-get", "sv-entry"],
+          ["st-resolve", "st-meta"], ["st-meta", "api-space-get"], ["api-space-get", "sv-meta"],
+          ["sv-entry", "db-space"], ["sv-entry", "db-chat"],
+        ],
+        dbReads: "~2 lightweight reads (?entry=1 + ?meta=1). No full message load.",
+        steps: [
+          { title: "Visitor lands on /:slug or embed", fns: ["ui-entry", "ui-embed"] },
+          { title: "resolveCustomerChatId(slug)", fns: ["st-resolve"] },
+          { title: "getSpaceEntry — slim client list", fns: ["st-entry", "api-space-get", "sv-entry", "db-space", "db-chat"] },
+          { title: "getSpaceMeta — updatedAt watermark", fns: ["st-meta", "api-space-get", "sv-meta"] },
+          { title: "Redirect or resume existing chatId", fns: ["ui-entry", "ui-embed"] },
+        ],
+      },
+      {
+        id: "send-message-customer",
+        group: "Customer chat",
+        label: "Customer sends message",
+        meta: "Client reply",
+        nodes: ["ui-chat", "st-append", "api-msg", "sv-append", "sv-notify", "api-events", "db-chat", "db-space"],
+        path: [
+          ["ui-chat", "st-append"], ["st-append", "api-msg"], ["api-msg", "sv-append"],
+          ["sv-append", "db-chat"], ["sv-append", "sv-notify"], ["sv-notify", "api-events"],
+        ],
+        dbReads: "1 write. Floor receives via SSE without polling.",
+        steps: [
+          { title: "Customer sends message", fns: ["ui-chat"] },
+          { title: "appendMessage", fns: ["st-append", "api-msg", "sv-append"] },
+          { title: "Persist to Chat.messagesData", fns: ["db-chat", "db-space"] },
+          { title: "SSE → floor subscribeSpace listener", fns: ["sv-notify", "api-events", "st-sub", "ui-floor"] },
+        ],
+      },
+      {
+        id: "live-sync",
+        group: "Live sync",
+        label: "Live sync event",
+        meta: "SSE push path",
+        nodes: ["api-events", "sv-meta", "sv-notify", "st-sub", "st-get", "st-meta", "st-cache", "ui-floor", "ui-chat", "db-space", "db-presence"],
+        path: [
+          ["sv-append", "sv-notify"], ["sv-op", "sv-notify"], ["sv-present", "sv-notify"],
+          ["sv-notify", "api-events"], ["api-events", "sv-meta"],
+          ["st-sub", "api-events"], ["st-sub", "st-meta"], ["st-sub", "st-get"], ["st-sub", "st-cache"],
+        ],
+        dbReads: "Message events carry body — no GET. fullRefresh only when updatedAt watermark changes.",
+        steps: [
+          { title: "Write completes on server", fns: ["sv-append", "sv-op", "sv-present"] },
+          { title: "notifySpaceListeners emits event", fns: ["sv-notify"] },
+          { title: "GET /events SSE delivers to clients", fns: ["api-events"] },
+          { title: "subscribeSpace handler runs", fns: ["st-sub"] },
+          { title: "Patch message → threadCacheRef (floor)", fns: ["st-cache", "ui-floor"] },
+          { title: "Or fullRefresh via getSpace if stale", fns: ["st-get", "st-meta", "sv-get"] },
+        ],
+      },
+      {
+        id: "presence",
+        group: "Live sync",
+        label: "Presence heartbeat",
+        meta: "Customer tab alive",
+        nodes: ["ui-chat", "st-present", "api-present", "sv-exists", "sv-present", "sv-notify", "api-events", "db-chat", "db-presence"],
+        path: [
+          ["ui-chat", "st-present"], ["st-present", "api-present"],
+          ["api-present", "sv-exists"], ["api-present", "sv-present"],
+          ["sv-present", "db-presence"], ["sv-present", "sv-notify"], ["sv-notify", "api-events"],
+        ],
+        dbReads: "Light: dbChatExists + upsert SpacePresence. No full space load.",
+        steps: [
+          { title: "ClientChat interval fires", fns: ["ui-chat"] },
+          { title: "beatPresence(slug, chatId)", fns: ["st-present", "api-present"] },
+          { title: "dbChatExists — skip if chat gone", fns: ["sv-exists", "db-chat"] },
+          { title: "dbTouchPresence upsert", fns: ["sv-present", "db-presence"] },
+          { title: "SSE presence event to floor", fns: ["sv-notify", "api-events", "st-sub"] },
+        ],
+      },
+      {
+        id: "reaction",
+        group: "Shared",
+        label: "Toggle reaction",
+        meta: "Emoji on message",
+        nodes: ["ui-floor", "ui-chat", "st-react", "api-react", "sv-treact", "db-chat"],
+        path: [
+          ["ui-floor", "st-react"], ["ui-chat", "st-react"],
+          ["st-react", "api-react"], ["api-react", "sv-treact"], ["sv-treact", "db-chat"],
+        ],
+        dbReads: "1 write to Chat.messagesData JSON only.",
+        steps: [
+          { title: "User clicks emoji", fns: ["ui-floor", "ui-chat"] },
+          { title: "toggleReaction(slug, payload)", fns: ["st-react", "api-react", "sv-treact"] },
+          { title: "Patch reactions in messagesData", fns: ["db-chat"] },
+        ],
+      },
+      {
+        id: "floor-access",
+        group: "Auth",
+        label: "Verify floor access",
+        meta: "FloorAuthGate",
+        nodes: ["ui-auth", "api-access", "sv-own", "db-space", "db-user"],
+        path: [
+          ["ui-auth", "api-access"], ["api-access", "sv-own"], ["sv-own", "db-space"],
+        ],
+        dbReads: "1 read — checks Space ownership vs session.",
+        steps: [
+          { title: "FloorAuthGate wraps /floor or /dashboard", fns: ["ui-auth"] },
+          { title: "GET /api/spaces/:slug/access", fns: ["api-access"] },
+          { title: "dbUserOwnsSpace", fns: ["sv-own", "db-space", "db-user"] },
+          { title: "Render children or login prompt", fns: ["ui-auth"] },
+        ],
+      },
+      {
+        id: "create-business",
+        group: "Auth",
+        label: "Create business",
+        meta: "HomeSetup",
+        nodes: ["ui-home", "st-create", "st-list", "api-spaces", "sv-create", "sv-list", "db-space"],
+        path: [
+          ["ui-home", "st-list"], ["st-list", "api-spaces"], ["api-spaces", "sv-list"], ["sv-list", "db-space"],
+          ["ui-home", "st-create"], ["st-create", "api-spaces"], ["api-spaces", "sv-create"], ["sv-create", "db-space"],
+        ],
+        dbReads: "list + insert Space row.",
+        steps: [
+          { title: "HomeSetup loads business list", fns: ["ui-home", "st-list", "api-spaces", "sv-list"] },
+          { title: "User creates new business", fns: ["ui-home"] },
+          { title: "createBusiness(name, type)", fns: ["st-create", "api-spaces", "sv-create", "db-space"] },
+        ],
+      },
+      {
+        id: "dashboard-boot",
+        group: "Staff floor",
+        label: "Dashboard boot",
+        meta: "EmployeeDashboard (legacy)",
+        nodes: ["ui-dashboard", "st-ensure", "st-sub", "api-space-post", "api-events", "sv-get", "db-space", "db-chat"],
+        path: [
+          ["ui-dashboard", "st-ensure"], ["st-ensure", "api-space-post"], ["api-space-post", "sv-get"],
+          ["ui-dashboard", "st-sub"], ["st-sub", "api-events"],
+        ],
+        dbReads: "Full ensureSpace + SSE. No threadCacheRef yet.",
+        steps: [
+          { title: "EmployeeDashboard mounts", fns: ["ui-dashboard"] },
+          { title: "ensureSpace — full inbox load", fns: ["st-ensure", "api-space-post", "sv-get", "db-space", "db-chat"] },
+          { title: "subscribeSpace (no initialSpace)", fns: ["st-sub", "api-events"] },
+          { title: "Note: missing thread cache + boot opts", fns: ["ui-dashboard"] },
+        ],
+      },
+    ];
+
+    let activeActionId = null;
+    const NODE_H = 44;
+
+    function laneOf(id) {
+      return LANES.find((l) => l.id === id);
+    }
+
+    function nodePos(node) {
+      const lane = LANES.find((l) => l.id === node.lane);
+      return { x: lane.x + (lane.w - NODE_W) / 2, y: node.y, cx: lane.x + lane.w / 2, cy: node.y + NODE_H / 2 };
+    }
+
+    function edgePath(from, to) {
+      const a = nodePos(NODES.find((n) => n.id === from));
+      const b = nodePos(NODES.find((n) => n.id === to));
+      const x1 = a.x + NODE_W;
+      const y1 = a.cy;
+      const x2 = b.x;
+      const y2 = b.cy;
+      const mx = (x1 + x2) / 2;
+      return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+    }
+
+    function render() {
+      const lanesG = document.getElementById("lanes");
+      const edgesG = document.getElementById("edges");
+      const nodesG = document.getElementById("nodes");
+
+      LANES.forEach((lane) => {
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("class", "lane-bg");
+        rect.setAttribute("x", lane.x);
+        rect.setAttribute("y", 48);
+        rect.setAttribute("width", lane.w);
+        rect.setAttribute("height", 860);
+        lanesG.appendChild(rect);
+
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("class", "lane-label");
+        label.setAttribute("x", lane.x + lane.w / 2);
+        label.setAttribute("y", 36);
+        label.setAttribute("text-anchor", "middle");
+        label.textContent = lane.label;
+        lanesG.appendChild(label);
+      });
+
+      EDGES.forEach((e, i) => {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("class", `edge edge-${e.type}`);
+        path.setAttribute("d", edgePath(e.from, e.to));
+        path.setAttribute("marker-end", `url(#arr-${e.type === "db" ? "db" : e.type})`);
+        path.dataset.from = e.from;
+        path.dataset.to = e.to;
+        path.dataset.idx = i;
+        edgesG.appendChild(path);
+      });
+
+      NODES.forEach((n) => {
+        const pos = nodePos(n);
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("class", `node node-${n.kind}`);
+        g.dataset.id = n.id;
+
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("class", "node-bg");
+        rect.setAttribute("x", pos.x);
+        rect.setAttribute("y", pos.y);
+        rect.setAttribute("width", NODE_W);
+        rect.setAttribute("height", NODE_H);
+        rect.setAttribute("rx", 6);
+
+        const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        title.setAttribute("class", "node-title");
+        title.setAttribute("x", pos.x + 8);
+        title.setAttribute("y", pos.y + 18);
+        title.textContent = n.title;
+
+        const sub = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        sub.setAttribute("class", "node-sub");
+        sub.setAttribute("x", pos.x + 8);
+        sub.setAttribute("y", pos.y + 32);
+        sub.textContent = n.sub || "";
+
+        g.appendChild(rect);
+        g.appendChild(title);
+        if (n.sub) g.appendChild(sub);
+        g.addEventListener("click", () => selectNode(n.id));
+        nodesG.appendChild(g);
+      });
+    }
+
+    function clearSelection() {
+      activeActionId = null;
+      document.querySelectorAll(".node").forEach((el) => {
+        el.classList.remove("is-selected", "is-action", "is-dimmed");
+      });
+      document.querySelectorAll(".edge").forEach((el) => {
+        el.classList.remove("is-highlight", "is-dimmed");
+      });
+      document.querySelectorAll(".action-btn").forEach((el) => el.classList.remove("is-active"));
+      document.getElementById("panel-title").textContent = "System map";
+      document.getElementById("panel-sub").textContent = "Select an action or map node.";
+      document.getElementById("panel-body").innerHTML = `
+        <p class="hint" style="padding:0;margin:0">
+          Pick an <strong>action</strong> (left) to trace its workflow and highlight affected functions on the map.
+          Or click any map node for its direct connections.
+        </p>`;
+    }
+
+    function renderActions() {
+      const list = document.getElementById("actions-list");
+      let lastGroup = null;
+      ACTIONS.forEach((a) => {
+        if (a.group !== lastGroup) {
+          const g = document.createElement("div");
+          g.className = "action-group";
+          g.textContent = a.group;
+          list.appendChild(g);
+          lastGroup = a.group;
+        }
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "action-btn";
+        btn.dataset.id = a.id;
+        btn.innerHTML = `<span class="label">${a.label}</span><span class="meta">${a.meta}</span>`;
+        btn.addEventListener("click", () => selectAction(a.id));
+        list.appendChild(btn);
+      });
+    }
+
+    function selectAction(id) {
+      activeActionId = id;
+      const action = ACTIONS.find((a) => a.id === id);
+      if (!action) return;
+
+      document.querySelectorAll(".action-btn").forEach((el) => {
+        el.classList.toggle("is-active", el.dataset.id === id);
+      });
+
+      const nodeSet = new Set(action.nodes);
+      const pathKeys = new Set(
+        (action.path || []).map(([f, t]) => `${f}|${t}`)
+      );
+
+      document.querySelectorAll(".node").forEach((el) => {
+        const nid = el.dataset.id;
+        el.classList.remove("is-selected");
+        el.classList.toggle("is-action", nodeSet.has(nid));
+        el.classList.toggle("is-dimmed", !nodeSet.has(nid));
+      });
+
+      document.querySelectorAll(".edge").forEach((el) => {
+        const key = `${el.dataset.from}|${el.dataset.to}`;
+        const onPath = pathKeys.has(key);
+        el.classList.toggle("is-highlight", onPath);
+        el.classList.toggle("is-dimmed", !onPath);
+      });
+
+      const fnChips = [...new Set(action.nodes)].map((nid) => {
+        const n = NODES.find((x) => x.id === nid);
+        return n ? `<button type="button" class="fn-chip" data-node="${nid}">${n.title}</button>` : "";
+      }).join("");
+
+      const stepsHtml = action.steps.map((s) => {
+        const chips = (s.fns || []).map((fid) => {
+          const fn = NODES.find((x) => x.id === fid);
+          return fn ? `<button type="button" class="fn-chip" data-node="${fid}">${fn.title}</button>` : fid;
+        }).join("");
+        return `<li><strong>${s.title}</strong>${chips ? `<div class="fn-grid">${chips}</div>` : ""}</li>`;
+      }).join("");
+
+      document.getElementById("panel-title").textContent = action.label;
+      document.getElementById("panel-sub").textContent = action.meta;
+      document.getElementById("panel-body").innerHTML = `
+        <span class="badge badge-live">${action.group}</span>
+        <h3>Workflow</h3>
+        <ol class="workflow-steps">${stepsHtml}</ol>
+        <h3>Functions affected</h3>
+        <div class="fn-grid">${fnChips}</div>
+        ${action.dbReads ? `<div class="db-reads">${action.dbReads}</div>` : ""}
+      `;
+
+      document.querySelectorAll(".fn-chip").forEach((chip) => {
+        chip.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          selectNode(chip.dataset.node, true);
+        });
+      });
+    }
+
+    function selectNode(id, fromAction = false) {
+      if (!fromAction) {
+        activeActionId = null;
+        document.querySelectorAll(".action-btn").forEach((el) => el.classList.remove("is-active"));
+        document.querySelectorAll(".node").forEach((el) => {
+          el.classList.remove("is-action", "is-dimmed");
+        });
+        document.querySelectorAll(".edge").forEach((el) => {
+          el.classList.remove("is-highlight", "is-dimmed");
+        });
+      }
+
+      document.querySelectorAll(".node").forEach((el) => el.classList.remove("is-selected"));
+
+      if (!fromAction) {
+        EDGES.forEach((e, i) => {
+          if (e.from === id || e.to === id) {
+            document.querySelector(`.edge[data-idx="${i}"]`)?.classList.add("is-highlight");
+          }
+        });
+      }
+
+      const nodeEl = document.querySelector(`.node[data-id="${id}"]`);
+      if (nodeEl) {
+        nodeEl.classList.add("is-selected");
+        nodeEl.classList.remove("is-dimmed");
+      }
+
+      if (!fromAction) {
+        EDGES.forEach((e, i) => {
+          if (e.from === id || e.to === id) {
+            document.querySelector(`.edge[data-idx="${i}"]`)?.classList.add("is-highlight");
+          }
+        });
+      }
+
+      const n = NODES.find((x) => x.id === id);
+      const d = DETAILS[id] || defaultDetail(n);
+
+      document.getElementById("panel-title").textContent = n.title;
+      document.getElementById("panel-sub").textContent = n.sub || n.lane;
+      const backBtn = fromAction && activeActionId
+        ? `<button type="button" class="close-btn" id="panel-back" style="margin-bottom:0.65rem">← Back to workflow</button>`
+        : "";
+      document.getElementById("panel-body").innerHTML = backBtn + d.html;
+      document.getElementById("panel-back")?.addEventListener("click", () => selectAction(activeActionId));
+    }
+
+    const NODE_W = 168;
+
+    function defaultDetail(n) {
+      const out = EDGES.filter((e) => e.from === n.id).map((e) => {
+        const t = NODES.find((x) => x.id === e.to);
+        return `<li>→ <code>${t?.title || e.to}</code> <span class="badge badge-${e.type === "db" ? "db" : e.type}">${e.type}</span></li>`;
+      });
+      const inc = EDGES.filter((e) => e.to === n.id).map((e) => {
+        const t = NODES.find((x) => x.id === e.from);
+        return `<li>← <code>${t?.title || e.from}</code> <span class="badge badge-${e.type === "db" ? "db" : e.type}">${e.type}</span></li>`;
+      });
+      return {
+        html: `
+          <h3>Outgoing</h3>
+          <ul>${out.length ? out.join("") : "<li>—</li>"}</ul>
+          <h3>Incoming</h3>
+          <ul>${inc.length ? inc.join("") : "<li>—</li>"}</ul>
+          <h3>Layer</h3>
+          <p style="color:var(--muted);margin:0">${LANES.find((l) => l.id === n.lane)?.label}</p>
+        `,
+      };
+    }
+
+    // Enrich DETAILS with html
+    Object.keys(DETAILS).forEach((key) => {
+      const d = DETAILS[key];
+      const badgeClass = `badge-${d.badge}`;
+      d.html = `
+        <span class="badge ${badgeClass}">${d.badge}</span>
+        <p style="margin:0.5rem 0;color:var(--muted)">${d.desc}</p>
+        <h3>Behavior</h3>
+        <ul>${d.calls.map((c) => `<li>${c}</li>`).join("")}</ul>
+        <h3>Supabase</h3>
+        <p style="margin:0;color:var(--muted)">${d.db}</p>
+      `;
+    });
+
+    document.getElementById("panel-close").addEventListener("click", clearSelection);
+
+    renderActions();
+    render();
+  </script>
+</body>
+</html>

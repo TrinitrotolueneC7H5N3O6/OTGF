@@ -9,7 +9,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import type { Client, Message, MessageReplyRef } from "@/lib/types";
+import type { BusinessSpace, Client, Message, MessageReplyRef } from "@/lib/types";
 import { rememberChat, rememberChatEmail } from "@/lib/chatMemory";
 import {
   buildReplyRef,
@@ -25,7 +25,7 @@ import {
   applySpaceOp,
   applySpaceOpToSpace,
   beatPresence,
-  ensureSpace,
+  getSpace,
   formatResponseWindows,
   nextGuestName,
   readMediaFile,
@@ -39,13 +39,17 @@ import {
   markSendStart,
   noteIncomingMessages,
 } from "@/lib/chatLatency";
+import { parseSoloUrl } from "@/lib/messageLinks";
 import { MessageMedia } from "@/components/shared/MessageMedia";
 import { ReceiptCard } from "@/components/shared/ReceiptCard";
 import { ChatBannerView } from "@/components/shared/ChatBannerView";
 import { MessageReplyQuote } from "@/components/shared/MessageReplyQuote";
 import { MessageReactions } from "@/components/shared/MessageReactions";
 import { MessageActionBar } from "@/components/shared/MessageActionBar";
+import { MessageBodyText } from "@/components/shared/MessageBodyText";
 import { ComposerTextarea } from "@/components/shared/ComposerTextarea";
+import { ScrollToBottomButton } from "@/components/shared/ScrollToBottomButton";
+import { ChatSystemLine } from "@/components/shared/ChatSystemLine";
 import {
   IconArrowSend,
   IconClock,
@@ -65,9 +69,7 @@ function isGuestName(name: string) {
 }
 
 export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) {
-  const [space, setSpace] = useState<Awaited<
-    ReturnType<typeof ensureSpace>
-  > | null>(null);
+  const [space, setSpace] = useState<BusinessSpace | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<MessageReplyRef | null>(null);
@@ -77,8 +79,10 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
   const [continueEditing, setContinueEditing] = useState(false);
   const [continueOpen, setContinueOpen] = useState(true);
   const [ready, setReady] = useState(false);
+  const [readyError, setReadyError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState(false);
   const [showTimes, setShowTimes] = useState(false);
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set());
   const localSentIds = useRef<Set<string>>(new Set());
@@ -88,46 +92,92 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
 
   useEffect(() => {
     let cancelled = false;
+    let unsubscribe = () => {};
 
     async function boot() {
-      const loaded = await ensureSpace(slug);
-      if (cancelled) return;
+      try {
+        // One scoped GET — space must already exist for public customer chat.
+        const loaded = await getSpace(slug, chatId, { threadOnly: true });
+        if (cancelled) return;
+        if (!loaded) {
+          setReadyError("This chat link isn’t available.");
+          return;
+        }
 
-      // Don't create a floor inbox row on open — only after they message.
-      const client = loaded.clients.find((c) => c.id === chatId);
-      setSpace(loaded);
-      rememberChat(slug, chatId);
-      if (client && !isGuestName(client.name)) setDisplayName(client.name);
-      if (client?.email) {
-        setEmailDraft(client.email);
-        setEmailSaved(true);
-        if (
-          client.note?.toLowerCase().includes("recording") ||
-          loaded.messages.some(
-            (m) =>
-              m.clientId === chatId &&
-              m.from === "client" &&
-              m.body.startsWith("Recording email:"),
-          )
-        ) {
-          setRecordingSaved(true);
+        // Don't create a floor inbox row on open — only after they message.
+        const client = loaded.clients.find((c) => c.id === chatId);
+        setSpace(loaded);
+        rememberChat(slug, chatId);
+        if (client && !isGuestName(client.name)) setDisplayName(client.name);
+        if (client?.email) {
+          setEmailDraft(client.email);
+          setEmailSaved(true);
+          if (
+            client.note?.toLowerCase().includes("recording") ||
+            loaded.messages.some(
+              (m) =>
+                m.clientId === chatId &&
+                m.from === "client" &&
+                m.body.startsWith("Recording email:"),
+            )
+          ) {
+            setRecordingSaved(true);
+          }
+        }
+        setReadyError(null);
+        setReady(true);
+
+        unsubscribe = subscribeSpace(
+          slug,
+          (next) => {
+            if (!next) return;
+            noteIncomingMessages(next.messages, localSentIds.current);
+            setSpace(next);
+          },
+          {
+            getChatId: () => chatId,
+            initialSpace: loaded,
+            threadOnly: true,
+          },
+        );
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) {
+          setReadyError(
+            err instanceof Error
+              ? err.message
+              : "Could not load chat. Try refreshing.",
+          );
         }
       }
-      setReady(true);
     }
 
     void boot();
-    const unsubscribe = subscribeSpace(slug, (next) => {
-      if (!next) return;
-      noteIncomingMessages(next.messages, localSentIds.current);
-      setSpace(next);
-    });
 
     return () => {
       cancelled = true;
       unsubscribe();
     };
   }, [slug, chatId]);
+
+  useEffect(() => {
+    setActionsFor(null);
+  }, [chatId]);
+
+  useEffect(() => {
+    if (!actionsFor) return;
+    const openId = actionsFor;
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(`[data-message-id="${CSS.escape(openId)}"]`)) {
+        return;
+      }
+      setActionsFor(null);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [actionsFor]);
 
   const client = space?.clients.find((c) => c.id === chatId);
 
@@ -174,7 +224,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
     function schedule() {
       void beat();
       window.clearInterval(timer);
-      timer = window.setInterval(() => void beat(), 15_000);
+      timer = window.setInterval(() => void beat(), 5_000);
     }
 
     function onVisibility() {
@@ -203,6 +253,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
     if (!space) return;
 
     const body = draft.trim();
+    const soloUrl = parseSoloUrl(body);
     const name = displayName.trim();
     const presentAt = new Date().toISOString();
     const reply = replyTo;
@@ -235,8 +286,9 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       clientId: chatId,
       from: "client",
-      kind: "text",
-      body,
+      ...(soloUrl
+        ? { kind: "link" as const, body: soloUrl, linkUrl: soloUrl }
+        : { kind: "text" as const, body }),
       ...(reply ? { replyTo: reply } : {}),
       ...messageTimeStamp(),
     };
@@ -633,7 +685,11 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
   }
 
   if (!ready) {
-    return <div className="client-chat-loading">Loading…</div>;
+    return (
+      <div className="client-chat-loading">
+        {readyError || "Loading…"}
+      </div>
+    );
   }
 
   if (!space) {
@@ -734,6 +790,30 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
     </header>
   );
 
+  const profileBlock =
+    settings.intro?.trim() || (settings.profileLinks ?? []).length > 0 ? (
+      <div className="client-profile-block">
+        {settings.intro?.trim() ? (
+          <p className="client-chat-intro">{settings.intro.trim()}</p>
+        ) : null}
+        {(settings.profileLinks ?? []).length > 0 ? (
+          <div className="client-profile-links">
+            {(settings.profileLinks ?? []).map((link) => (
+              <a
+                key={link.id}
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+                className="client-profile-link"
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    ) : null;
+
   return (
     <div className={`client-chat${embedded ? " is-embedded" : ""}`}>
       <div
@@ -751,6 +831,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
           head
         )}
 
+        {profileBlock}
         {chatEnded ? (
           <div className="client-away-panel client-ended-panel" role="status">
             <p className="client-away-copy">{recordingCopy}</p>
@@ -835,18 +916,29 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
         ) : null}
       </div>
 
-      <div
-        ref={scrollRef}
-        className="client-chat-stream"
-        role="log"
-        aria-live="polite"
-      >
+      <div className="chat-stream-shell">
+        <div
+          ref={scrollRef}
+          className="client-chat-stream"
+          role="log"
+          aria-live="polite"
+        >
         {thread.length === 0 ? (
           <div className="client-chat-empty">
             <p>Send a message to get started.</p>
           </div>
         ) : (
           thread.map((message, index) => {
+            if (message.kind === "system") {
+              return (
+                <ChatSystemLine
+                  key={message.id}
+                  body={message.body}
+                  at={message.at}
+                  showTime={showTimes}
+                />
+              );
+            }
             const fromCustomer = message.from === "client";
             const { role, continued } = messageCluster(thread, index);
             const staffName =
@@ -867,11 +959,23 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
               (message.kind === "image" || message.kind === "video") &&
               !message.body?.trim();
             const showSpeaker = Boolean(staffName) && !continued;
+            const actionsOpen = actionsFor === message.id;
             return (
               <div
                 key={message.id}
-                className={`msg-wrap ${fromCustomer ? "is-mine" : "is-theirs"} ${clusterClassName(role, continued)}`}
+                className={`msg-wrap ${fromCustomer ? "is-mine" : "is-theirs"} ${clusterClassName(role, continued)}${actionsOpen ? " is-actions-open" : ""}`}
                 data-message-id={message.id}
+                onClick={(e) => {
+                  if (chatEnded) return;
+                  const target = e.target;
+                  if (!(target instanceof Element)) return;
+                  if (target.closest("a, button, input, textarea, select")) {
+                    return;
+                  }
+                  setActionsFor((cur) =>
+                    cur === message.id ? null : message.id,
+                  );
+                }}
               >
                 <article
                   className={`bubble bubble-${fromCustomer ? "business" : "client"} bubble-${message.kind}${mediaOnly ? " is-media-only" : ""}${pendingIds.has(message.id) ? " is-pending" : ""}${failedIds.has(message.id) ? " is-failed" : ""}`}
@@ -908,7 +1012,14 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                   ) : (
                     <>
                       <MessageMedia message={message} />
-                      {message.body ? <p>{message.body}</p> : null}
+                      {message.body &&
+                      !(
+                        message.kind === "link" &&
+                        message.linkUrl &&
+                        message.body.trim() === message.linkUrl.trim()
+                      ) ? (
+                        <MessageBodyText text={message.body} />
+                      ) : null}
                     </>
                   )}
                   <MessageReactions
@@ -929,6 +1040,8 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
             );
           })
         )}
+        </div>
+        <ScrollToBottomButton containerRef={scrollRef} />
       </div>
 
       <div className="client-chat-footer">

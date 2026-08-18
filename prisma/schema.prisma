@@ -30,7 +30,7 @@ model Session {
   createdAt DateTime @default(now())
 }
 
-/// One row per business floor. Payload is the BusinessSpace JSON.
+/// Business shell — settings, library, team. No chat messages here.
 model Space {
   slug      String   @id
   data      String
@@ -38,6 +38,21 @@ model Space {
   owner     User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  chats     Chat[]
+}
+
+/// One row per customer conversation.
+model Chat {
+  id           String
+  spaceSlug    String
+  space        Space    @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)
+  clientData   String
+  messagesData String   @default("[]")
+  deleted      Boolean  @default(false)
+  updatedAt    DateTime @updatedAt
+
+  @@id([spaceSlug, id])
+  @@index([spaceSlug, updatedAt])
 }
 
 model Feedback {
@@ -49,7 +64,7 @@ model Feedback {
   createdAt DateTime @default(now())
 }
 
-/// Live customer-tab heartbeats — kept off Space.data so they don't rewrite photos.
+/// Live customer-tab heartbeats — kept off chat rows.
 model SpacePresence {
   slug      String
   clientId  String

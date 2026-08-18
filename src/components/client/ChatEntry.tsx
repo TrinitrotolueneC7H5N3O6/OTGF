@@ -1,14 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  createChatId,
-  forgetChat,
-  recallChat,
-  recallChatEmail,
-  rememberChat,
-} from "@/lib/chatMemory";
-import { ensureSpace } from "@/lib/store";
+import { resolveCustomerChatId } from "@/lib/store";
 
 interface ChatEntryProps {
   slug: string;
@@ -21,10 +14,9 @@ function goToChat(spaceSlug: string, chatId: string) {
 
 /**
  * Entry link:
- * - This device remembered a chat in localStorage → resume that URL
- * - Else open chat matching a remembered email (same conversation)
- * - If that chat was ended (or deleted), mint a new one
- * - Otherwise mint a new chat id locally (floor only sees them after they message)
+ * - Returning device → probe one chat row (no full space load)
+ * - Else slim client list for email resume, or mint a new local chat id
+ * - Floor only sees them after they message
  */
 export function ChatEntry({ slug }: ChatEntryProps) {
   const [error, setError] = useState<string | null>(null);
@@ -34,34 +26,7 @@ export function ChatEntry({ slug }: ChatEntryProps) {
 
     async function open() {
       try {
-        const space = await ensureSpace(slug);
-        if (cancelled) return;
-        const spaceSlug = space.business.slug;
-
-        const existingId = recallChat(spaceSlug);
-        let chatId = existingId || createChatId();
-
-        if (existingId) {
-          const remembered = space.clients.find((c) => c.id === existingId);
-          if (!remembered || remembered.chatEndedAt) {
-            forgetChat(spaceSlug, existingId);
-            chatId = createChatId();
-          }
-        }
-
-        // Resume by email when this device lost the chat id but still has email.
-        if (!existingId || chatId !== existingId) {
-          const email = recallChatEmail(spaceSlug)?.toLowerCase();
-          if (email) {
-            const byEmail = space.clients.find(
-              (c) =>
-                c.email?.trim().toLowerCase() === email && !c.chatEndedAt,
-            );
-            if (byEmail) chatId = byEmail.id;
-          }
-        }
-
-        rememberChat(spaceSlug, chatId);
+        const { spaceSlug, chatId } = await resolveCustomerChatId(slug);
         if (!cancelled) goToChat(spaceSlug, chatId);
       } catch (err) {
         console.error(err);

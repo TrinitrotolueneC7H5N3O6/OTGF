@@ -2,13 +2,16 @@ import type {
   Artifact,
   BusinessSpace,
   ChatBanner,
+  ChatParticipant,
   Client,
+  ComposerShortcut,
   FloorMember,
   FloorSettings,
   LibraryCategory,
   LibraryItem,
   Message,
   PaymentMethodKind,
+  ProfileLink,
   ReceiptPayment,
   ReceiptPayload,
   ReceiptProduct,
@@ -87,9 +90,32 @@ export function defaultFloorSettings(): FloorSettings {
     banners: [],
     brandBannerUrl: undefined,
     logoUrl: undefined,
+    intro: "",
+    profileLinks: [],
     notifyEmails: [],
     assistBehavior: "",
+    shortcuts: [],
   };
+}
+
+function normalizeProfileLinks(raw: unknown): ProfileLink[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ProfileLink[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Partial<ProfileLink>;
+    const label = typeof row.label === "string" ? row.label.trim() : "";
+    let url = typeof row.url === "string" ? row.url.trim() : "";
+    if (!label || !url) continue;
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+    const id =
+      typeof row.id === "string" && row.id.trim()
+        ? row.id.trim()
+        : `pl-${out.length}`;
+    out.push({ id, label: label.slice(0, 40), url: url.slice(0, 500) });
+    if (out.length >= 8) break;
+  }
+  return out;
 }
 
 function normalizeWeekdays(days: unknown): Weekday[] {
@@ -173,6 +199,64 @@ function normalizeNotifyEmails(emails: unknown): string[] {
   return next;
 }
 
+function normalizeShortcuts(shortcuts: unknown): ComposerShortcut[] {
+  if (!Array.isArray(shortcuts)) return [];
+  const next: ComposerShortcut[] = [];
+  const seen = new Set<string>();
+  let hoursAdded = false;
+
+  for (const [index, raw] of shortcuts.entries()) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Partial<ComposerShortcut> & {
+      artifactId?: string;
+      text?: string;
+      label?: string;
+    };
+    const id =
+      typeof row.id === "string" && row.id.trim()
+        ? row.id.trim()
+        : `sc-${index}-${Date.now().toString(36)}`;
+    if (seen.has(id)) continue;
+
+    if (row.kind === "hours") {
+      if (hoursAdded) continue;
+      hoursAdded = true;
+      seen.add(id);
+      next.push({ id, kind: "hours" });
+      continue;
+    }
+
+    if (row.kind === "artifact") {
+      const artifactId =
+        typeof row.artifactId === "string" ? row.artifactId.trim() : "";
+      if (!artifactId) continue;
+      const label =
+        typeof row.label === "string" ? row.label.trim().slice(0, 40) : "";
+      seen.add(id);
+      next.push({
+        id,
+        kind: "artifact",
+        artifactId,
+        ...(label ? { label } : {}),
+      });
+      continue;
+    }
+
+    if (row.kind === "text") {
+      const text = typeof row.text === "string" ? row.text.trim() : "";
+      if (!text) continue;
+      const label =
+        typeof row.label === "string" && row.label.trim()
+          ? row.label.trim().slice(0, 40)
+          : text.slice(0, 22) + (text.length > 22 ? "…" : "");
+      seen.add(id);
+      next.push({ id, kind: "text", label, text: text.slice(0, 2000) });
+    }
+  }
+
+  return next.slice(0, 16);
+}
+
 export function normalizeFloorSettings(
   settings?: Partial<FloorSettings> | null,
 ): FloorSettings {
@@ -197,11 +281,17 @@ export function normalizeFloorSettings(
       typeof settings.logoUrl === "string" && settings.logoUrl.trim()
         ? settings.logoUrl.trim()
         : undefined,
+    intro:
+      typeof settings.intro === "string"
+        ? settings.intro.trim().slice(0, 500)
+        : "",
+    profileLinks: normalizeProfileLinks(settings.profileLinks),
     notifyEmails: normalizeNotifyEmails(settings.notifyEmails),
     assistBehavior:
       typeof settings.assistBehavior === "string"
         ? settings.assistBehavior.trim().slice(0, 4000)
         : "",
+    shortcuts: normalizeShortcuts(settings.shortcuts),
   };
 }
 
@@ -341,6 +431,31 @@ function normalizeArtifact(raw: Artifact): Artifact {
   };
 }
 
+function normalizeParticipants(raw: unknown): ChatParticipant[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ChatParticipant[] = [];
+  for (const item of raw) {
+    const row = item as Partial<ChatParticipant>;
+    const id = typeof row.id === "string" ? row.id.trim() : "";
+    const name = typeof row.name === "string" ? row.name.trim().slice(0, 48) : "";
+    if (!id || !name) continue;
+    const department =
+      typeof row.department === "string"
+        ? row.department.trim().slice(0, 48)
+        : "";
+    out.push({
+      id,
+      name,
+      joinedAt:
+        typeof row.joinedAt === "string" && row.joinedAt.trim()
+          ? row.joinedAt
+          : new Date().toISOString(),
+      ...(department ? { department } : {}),
+    });
+  }
+  return out;
+}
+
 export function normalizeSpace(raw: BusinessSpace): BusinessSpace {
   let space: BusinessSpace;
   if (raw.categories?.length && raw.artifacts) {
@@ -369,6 +484,7 @@ export function normalizeSpace(raw: BusinessSpace): BusinessSpace {
       c.ownerMemberId && memberIds.has(c.ownerMemberId)
         ? c.ownerMemberId
         : soleOwnerId;
+    const participants = normalizeParticipants(c.participants);
     return {
       ...c,
       id: c.id || `c-repaired-${index}-${Date.now().toString(36)}`,
@@ -388,6 +504,13 @@ export function normalizeSpace(raw: BusinessSpace): BusinessSpace {
         : {}),
       ...(typeof c.chatEndedAt === "string" && c.chatEndedAt.trim()
         ? { chatEndedAt: c.chatEndedAt.trim() }
+        : {}),
+      ...(participants.length ? { participants } : {}),
+      ...(typeof c.forwardToken === "string" && c.forwardToken.trim()
+        ? { forwardToken: c.forwardToken.trim() }
+        : {}),
+      ...(typeof c.forwardExpiresAt === "string" && c.forwardExpiresAt.trim()
+        ? { forwardExpiresAt: c.forwardExpiresAt.trim() }
         : {}),
     };
   });

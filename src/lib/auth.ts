@@ -1,6 +1,6 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
-import { prisma } from "./db";
+import { prisma, syncDbFromCookies } from "./db";
 
 export const SESSION_COOKIE = "otgf_session";
 const SESSION_DAYS = 30;
@@ -35,6 +35,7 @@ export async function createUser(input: {
   password: string;
   name?: string;
 }) {
+  await syncDbFromCookies();
   const email = input.email.trim().toLowerCase();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new Error("Enter a valid email.");
@@ -56,6 +57,7 @@ export async function createUser(input: {
 }
 
 export async function authenticateUser(email: string, password: string) {
+  await syncDbFromCookies();
   const user = await prisma.user.findUnique({
     where: { email: email.trim().toLowerCase() },
   });
@@ -66,6 +68,7 @@ export async function authenticateUser(email: string, password: string) {
 }
 
 export async function createSession(userId: string) {
+  await syncDbFromCookies();
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
   await prisma.session.create({
@@ -80,12 +83,14 @@ export async function createSession(userId: string) {
 }
 
 export async function destroySession(token: string | undefined) {
+  await syncDbFromCookies();
   if (!token) return;
   const hashed = createHash("sha256").update(token).digest("hex");
   await prisma.session.deleteMany({ where: { token: hashed } });
 }
 
 export async function getSessionUser(): Promise<AuthUser | null> {
+  await syncDbFromCookies();
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return null;

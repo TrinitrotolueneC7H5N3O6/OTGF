@@ -231,6 +231,30 @@ export function IconReply({ size = 14 }: { size?: number }) {
   );
 }
 
+export function IconStar({
+  size = 14,
+  filled = false,
+}: {
+  size?: number;
+  filled?: boolean;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  );
+}
+
 export function IconCode({ size = 15 }: { size?: number }) {
   return (
     <svg
@@ -250,9 +274,16 @@ export function IconCode({ size = 15 }: { size?: number }) {
   );
 }
 
-export function IconChevronDown({ size = 18 }: { size?: number }) {
+export function IconChevronDown({
+  size = 18,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
   return (
     <svg
+      className={className}
       width={size}
       height={size}
       viewBox="0 0 24 24"
@@ -300,6 +331,56 @@ export function IconChevronRight({ size = 16 }: { size?: number }) {
       aria-hidden
     >
       <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
+export function IconQr({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <path d="M14 14h2v2h-2z" />
+      <path d="M18 14h2v2h-2z" />
+      <path d="M14 18h2v2h-2z" />
+      <path d="M20 18v2h-2" />
+    </svg>
+  );
+}
+
+export function IconSliders({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 21v-7" />
+      <path d="M4 10V3" />
+      <path d="M12 21v-9" />
+      <path d="M12 8V3" />
+      <path d="M20 21v-5" />
+      <path d="M20 12V3" />
+      <path d="M1 14h6" />
+      <path d="M9 8h6" />
+      <path d="M17 16h6" />
     </svg>
   );
 }

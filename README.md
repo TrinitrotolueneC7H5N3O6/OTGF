@@ -19,6 +19,22 @@ npm run dev
 
 Chat tabs stay in sync over **SSE** (`/api/spaces/{slug}/events`). If the stream drops, the client falls back to 3s meta polls.
 
+## Cloudflare R2 (photos)
+
+New uploads go to R2 when configured. Old `data:image/…` photos keep working; only new uploads use R2 URLs (smaller Supabase egress).
+
+Set in `.env.local` and Railway:
+
+```
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET=otgf
+R2_PUBLIC_URL=https://pub-xxxx.r2.dev
+```
+
+Use **S3 API keys** (not the Cloudflare API token). Bucket must allow public R2.dev access. `GET /api/upload` returns `{"enabled":true}` when ready.
+
 ## Measure chat latency
 
 Add `?latency=1` to any chat or floor URL (or run `localStorage.setItem('otgf-latency','1')`). A HUD shows:

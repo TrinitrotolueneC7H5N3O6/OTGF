@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import type {
+  Artifact,
   BannerTone,
   ChatBanner,
+  ComposerShortcut,
   FloorMember,
   FloorSettings,
   ResponseWindow,
@@ -11,7 +13,12 @@ import type {
 } from "@/lib/types";
 import { readMediaFile } from "@/lib/store";
 import { ChatBannerView } from "@/components/shared/ChatBannerView";
-import { IconTrash, IconX } from "@/components/shared/Icons";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconTrash,
+  IconX,
+} from "@/components/shared/Icons";
 
 const DAY_OPTIONS: { id: Weekday; label: string }[] = [
   { id: "mon", label: "Mon" },
@@ -32,50 +39,92 @@ const TONE_OPTIONS: { id: BannerTone; label: string }[] = [
   { id: "custom", label: "Custom" },
 ];
 
-type SettingsTab = "brand" | "team" | "hours" | "shoutouts" | "notify";
+export type SettingsTab =
+  | "brand"
+  | "team"
+  | "hours"
+  | "shortcuts"
+  | "shoutouts"
+  | "notify"
+  | "account";
 
-const TABS: { id: SettingsTab; label: string }[] = [
+export const ACCOUNT_SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "brand", label: "Brand" },
   { id: "team", label: "Team" },
   { id: "hours", label: "Hours" },
+  { id: "shortcuts", label: "Shortcuts" },
   { id: "shoutouts", label: "Shoutouts" },
   { id: "notify", label: "Notify" },
+  { id: "account", label: "Account" },
 ];
+
+const TABS = ACCOUNT_SETTINGS_TABS;
 
 interface FloorSettingsPanelProps {
   settings: FloorSettings;
   members: FloorMember[];
+  artifacts: Artifact[];
+  initialTab?: SettingsTab;
+  /** Controlled tab when variant is page */
+  activeTab?: SettingsTab;
+  ownerEmail?: string | null;
+  loggingOut?: boolean;
+  variant?: "modal" | "page";
   onChangeSettings: (settings: FloorSettings) => void;
   onChangeMembers: (members: FloorMember[]) => void;
-  onClose: () => void;
+  onOpenWidget?: () => void;
+  onLogOut: () => void;
+  onClose?: () => void;
+}
+
+function newShortcutId() {
+  return `sc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export function FloorSettingsPanel({
   settings,
   members,
+  artifacts,
+  initialTab = "brand",
+  activeTab,
+  ownerEmail: ownerEmailProp,
+  loggingOut = false,
+  variant = "modal",
   onChangeSettings,
   onChangeMembers,
+  onOpenWidget,
+  onLogOut,
   onClose,
 }: FloorSettingsPanelProps) {
-  const [tab, setTab] = useState<SettingsTab>("brand");
+  const [tab, setTab] = useState<SettingsTab>(activeTab ?? initialTab);
   const [bannerDraft, setBannerDraft] = useState("");
   const [memberDraft, setMemberDraft] = useState("");
   const [notifyDraft, setNotifyDraft] = useState("");
   const [notifyError, setNotifyError] = useState<string | null>(null);
-  const [ownerEmail, setOwnerEmail] = useState<string | null>(null);
+  const [ownerEmail, setOwnerEmail] = useState<string | null>(
+    ownerEmailProp ?? null,
+  );
   const [brandBusy, setBrandBusy] = useState<"banner" | "logo" | null>(null);
   const [brandError, setBrandError] = useState<string | null>(null);
+  const [phraseLabel, setPhraseLabel] = useState("");
+  const [phraseText, setPhraseText] = useState("");
+  const [artifactPick, setArtifactPick] = useState("");
   const bannerFileRef = useRef<HTMLInputElement>(null);
   const logoFileRef = useRef<HTMLInputElement>(null);
   const seededNotify = useRef(false);
 
   useEffect(() => {
+    if (activeTab) setTab(activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (variant !== "modal" || !onClose) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onClose?.();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [variant, onClose]);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,6 +209,93 @@ export function FloorSettingsPanel({
     patch({ banners: settings.banners.filter((b) => b.id !== id) });
   }
 
+  const shortcuts = settings.shortcuts ?? [];
+  const pinnedArtifactIds = new Set(
+    shortcuts
+      .filter(
+        (s): s is Extract<ComposerShortcut, { kind: "artifact" }> =>
+          s.kind === "artifact",
+      )
+      .map((s) => s.artifactId),
+  );
+  const hasHoursShortcut = shortcuts.some((s) => s.kind === "hours");
+  const availableArtifacts = artifacts.filter(
+    (a) => !pinnedArtifactIds.has(a.id),
+  );
+
+  function setShortcuts(next: ComposerShortcut[]) {
+    patch({ shortcuts: next.slice(0, 16) });
+  }
+
+  function addHoursShortcut() {
+    if (hasHoursShortcut) return;
+    setShortcuts([...shortcuts, { id: newShortcutId(), kind: "hours" }]);
+  }
+
+  function addTextShortcut() {
+    const text = phraseText.trim();
+    if (!text) return;
+    const label =
+      phraseLabel.trim().slice(0, 40) ||
+      text.slice(0, 22) + (text.length > 22 ? "…" : "");
+    setShortcuts([
+      ...shortcuts,
+      { id: newShortcutId(), kind: "text", label, text: text.slice(0, 2000) },
+    ]);
+    setPhraseLabel("");
+    setPhraseText("");
+  }
+
+  function addArtifactShortcut(artifactId: string) {
+    const id = artifactId.trim();
+    if (!id || pinnedArtifactIds.has(id)) return;
+    if (!artifacts.some((a) => a.id === id)) return;
+    setShortcuts([
+      ...shortcuts,
+      { id: newShortcutId(), kind: "artifact", artifactId: id },
+    ]);
+    setArtifactPick("");
+  }
+
+  function removeShortcut(id: string) {
+    setShortcuts(shortcuts.filter((s) => s.id !== id));
+  }
+
+  function moveShortcut(id: string, delta: -1 | 1) {
+    const index = shortcuts.findIndex((s) => s.id === id);
+    if (index < 0) return;
+    const nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= shortcuts.length) return;
+    const next = [...shortcuts];
+    const [row] = next.splice(index, 1);
+    next.splice(nextIndex, 0, row);
+    setShortcuts(next);
+  }
+
+  function shortcutLabel(sc: ComposerShortcut) {
+    if (sc.kind === "hours") return "Hours";
+    if (sc.kind === "text") return sc.label;
+    const item = artifacts.find((a) => a.id === sc.artifactId);
+    return (
+      sc.label?.trim() ||
+      item?.title?.trim() ||
+      (item ? item.kind : "Missing artifact")
+    );
+  }
+
+  function shortcutKindLabel(sc: ComposerShortcut) {
+    if (sc.kind === "hours") return "Hours";
+    if (sc.kind === "text") return "Phrase";
+    const item = artifacts.find((a) => a.id === sc.artifactId);
+    if (!item) return "Artifact";
+    if (item.kind === "photo") return "Photo";
+    if (item.kind === "video") return "Video";
+    if (item.kind === "url") return "Link";
+    if (item.kind === "text") return "Text";
+    if (item.kind === "collection") return "Collection";
+    return "Artifact";
+  }
+
   function addMember() {
     const name = memberDraft.trim();
     if (!name) return;
@@ -237,63 +373,10 @@ export function FloorSettingsPanel({
     }
   }
 
-  return (
-    <div className="floor-settings-backdrop" onClick={onClose}>
-      <div
-        className="floor-settings-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="floor-settings-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="floor-settings-head">
-          <div>
-            <h2 id="floor-settings-title">Settings</h2>
-            <p>Brand, team, hours, shoutouts, and notify.</p>
-          </div>
-          <button
-            type="button"
-            className="btn-ghost icon-btn"
-            onClick={onClose}
-            aria-label="Close"
-            title="Close"
-          >
-            <IconX />
-          </button>
-        </header>
+  const pageTitle = TABS.find((t) => t.id === tab)?.label ?? "Settings";
 
-        <div className="floor-settings-tabs" role="tablist" aria-label="Settings">
-          {TABS.map((item) => {
-            const incomplete =
-              (item.id === "brand" && brandIncomplete) ||
-              (item.id === "team" && teamIncomplete);
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                id={`settings-tab-${item.id}`}
-                aria-selected={tab === item.id}
-                aria-controls={`settings-panel-${item.id}`}
-                className={tab === item.id ? "is-active" : undefined}
-                onClick={() => setTab(item.id)}
-              >
-                <span>{item.label}</span>
-                {incomplete ? (
-                  <span
-                    className="settings-tab-alert"
-                    aria-label={`${item.label} incomplete`}
-                    title="Needs setup"
-                  >
-                    !
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="floor-settings-body">
+  const panels = (
+    <>
           {tab === "brand" ? (
             <section
               className="floor-settings-section"
@@ -509,6 +592,165 @@ export function FloorSettingsPanel({
                   placeholder="e.g. Weekends are slower"
                 />
               </label>
+            </section>
+          ) : null}
+
+          {tab === "shortcuts" ? (
+            <section
+              className="floor-settings-section"
+              role="tabpanel"
+              id="settings-panel-shortcuts"
+              aria-labelledby="settings-tab-shortcuts"
+            >
+              <p className="floor-settings-help">
+                Pin photos, phrases, and links from Artifacts onto the chat
+                shortcut bar for one-tap send. Assist / Artifacts / Receipt stay
+                fixed.
+              </p>
+
+              {shortcuts.length === 0 ? (
+                <p className="floor-settings-empty">
+                  No shortcuts yet — add an artifact or a phrase below.
+                </p>
+              ) : (
+                <ul className="floor-shortcut-list">
+                  {shortcuts.map((sc, index) => (
+                    <li key={sc.id} className="floor-shortcut-item">
+                      <div className="floor-shortcut-meta">
+                        <span className="floor-shortcut-kind">
+                          {shortcutKindLabel(sc)}
+                        </span>
+                        <span className="floor-shortcut-label">
+                          {shortcutLabel(sc)}
+                        </span>
+                        {sc.kind === "text" ? (
+                          <span className="floor-shortcut-preview">
+                            {sc.text}
+                          </span>
+                        ) : null}
+                        {sc.kind === "artifact" &&
+                        !artifacts.some((a) => a.id === sc.artifactId) ? (
+                          <span className="floor-shortcut-missing">
+                            Artifact missing — remove or re-add
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="floor-shortcut-actions">
+                        <button
+                          type="button"
+                          className="btn-ghost icon-btn"
+                          onClick={() => moveShortcut(sc.id, -1)}
+                          disabled={index === 0}
+                          aria-label="Move earlier"
+                          title="Move earlier"
+                        >
+                          <IconChevronLeft size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost icon-btn"
+                          onClick={() => moveShortcut(sc.id, 1)}
+                          disabled={index === shortcuts.length - 1}
+                          aria-label="Move later"
+                          title="Move later"
+                        >
+                          <IconChevronRight size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="floor-banner-remove icon-btn"
+                          onClick={() => removeShortcut(sc.id)}
+                          aria-label="Remove shortcut"
+                          title="Remove"
+                        >
+                          <IconTrash size={13} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="floor-shortcut-add">
+                <h3>Add from artifacts</h3>
+                {availableArtifacts.length === 0 ? (
+                  <p className="floor-settings-help">
+                    {artifacts.length === 0
+                      ? "Add photos, links, or phrases in Artifacts first."
+                      : "Every artifact is already on the bar."}
+                  </p>
+                ) : (
+                  <div className="floor-banner-add">
+                    <select
+                      value={artifactPick}
+                      onChange={(e) => setArtifactPick(e.target.value)}
+                      aria-label="Choose artifact"
+                    >
+                      <option value="">Choose artifact…</option>
+                      {availableArtifacts.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {(item.title || item.kind).slice(0, 48)} · {item.kind}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn-solid"
+                      disabled={!artifactPick}
+                      onClick={() => addArtifactShortcut(artifactPick)}
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="floor-shortcut-add">
+                <h3>Add a phrase</h3>
+                <label className="floor-settings-note">
+                  <span>Chip label</span>
+                  <input
+                    value={phraseLabel}
+                    onChange={(e) => setPhraseLabel(e.target.value.slice(0, 40))}
+                    placeholder="e.g. Parking"
+                  />
+                </label>
+                <label className="floor-settings-note">
+                  <span>Text inserted into the message</span>
+                  <textarea
+                    rows={2}
+                    value={phraseText}
+                    onChange={(e) => setPhraseText(e.target.value.slice(0, 2000))}
+                    placeholder="We're on the corner of 5th & Pine — street parking out front."
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn-solid"
+                  onClick={addTextShortcut}
+                  disabled={!phraseText.trim()}
+                >
+                  Add phrase
+                </button>
+              </div>
+
+              <div className="floor-shortcut-add">
+                <h3>Hours chip</h3>
+                <p className="floor-settings-help">
+                  Inserts your response hours into the composer.
+                </p>
+                {hasHoursShortcut ? (
+                  <p className="floor-settings-empty">Hours is already on the bar.</p>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-solid"
+                    onClick={addHoursShortcut}
+                  >
+                    Add Hours
+                  </button>
+                )}
+              </div>
             </section>
           ) : null}
 
@@ -759,7 +1001,118 @@ export function FloorSettingsPanel({
               {notifyError ? <p className="editor-error">{notifyError}</p> : null}
             </section>
           ) : null}
+
+          {tab === "account" ? (
+            <section
+              className="floor-settings-section"
+              role="tabpanel"
+              id="settings-panel-account"
+              aria-labelledby="settings-tab-account"
+            >
+              <p className="floor-settings-help">
+                Share tools and sign-out for this space.
+              </p>
+
+              {ownerEmail ? (
+                <p className="floor-settings-note">
+                  <span>Signed in as</span>
+                  <strong>{ownerEmail}</strong>
+                </p>
+              ) : null}
+
+              <div className="account-actions">
+                {onOpenWidget ? (
+                  <button
+                    type="button"
+                    className="btn-solid"
+                    onClick={() => {
+                      onClose?.();
+                      onOpenWidget();
+                    }}
+                  >
+                    Website widget
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={onLogOut}
+                  disabled={loggingOut}
+                >
+                  {loggingOut ? "Signing out…" : "Log out"}
+                </button>
+              </div>
+            </section>
+          ) : null}
+    </>
+  );
+
+  if (variant === "page") {
+    return (
+      <div className="dashboard-panel-body">
+        <h2 className="dashboard-panel-title">{pageTitle}</h2>
+        {panels}
+      </div>
+    );
+  }
+
+  return (
+    <div className="floor-settings-backdrop" onClick={onClose}>
+      <div
+        className="floor-settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="floor-settings-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="floor-settings-head">
+          <div>
+            <h2 id="floor-settings-title">Account Settings</h2>
+            <p>Brand, team, hours, shortcuts, shoutouts, and account.</p>
+          </div>
+          <button
+            type="button"
+            className="btn-ghost icon-btn"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close"
+          >
+            <IconX />
+          </button>
+        </header>
+
+        <div className="floor-settings-tabs" role="tablist" aria-label="Account Settings">
+          {TABS.map((item) => {
+            const incomplete =
+              (item.id === "brand" && brandIncomplete) ||
+              (item.id === "team" && teamIncomplete);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                id={`settings-tab-${item.id}`}
+                aria-selected={tab === item.id}
+                aria-controls={`settings-panel-${item.id}`}
+                className={tab === item.id ? "is-active" : undefined}
+                onClick={() => setTab(item.id)}
+              >
+                <span>{item.label}</span>
+                {incomplete ? (
+                  <span
+                    className="settings-tab-alert"
+                    aria-label={`${item.label} incomplete`}
+                    title="Needs setup"
+                  >
+                    !
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
+
+        <div className="floor-settings-body">{panels}</div>
       </div>
     </div>
   );

@@ -33,6 +33,9 @@ export function messagePreview(message: Message, max = 72): string {
   if (message.kind === "receipt") {
     return truncate(message.body || message.receipt?.productTitle || "Receipt", max);
   }
+  if (message.kind === "system") {
+    return truncate(message.body || "Update", max);
+  }
   return truncate(message.body || "Message", max);
 }
 

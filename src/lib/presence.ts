@@ -1,7 +1,7 @@
 import type { Client } from "./types";
 
-/** How recently the customer must have heartbeated to count as live. */
-export const CLIENT_LIVE_MS = 45_000;
+/** How recently the customer must have heartbeated to count as live (4 × 5s beats). */
+export const CLIENT_LIVE_MS = 20_000;
 
 export function isClientLive(
   client: Pick<Client, "presentAt"> | null | undefined,

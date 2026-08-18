@@ -1,3 +1,4 @@
+import type { SpaceOp } from "./spaceOps";
 import type { Client, Message } from "./types";
 
 export type SpaceLiveEvent =
@@ -17,6 +18,16 @@ export type SpaceLiveEvent =
       messageId: string;
       reactions: Message["reactions"];
       updatedAt?: string;
+    }
+  | {
+      type: "op";
+      op: SpaceOp;
+      updatedAt: string;
+    }
+  | {
+      type: "presence";
+      clientId: string;
+      presentAt: string;
     };
 
 type Listener = (event: SpaceLiveEvent) => void;

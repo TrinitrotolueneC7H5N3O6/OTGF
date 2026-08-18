@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type {
   Artifact,
@@ -13,9 +12,13 @@ import type {
   MessageReplyRef,
   ReceiptPayment,
   ReceiptProduct,
+  ComposerShortcut,
 } from "@/lib/types";
 import { forgetChat } from "@/lib/chatMemory";
-import { forgetThreadScroll, threadScrollKey } from "@/lib/threadScroll";
+import {
+  forgetThreadScroll,
+  threadScrollKey,
+} from "@/lib/threadScroll";
 import {
   buildReplyRef,
   toggleMessageReaction,
@@ -25,33 +28,33 @@ import {
   appendMessage,
   applySpaceOp,
   applySpaceOpToSpace,
-  ensureSpace,
+  bootFloor,
+  createForwardLink,
+  getSpace,
   messageTimeStamp,
   readMediaFile,
-  requestSpaceRefresh,
   subscribeSpace,
   toggleReaction,
 } from "@/lib/store";
 import type { SpaceOp } from "@/lib/spaceOps";
+import { messageCreatedMs } from "@/lib/messageTime";
 import {
   markSendAck,
   markSendPaint,
   markSendStart,
   noteIncomingMessages,
 } from "@/lib/chatLatency";
+import { parseSoloUrl } from "@/lib/messageLinks";
 import { ClientRail } from "./ClientRail";
-import { FloorSettingsPanel } from "./FloorSettingsPanel";
+import { WorkspaceTopBar } from "./WorkspaceTopBar";
 import { ThreadPane } from "./ThreadPane";
 import { RightPane, type RightTab } from "./RightPane";
-import { FeedbackWidget } from "@/components/shared/FeedbackWidget";
+import { CornerTools } from "@/components/shared/CornerTools";
 import {
-  IconCheck,
-  IconCode,
-  IconEye,
-  IconGear,
-  IconLink,
-  IconX,
-} from "@/components/shared/Icons";
+  loadFloorPrefs,
+  playActiveChatSound,
+  playNewChatSound,
+} from "@/lib/floorPrefs";
 import { useRouter } from "next/navigation";
 
 interface WorkspaceShellProps {
@@ -73,32 +76,30 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const [mobilePane, setMobilePane] = useState<"clients" | "thread" | "library">(
     "clients",
   );
-  const [copied, setCopied] = useState(false);
-  const [widgetOpen, setWidgetOpen] = useState(false);
-  const [widgetCopied, setWidgetCopied] = useState(false);
   const [clientUrl, setClientUrl] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
   const [floorMemberId, setFloorMemberId] = useState<string>("all");
+  const [openAtBottom, setOpenAtBottom] = useState(false);
   const [rightTab, setRightTab] = useState<RightTab>("artifacts");
   const [replyTo, setReplyTo] = useState<MessageReplyRef | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set());
+  const [forwardCopied, setForwardCopied] = useState(false);
   const localSentIds = useRef<Set<string>>(new Set());
   const opsInFlight = useRef(0);
+  const soundPrimed = useRef(false);
+  const knownClientIds = useRef<Set<string>>(new Set());
+  const knownClientMsgIds = useRef<Set<string>>(new Set());
+  const activeIdRef = useRef(activeId);
+  /** Per-chat message cache — fetch once per chat, reuse when switching back. */
+  const threadCacheRef = useRef<Map<string, Message[]>>(new Map());
+  const loadedThreadsRef = useRef<Set<string>>(new Set());
+  /** Chats that got new messages while not focused — open scrolled to bottom. */
+  const pinBottomOnOpenRef = useRef<Set<string>>(new Set());
   const [, startTransition] = useTransition();
 
-  async function logOut() {
-    if (loggingOut) return;
-    setLoggingOut(true);
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-      router.push("/");
-      router.refresh();
-    } catch {
-      setLoggingOut(false);
-    }
-  }
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
   useEffect(() => {
     document.documentElement.classList.add("floor-lock");
@@ -124,46 +125,144 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   }
 
   useEffect(() => {
-    let cancelled = false;
+    soundPrimed.current = false;
+    knownClientIds.current = new Set();
+    knownClientMsgIds.current = new Set();
+    threadCacheRef.current = new Map();
+    loadedThreadsRef.current = new Set();
+    pinBottomOnOpenRef.current = new Set();
+  }, [slug]);
 
-    async function boot() {
-      const loaded = await ensureSpace(slug);
-      if (cancelled) return;
-      setSpace(loaded);
-      const firstVisible = loaded.clients.find((c) =>
-        loaded.messages.some(
-          (m) => m.clientId === c.id && m.from === "client",
-        ),
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe = () => {};
+
+    function mergeThread(existing: Message[], incoming: Message[]): Message[] {
+      if (!incoming.length) return existing;
+      if (!existing.length) return incoming;
+      const map = new Map<string, Message>();
+      for (const m of existing) map.set(m.id, m);
+      for (const m of incoming) map.set(m.id, m);
+      const merged = Array.from(map.values());
+      merged.sort(
+        (a, b) => (messageCreatedMs(a) ?? 0) - (messageCreatedMs(b) ?? 0),
       );
-      if (firstVisible) setActiveId(firstVisible.id);
-      setClientUrl(`${window.location.origin}/${slug}`);
+      return merged;
     }
 
-    void boot();
-
-    const unsubscribe = subscribeSpace(slug, (next) => {
-      if (!next) return;
+    function onLiveSpace(next: BusinessSpace) {
       noteIncomingMessages(next.messages, localSentIds.current);
       setSpace((current) => {
-        if (opsInFlight.current > 0 && current) {
-          return { ...next, settings: current.settings };
+        const aid = activeIdRef.current;
+        const merged =
+          opsInFlight.current > 0 && current
+            ? { ...next, settings: current.settings }
+            : next;
+
+        const byClient = new Map<string, Message[]>();
+        for (const m of current?.messages ?? []) {
+          if (!loadedThreadsRef.current.has(m.clientId)) continue;
+          const list = byClient.get(m.clientId) ?? [];
+          list.push(m);
+          byClient.set(m.clientId, list);
         }
-        return next;
+
+        const incomingByClient = new Map<string, Message[]>();
+        for (const m of merged.messages) {
+          const list = incomingByClient.get(m.clientId) ?? [];
+          list.push(m);
+          incomingByClient.set(m.clientId, list);
+        }
+
+        for (const [clientId, incoming] of incomingByClient) {
+          const canPatch =
+            clientId === aid || loadedThreadsRef.current.has(clientId);
+          if (!canPatch) continue;
+
+          const prev =
+            byClient.get(clientId) ??
+            threadCacheRef.current.get(clientId) ??
+            [];
+          const hadNew = incoming.some((m) => !prev.some((p) => p.id === m.id));
+          const nextThread = mergeThread(prev, incoming);
+          byClient.set(clientId, nextThread);
+          threadCacheRef.current.set(clientId, nextThread);
+          loadedThreadsRef.current.add(clientId);
+
+          if (hadNew && clientId !== aid) {
+            pinBottomOnOpenRef.current.add(clientId);
+          }
+        }
+
+        // Unread bump on any non-active chat → open at bottom next time.
+        if (current) {
+          for (const c of merged.clients) {
+            if (c.id === aid) continue;
+            const prev = current.clients.find((x) => x.id === c.id);
+            if (prev && (c.unread ?? 0) > (prev.unread ?? 0)) {
+              pinBottomOnOpenRef.current.add(c.id);
+            }
+          }
+        }
+
+        const messages = Array.from(byClient.values()).flat();
+        return { ...merged, messages };
       });
 
       // Keep current selection if that chat still has guest activity.
       setActiveId((current) => {
-        const visible = next.clients.filter((c) =>
-          next.messages.some(
-            (m) => m.clientId === c.id && m.from === "client",
-          ),
-        );
+        const visible = next.clients.filter((c) => c.preview.trim());
         if (current && visible.some((c) => c.id === current)) {
           return current;
         }
+        // Fall back to most recently active chat (server order).
         return visible[0]?.id ?? "";
       });
-    });
+    }
+
+    async function boot() {
+      const loaded = await bootFloor(slug);
+      if (cancelled) return;
+
+      setClientUrl(`${window.location.origin}/${slug}`);
+
+      const mostRecent = loaded.clients.find((c) => c.preview.trim());
+      let seeded = loaded;
+
+      if (mostRecent) {
+        loadedThreadsRef.current.add(mostRecent.id);
+        const threadMsgs = loaded.messages.filter(
+          (m) => m.clientId === mostRecent.id,
+        );
+        threadCacheRef.current.set(mostRecent.id, threadMsgs);
+        activeIdRef.current = mostRecent.id;
+
+        if ((mostRecent.unread ?? 0) > 0) {
+          forgetThreadScroll(threadScrollKey(slug, mostRecent.id));
+          setOpenAtBottom(true);
+        }
+
+        setSpace(loaded);
+        setActiveId(mostRecent.id);
+        seeded = { ...loaded, messages: threadMsgs };
+      } else {
+        setSpace(loaded);
+        setActiveId("");
+      }
+
+      if (cancelled) return;
+
+      unsubscribe = subscribeSpace(slug, (next) => {
+        if (!next) return;
+        onLiveSpace(next);
+      }, {
+        getChatId: () => activeIdRef.current || undefined,
+        initialSpace: seeded,
+        retainOtherThreadMessages: true,
+      });
+    }
+
+    void boot();
 
     return () => {
       cancelled = true;
@@ -176,6 +275,33 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const categories = space?.categories ?? [];
   const artifacts = space?.artifacts ?? [];
   const members = space?.members ?? [];
+
+  useEffect(() => {
+    if (!space) return;
+    const clientMsgs = space.messages.filter((m) => m.from === "client");
+    if (!soundPrimed.current) {
+      knownClientIds.current = new Set(
+        space.clients
+          .filter((c) => clientMsgs.some((m) => m.clientId === c.id))
+          .map((c) => c.id),
+      );
+      knownClientMsgIds.current = new Set(clientMsgs.map((m) => m.id));
+      soundPrimed.current = true;
+      return;
+    }
+
+    const prefs = loadFloorPrefs(slug);
+    for (const m of clientMsgs) {
+      if (knownClientMsgIds.current.has(m.id)) continue;
+      knownClientMsgIds.current.add(m.id);
+      if (!knownClientIds.current.has(m.clientId)) {
+        knownClientIds.current.add(m.clientId);
+        playNewChatSound(prefs.newChatSound);
+      } else if (m.clientId === activeId) {
+        playActiveChatSound(prefs.activeChatSound);
+      }
+    }
+  }, [space, activeId, slug]);
 
   useEffect(() => {
     if (members.length === 0) {
@@ -221,10 +347,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   }
 
   const filteredClients = useMemo(() => {
-    // Only show chats where the guest actually sent something (not just opened).
-    const withGuestActivity = clients.filter((c) =>
-      messages.some((m) => m.clientId === c.id && m.from === "client"),
-    );
+    const withGuestActivity = clients.filter((c) => c.preview.trim());
     const q = query.trim().toLowerCase();
     if (!q) return withGuestActivity;
     return withGuestActivity.filter(
@@ -233,7 +356,45 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
         c.preview.toLowerCase().includes(q) ||
         c.trade.includes(q),
     );
-  }, [clients, messages, query]);
+  }, [clients, query]);
+
+  useEffect(() => {
+    if (!activeId) return;
+
+    // Already in memory — leave space.messages alone so the filter is instant.
+    if (loadedThreadsRef.current.has(activeId)) return;
+
+    let cancelled = false;
+    void getSpace(slug, activeId).then((loaded) => {
+      if (cancelled || !loaded) return;
+      if (activeIdRef.current !== activeId) return;
+      const threadMsgs = loaded.messages.filter((m) => m.clientId === activeId);
+      loadedThreadsRef.current.add(activeId);
+      threadCacheRef.current.set(activeId, threadMsgs);
+      setSpace((current) => {
+        if (!current) {
+          return { ...loaded, messages: threadMsgs };
+        }
+        const kept = current.messages.filter((m) => m.clientId !== activeId);
+        return {
+          ...current,
+          clients: loaded.clients,
+          messages: [...kept, ...threadMsgs],
+        };
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, slug]);
+
+  // Keep cache fresh while viewing (sends, reactions, SSE).
+  useEffect(() => {
+    if (!activeId || !space) return;
+    if (!loadedThreadsRef.current.has(activeId)) return;
+    const threadMsgs = space.messages.filter((m) => m.clientId === activeId);
+    threadCacheRef.current.set(activeId, threadMsgs);
+  }, [space, activeId]);
 
   const active =
     filteredClients.find((c) => c.id === activeId) ?? filteredClients[0];
@@ -259,16 +420,35 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
       })
       .finally(() => {
         opsInFlight.current = Math.max(0, opsInFlight.current - 1);
-        if (opsInFlight.current === 0) requestSpaceRefresh(slug);
       });
   }
 
   function selectClient(client: Client) {
+    const jumpToLatest =
+      (client.unread ?? 0) > 0 ||
+      pinBottomOnOpenRef.current.has(client.id);
+    if (jumpToLatest) {
+      forgetThreadScroll(threadScrollKey(slug, client.id));
+      pinBottomOnOpenRef.current.delete(client.id);
+    }
+    setOpenAtBottom(jumpToLatest);
     startTransition(() => {
       setActiveId(client.id);
       setReplyTo(null);
       setMobilePane("thread");
     });
+    if (jumpToLatest || (client.unread ?? 0) > 0) {
+      setSpace((current) =>
+        current
+          ? {
+              ...current,
+              clients: current.clients.map((c) =>
+                c.id === client.id ? { ...c, unread: 0 } : c,
+              ),
+            }
+          : current,
+      );
+    }
     if (
       floorMemberId !== "all" &&
       client.ownerMemberId !== floorMemberId
@@ -298,6 +478,8 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
 
   function deleteClient(clientId: string) {
     forgetThreadScroll(threadScrollKey(slug, clientId));
+    threadCacheRef.current.delete(clientId);
+    loadedThreadsRef.current.delete(clientId);
     setPendingArtifacts((prev) => {
       const next = { ...prev };
       delete next[clientId];
@@ -306,7 +488,9 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     forgetChat(slug, clientId);
     if (activeId === clientId) {
       setActiveId(
-        (space?.clients.find((c) => c.id !== clientId)?.id ?? "") || "",
+        (space?.clients.find((c) => c.id !== clientId && c.preview.trim())?.id ??
+          "") ||
+          "",
       );
     }
     runOp({ type: "deleteClient", clientId });
@@ -343,6 +527,18 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     });
     setDraft("");
     bumpScrollToBottom();
+  }
+
+  async function copyForwardLink() {
+    if (!active) return;
+    try {
+      const { url } = await createForwardLink(slug, active.id);
+      await navigator.clipboard.writeText(url);
+      setForwardCopied(true);
+      window.setTimeout(() => setForwardCopied(false), 1600);
+    } catch (err) {
+      console.warn("Forward link failed:", err);
+    }
   }
 
   function openTool(tab: RightTab) {
@@ -396,6 +592,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   function sendText() {
     if (!active || active.chatEndedAt || !draft.trim() || !space) return;
     const body = draft.trim();
+    const soloUrl = parseSoloUrl(body);
     const clientId = active.id;
     const speaker = speakerStamp(active, members);
     const reply = replyTo;
@@ -403,8 +600,9 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
       id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       clientId,
       from: "business",
-      kind: "text",
-      body,
+      ...(soloUrl
+        ? { kind: "link" as const, body: soloUrl, linkUrl: soloUrl }
+        : { kind: "text" as const, body }),
       ...(reply ? { replyTo: reply } : {}),
       ...messageTimeStamp(),
       ...speaker,
@@ -575,7 +773,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
           clientId,
           from: "business",
           kind: "image",
-          body: item.title || "",
+          body: "",
           imageUrl: urls[0] || item.url,
           ...(urls.length > 1 ? { imageUrls: urls } : {}),
           artifactId: item.id,
@@ -658,11 +856,49 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     categories: LibraryCategory[];
     artifacts: Artifact[];
   }) {
+    const ids = new Set(next.artifacts.map((a) => a.id));
+    const shortcuts = (space?.settings.shortcuts ?? []).filter(
+      (sc) => sc.kind !== "artifact" || ids.has(sc.artifactId),
+    );
+    if (
+      space &&
+      shortcuts.length !== (space.settings.shortcuts ?? []).length
+    ) {
+      runOp({
+        type: "setSettings",
+        settings: { ...space.settings, shortcuts },
+      });
+    }
     runOp({
       type: "setLibrary",
       categories: next.categories,
       artifacts: next.artifacts,
     });
+  }
+
+  function toggleArtifactShortcut(item: Artifact) {
+    if (!space) return;
+    const current = space.settings.shortcuts ?? [];
+    const existing = current.find(
+      (sc) => sc.kind === "artifact" && sc.artifactId === item.id,
+    );
+    const shortcuts: ComposerShortcut[] = existing
+      ? current.filter((sc) => sc.id !== existing.id)
+      : current.length >= 16
+        ? current
+        : [
+            ...current,
+            {
+              id: `sc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+              kind: "artifact",
+              artifactId: item.id,
+            },
+          ];
+    updateSettings({ ...space.settings, shortcuts });
+  }
+
+  function openShortcutSettings() {
+    router.push(`/${slug}/dashboard?settings=shortcuts`);
   }
 
   function updateReceiptPayments(receiptPayments: ReceiptPayment[]) {
@@ -738,33 +974,6 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     bumpScrollToBottom();
   }
 
-  async function copyClientUrl() {
-    await navigator.clipboard.writeText(clientUrl);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
-  }
-
-  function widgetSnippet() {
-    const origin =
-      typeof window !== "undefined" ? window.location.origin : "";
-    return `<script src="${origin}/widget.js" data-slug="${slug}" async></script>`;
-  }
-
-  async function copyWidgetSnippet() {
-    await navigator.clipboard.writeText(widgetSnippet());
-    setWidgetCopied(true);
-    window.setTimeout(() => setWidgetCopied(false), 1600);
-  }
-
-  useEffect(() => {
-    if (!widgetOpen) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setWidgetOpen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [widgetOpen]);
-
   function updateSettings(settings: FloorSettings) {
     runOp({ type: "setSettings", settings });
   }
@@ -783,102 +992,16 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
 
   return (
     <div className="workspace">
-      <header className="workspace-brand">
-        <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden />
-          <div>
-            <p className="brand-name">OTGF</p>
-            <p className="brand-sub">{space.business.name}</p>
-          </div>
-        </div>
-        <div className="floor-share">
-          <button
-            type="button"
-            className={`floor-live-btn ${space.settings.live ? "is-live" : ""}`}
-            onClick={toggleLive}
-            aria-pressed={space.settings.live}
-          >
-            <span className="floor-live-dot" aria-hidden />
-            <span className="floor-live-label">
-              {space.settings.live ? "Live" : "Away"}
-            </span>
-          </button>
-          {members.length > 0 ? (
-            <label className="floor-member-select">
-              <span className="sr-only">Working as</span>
-              <select
-                value={
-                  members.some((m) => m.id === floorMemberId)
-                    ? floorMemberId
-                    : members[0].id
-                }
-                onChange={(e) => chooseFloorMember(e.target.value)}
-                aria-label="Working as"
-                title="Who is using the floor right now"
-              >
-                {members.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <button
-            type="button"
-            className="btn-ghost icon-btn floor-settings-btn"
-            onClick={() => setSettingsOpen(true)}
-            aria-label="Settings"
-            title="Settings"
-          >
-            <IconGear />
-            {!space.settings.brandBannerUrl ||
-            !space.settings.logoUrl ||
-            !(space.members ?? []).some((m) => m.name.trim()) ? (
-              <span className="settings-tab-alert floor-settings-alert" aria-hidden>
-                !
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={copyClientUrl}
-            aria-label={copied ? "Copied" : "Copy link"}
-            title={copied ? "Copied" : "Copy link"}
-          >
-            {copied ? <IconCheck /> : <IconLink />}
-          </button>
-          <Link
-            href={`/${slug}`}
-            className="floor-preview icon-btn"
-            aria-label="Preview"
-            title="Preview customer chat"
-          >
-            <IconEye />
-          </Link>
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={() => {
-              setWidgetOpen(true);
-              setWidgetCopied(false);
-            }}
-            aria-label="Website widget"
-            title="Website widget"
-          >
-            <IconCode />
-          </button>
-          <button
-            type="button"
-            className="btn-ghost floor-logout-btn"
-            onClick={() => void logOut()}
-            disabled={loggingOut}
-          >
-            {loggingOut ? "…" : "Log out"}
-          </button>
-        </div>
-      </header>
+      <WorkspaceTopBar
+        slug={slug}
+        businessName={space.business.name}
+        view="floor"
+        live={space.settings.live}
+        onToggleLive={toggleLive}
+        members={members}
+        floorMemberId={floorMemberId}
+        onChooseMember={chooseFloorMember}
+      />
 
       <div className="workspace-grid">
         <aside
@@ -910,6 +1033,8 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
               draft={draft}
               pendingArtifact={pendingArtifacts[active.id] ?? null}
               scrollToBottomTick={scrollToBottomTick}
+              openAtBottom={openAtBottom}
+              onOpenAtBottomDone={() => setOpenAtBottom(false)}
               pendingIds={pendingIds}
               failedIds={failedIds}
               floorMemberName={
@@ -923,7 +1048,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
               artifacts={artifacts}
               windows={space.settings.windows ?? []}
               responseNote={space.settings.responseNote ?? ""}
-              banners={space.settings.banners ?? []}
+              shortcuts={space.settings.shortcuts ?? []}
               replyTo={replyTo}
               onDraftChange={setDraft}
               onSend={sendText}
@@ -931,8 +1056,11 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
               onConfirmPending={confirmPendingArtifact}
               onDismissPending={dismissPendingArtifact}
               onEndChat={endChat}
+              onCopyForwardLink={() => void copyForwardLink()}
+              forwardCopied={forwardCopied}
               onOpenTool={openTool}
               onStageArtifact={stageArtifact}
+              onEditShortcuts={openShortcutSettings}
               onReplyTo={startReply}
               onClearReply={() => setReplyTo(null)}
               onReact={reactToMessage}
@@ -941,7 +1069,8 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
             <div className="thread thread-empty-floor">
               <h2>Waiting for clients</h2>
               <p>
-                Share the entry link. Each person gets their own unique chat URL.
+                Share your link from Dashboard. Each person gets their own chat
+                URL.
               </p>
               <code>{clientUrl || `/${slug}`}</code>
             </div>
@@ -962,6 +1091,13 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
             filter={libraryFilter}
             onFilterChange={setLibraryFilter}
             onStageArtifact={stageArtifact}
+            onToggleArtifactShortcut={toggleArtifactShortcut}
+            shortcutArtifactIds={(space.settings.shortcuts ?? [])
+              .filter(
+                (sc): sc is Extract<ComposerShortcut, { kind: "artifact" }> =>
+                  sc.kind === "artifact",
+              )
+              .map((sc) => sc.artifactId)}
             onChangeLibrary={updateLibrary}
             sentFlash={sentFlash}
             activeClient={active}
@@ -1008,89 +1144,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
         ))}
       </nav>
 
-      {settingsOpen ? (
-        <FloorSettingsPanel
-          settings={{
-            ...space.settings,
-            responseNote: space.settings.responseNote ?? "",
-            awayMessage: space.settings.awayMessage ?? "",
-            windows: space.settings.windows ?? [],
-            banners: space.settings.banners ?? [],
-            brandBannerUrl: space.settings.brandBannerUrl,
-            logoUrl: space.settings.logoUrl,
-            notifyEmails: space.settings.notifyEmails ?? [],
-            assistBehavior: space.settings.assistBehavior ?? "",
-          }}
-          members={space.members ?? []}
-          onChangeSettings={updateSettings}
-          onChangeMembers={updateMembers}
-          onClose={() => setSettingsOpen(false)}
-        />
-      ) : null}
-
-      {widgetOpen ? (
-        <div
-          className="widget-snippet-backdrop"
-          onClick={() => setWidgetOpen(false)}
-        >
-          <div
-            className="widget-snippet-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="widget-snippet-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header className="widget-snippet-head">
-              <div>
-                <h2 id="widget-snippet-title">Website widget</h2>
-                <p>
-                  Paste this on your store site — a chat bubble appears in the
-                  corner, same inbox as the link.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn-ghost icon-btn"
-                onClick={() => setWidgetOpen(false)}
-                aria-label="Close"
-                title="Close"
-              >
-                <IconX />
-              </button>
-            </header>
-            <div className="widget-snippet-body">
-              <pre className="widget-snippet-code">
-                <code>{widgetSnippet()}</code>
-              </pre>
-              <p className="widget-snippet-hint">
-                Optional:{" "}
-                <code>data-position=&quot;left&quot;</code>,{" "}
-                <code>data-label=&quot;Chat with us&quot;</code>,{" "}
-                <code>data-color=&quot;#111111&quot;</code>
-              </p>
-              <div className="widget-snippet-actions">
-                <button
-                  type="button"
-                  className="btn-solid"
-                  onClick={() => void copyWidgetSnippet()}
-                >
-                  {widgetCopied ? "Copied" : "Copy snippet"}
-                </button>
-                <a
-                  className="btn-ghost"
-                  href={`/${slug}/embed`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Preview embed
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      <FeedbackWidget />
+      <CornerTools />
     </div>
   );
 }

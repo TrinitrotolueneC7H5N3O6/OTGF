@@ -66,7 +66,7 @@ export function ClientRail({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    const timer = window.setInterval(() => setNow(Date.now()), 5_000);
     return () => window.clearInterval(timer);
   }, []);
 

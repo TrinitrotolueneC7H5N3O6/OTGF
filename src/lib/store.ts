@@ -1,5 +1,12 @@
-import type { Business, BusinessSpace, Client, Message, Trade } from "./types";
+import type { Business, BusinessSpace, ChatParticipant, Client, Message, Trade } from "./types";
 import type { ReactionActor } from "./messageSocial";
+import {
+  createChatId,
+  forgetChat,
+  recallChat,
+  recallChatEmail,
+  rememberChat,
+} from "./chatMemory";
 import {
   formatMessageTime,
   formatResponseWindows,
@@ -60,12 +67,36 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return (text ? JSON.parse(text) : {}) as T;
 }
 
-export async function getSpace(slug: string): Promise<BusinessSpace | null> {
-  const res = await fetch(`/api/spaces/${encodeURIComponent(slug)}`, {
-    cache: "no-store",
-  });
+export async function getSpace(
+  slug: string,
+  chatId?: string,
+  options?: { threadOnly?: boolean },
+): Promise<BusinessSpace | null> {
+  const params = new URLSearchParams();
+  if (chatId) params.set("chatId", chatId);
+  if (options?.threadOnly && chatId) params.set("threadOnly", "1");
+  const query = params.toString() ? `?${params}` : "";
+  const res = await fetch(
+    `/api/spaces/${encodeURIComponent(slug)}${query}`,
+    { cache: "no-store" },
+  );
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error("Could not load space");
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    let message = "";
+    try {
+      const parsed = JSON.parse(detail) as { error?: string };
+      message = parsed.error?.trim() || "";
+    } catch {
+      message = detail.trim();
+    }
+    throw new Error(
+      message ||
+        (res.status >= 500
+          ? "Database unavailable — try again in a moment"
+          : "Could not load space"),
+    );
+  }
   const text = await res.text();
   if (isLatencyEnabled()) {
     notePayloadSize("get", new Blob([text]).size);
@@ -136,15 +167,94 @@ export async function getSpaceMeta(slug: string): Promise<SpaceMeta | null> {
   return JSON.parse(text) as SpaceMeta;
 }
 
-/** Tiny heartbeat — does not rewrite Space.data or bump content updatedAt. */
+export type SpaceEntryClient = {
+  id: string;
+  email?: string;
+  chatEndedAt?: string;
+};
+
+export type SpaceEntry = {
+  slug: string;
+  clients: SpaceEntryClient[];
+};
+
+/** Customer entry boot — space exists + slim client ids (no messages/settings). */
+export async function getSpaceEntry(
+  slug: string,
+  options?: { chatId?: string },
+): Promise<SpaceEntry | null> {
+  const params = new URLSearchParams({ entry: "1" });
+  if (options?.chatId) params.set("chatId", options.chatId);
+  const res = await fetch(
+    `/api/spaces/${encodeURIComponent(slug)}?${params}`,
+    { cache: "no-store" },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error("Could not load space entry");
+  return (await res.json()) as SpaceEntry;
+}
+
+/**
+ * Resolve which chat URL to open for a customer device.
+ * Returning visitors probe one chat row; cold visitors use a slim client list.
+ */
+export async function resolveCustomerChatId(slug: string): Promise<{
+  spaceSlug: string;
+  chatId: string;
+}> {
+  const existingId = recallChat(slug);
+
+  if (existingId) {
+    const probe = await getSpaceEntry(slug, { chatId: existingId });
+    if (!probe) throw new Error("Space not found");
+    const remembered = probe.clients.find((c) => c.id === existingId);
+    if (remembered && !remembered.chatEndedAt) {
+      rememberChat(probe.slug, existingId);
+      return { spaceSlug: probe.slug, chatId: existingId };
+    }
+    forgetChat(slug, existingId);
+  }
+
+  const email = recallChatEmail(slug)?.toLowerCase();
+
+  // Brand-new device with no email — only confirm the space exists.
+  if (!email) {
+    const meta = await getSpaceMeta(slug);
+    if (!meta) throw new Error("Space not found");
+    const spaceSlug = slugify(slug);
+    const chatId = createChatId();
+    rememberChat(spaceSlug, chatId);
+    return { spaceSlug, chatId };
+  }
+
+  const entry = await getSpaceEntry(slug);
+  if (!entry) throw new Error("Space not found");
+
+  let chatId = createChatId();
+  const byEmail = entry.clients.find(
+    (c) => c.email?.trim().toLowerCase() === email && !c.chatEndedAt,
+  );
+  if (byEmail) chatId = byEmail.id;
+
+  rememberChat(entry.slug, chatId);
+  return { spaceSlug: entry.slug, chatId };
+}
+
+/** Tiny heartbeat — 204, no response body. SSE carries the live patch. */
 export async function beatPresence(slug: string, chatId: string): Promise<void> {
-  await api<{ presentAt?: string }>(
+  const res = await fetch(
     `/api/spaces/${encodeURIComponent(slug)}/present`,
     {
       method: "POST",
-      body: JSON.stringify({ chatId }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: chatId }),
+      cache: "no-store",
+      keepalive: true,
     },
   );
+  if (!res.ok && res.status !== 204) {
+    throw new Error("presence failed");
+  }
 }
 
 export async function ensureSpace(
@@ -154,6 +264,17 @@ export async function ensureSpace(
   return api<BusinessSpace>(`/api/spaces/${encodeURIComponent(slug)}`, {
     method: "POST",
     body: JSON.stringify({ trade }),
+  });
+}
+
+/** Floor boot — ensure space + inbox + most recent thread in one request. */
+export async function bootFloor(
+  slug: string,
+  trade: Trade = "salon",
+): Promise<BusinessSpace> {
+  return api<BusinessSpace>(`/api/spaces/${encodeURIComponent(slug)}`, {
+    method: "POST",
+    body: JSON.stringify({ trade, floorBoot: true }),
   });
 }
 
@@ -192,6 +313,60 @@ export async function applySpaceOp(slug: string, op: SpaceOp): Promise<void> {
   });
 }
 
+export async function createForwardLink(
+  slug: string,
+  chatId: string,
+): Promise<{ token: string; expiresAt: string; path: string; url: string }> {
+  const result = await api<{
+    token: string;
+    expiresAt: string;
+    path: string;
+  }>(`/api/spaces/${encodeURIComponent(slug)}/forward`, {
+    method: "POST",
+    body: JSON.stringify({ chatId }),
+  });
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  return { ...result, url: `${origin}${result.path}` };
+}
+
+export type ForwardInviteMeta = {
+  slug: string;
+  chatId: string;
+  businessName: string;
+  customerName: string;
+  expiresAt: string;
+};
+
+export async function getForwardInvite(
+  slug: string,
+  token: string,
+): Promise<ForwardInviteMeta | null> {
+  const res = await fetch(
+    `/api/spaces/${encodeURIComponent(slug)}/forward/${encodeURIComponent(token)}`,
+    { cache: "no-store" },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error("Could not open forward link");
+  return (await res.json()) as ForwardInviteMeta;
+}
+
+export async function joinForwardChat(
+  slug: string,
+  token: string,
+  input: { name: string; department?: string; participantId?: string },
+): Promise<{
+  slug: string;
+  chatId: string;
+  participant: ChatParticipant;
+  client: Client;
+}> {
+  return api(`/api/spaces/${encodeURIComponent(slug)}/forward/${encodeURIComponent(token)}`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function toggleReaction(
   slug: string,
   input: { messageId: string; emoji: string; actor: ReactionActor },
@@ -226,18 +401,48 @@ export async function appendMessage(
   );
 }
 
+export function applyIncomingClientOnly(
+  space: BusinessSpace,
+  message: Message,
+  client?: Client,
+): BusinessSpace {
+  if (!client) return space;
+  const idx = space.clients.findIndex((c) => c.id === client.id);
+  const nextClient =
+    idx >= 0 ? { ...space.clients[idx], ...client, id: client.id } : client;
+  const clients =
+    idx >= 0
+      ? [nextClient, ...space.clients.filter((c) => c.id !== client.id)]
+      : [nextClient, ...space.clients];
+  return {
+    ...space,
+    clients,
+    deletedClientIds: (space.deletedClientIds ?? []).filter(
+      (id) => id !== client.id,
+    ),
+  };
+}
+
 /**
  * Live sync via SSE. Full GET only when content updatedAt changes.
- * Falls back to 3s meta polls if the event stream drops.
+ * Pass getChatId so refreshes load messages for one thread, not every chat.
+ * Pass initialSpace to skip the duplicate first full GET after boot.
  */
 export function subscribeSpace(
   slug: string,
   onChange: (space: BusinessSpace | null) => void,
+  options?: {
+    getChatId?: () => string | undefined;
+    initialSpace?: BusinessSpace | null;
+    threadOnly?: boolean;
+    /** Floor: keep other threads' messages in memory so caches can be patched. */
+    retainOtherThreadMessages?: boolean;
+  },
 ): () => void {
   let cancelled = false;
   let lastUpdatedAt: string | null = null;
   let lastPresence = "";
-  let lastSpace: BusinessSpace | null = null;
+  let lastSpace: BusinessSpace | null = options?.initialSpace ?? null;
   let inflight = false;
   let pendingRefresh = false;
   let skipNextContentRefresh = false;
@@ -265,23 +470,28 @@ export function subscribeSpace(
       do {
         pendingRefresh = false;
         const fetchedFor = lastUpdatedAt;
-        const space = await getSpace(slug);
+        const chatId = options?.getChatId?.();
+        const space = await getSpace(
+          slug,
+          chatId,
+          options?.threadOnly ? { threadOnly: true } : undefined,
+        );
         if (cancelled) return;
 
+        // Race check only needed when we already have a watermark.
         let meta: SpaceMeta | null = null;
-        try {
-          meta = await getSpaceMeta(slug);
-        } catch {
-          // ignore
-        }
-
-        // Row changed while this GET was in flight — don't paint stale JSON
-        // (that snap-back is what turns Live off a second later).
-        if (meta && fetchedFor && meta.updatedAt !== fetchedFor) {
-          lastUpdatedAt = meta.updatedAt;
-          pendingRefresh = true;
-          applyPresenceOnly(meta);
-          continue;
+        if (fetchedFor) {
+          try {
+            meta = await getSpaceMeta(slug);
+          } catch {
+            // ignore
+          }
+          if (meta && meta.updatedAt !== fetchedFor) {
+            lastUpdatedAt = meta.updatedAt;
+            pendingRefresh = true;
+            applyPresenceOnly(meta);
+            continue;
+          }
         }
 
         lastSpace = space;
@@ -315,13 +525,24 @@ export function subscribeSpace(
   }
 
   function applyLiveEvent(event: SpaceLiveEvent) {
+    const activeChatId = options?.getChatId?.();
     if (event.type === "message") {
       if (!lastSpace) {
         skipNextContentRefresh = true;
         void fullRefresh();
         return;
       }
-      lastSpace = applyIncomingMessage(lastSpace, event.message, event.client);
+      if (!activeChatId || event.message.clientId === activeChatId) {
+        lastSpace = applyIncomingMessage(
+          lastSpace,
+          event.message,
+          event.client,
+        );
+      } else if (event.client) {
+        lastSpace = options?.retainOtherThreadMessages
+          ? applyIncomingMessage(lastSpace, event.message, event.client)
+          : applyIncomingClientOnly(lastSpace, event.message, event.client);
+      }
       skipNextContentRefresh = true;
       if (event.updatedAt) lastUpdatedAt = event.updatedAt;
       if (!cancelled) onChange(lastSpace);
@@ -343,8 +564,38 @@ export function subscribeSpace(
       if (event.updatedAt) lastUpdatedAt = event.updatedAt;
       return;
     }
+    if (event.type === "op") {
+      if (!lastSpace) {
+        skipNextContentRefresh = true;
+        lastUpdatedAt = event.updatedAt;
+        void fullRefresh();
+        return;
+      }
+      lastSpace = applySpaceOpToSpace(lastSpace, event.op);
+      skipNextContentRefresh = true;
+      lastUpdatedAt = event.updatedAt;
+      if (!cancelled) onChange(lastSpace);
+      return;
+    }
+    if (event.type === "presence") {
+      if (!lastSpace) return;
+      const map = (JSON.parse(lastPresence || "{}") || {}) as Record<
+        string,
+        string
+      >;
+      map[event.clientId] = event.presentAt;
+      lastPresence = JSON.stringify(map);
+      lastSpace = applyPresence(lastSpace, map);
+      if (!cancelled) onChange(lastSpace);
+      return;
+    }
     if (event.type === "meta") {
       if (lastUpdatedAt == null) {
+        // Seeded boot already has content — only adopt the watermark.
+        if (lastSpace) {
+          applyMeta(event, false);
+          return;
+        }
         lastUpdatedAt = event.updatedAt;
         void fullRefresh();
         return;
@@ -363,6 +614,11 @@ export function subscribeSpace(
         return;
       }
       if (lastUpdatedAt == null) {
+        // Boot already loaded content — don't fetch the space again.
+        if (lastSpace) {
+          applyMeta(meta, false);
+          return;
+        }
         lastUpdatedAt = meta.updatedAt;
         await fullRefresh();
         return;
@@ -426,7 +682,12 @@ export function subscribeSpace(
   }
 
   forceRefreshListeners.add(onForce);
-  void fullRefresh();
+  if (lastSpace) {
+    // Boot already loaded — open SSE/meta only, skip duplicate full GET.
+    void pollMeta();
+  } else {
+    void fullRefresh();
+  }
   connectEvents();
   window.addEventListener("focus", onFocus);
   document.addEventListener("visibilitychange", onVisible);
@@ -458,6 +719,36 @@ export async function createBusiness(
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 
+let r2Enabled: boolean | null = null;
+
+async function r2IsEnabled() {
+  if (r2Enabled != null) return r2Enabled;
+  try {
+    const res = await fetch("/api/upload", { cache: "no-store" });
+    const data = (await res.json()) as { enabled?: boolean };
+    r2Enabled = Boolean(data.enabled);
+  } catch {
+    r2Enabled = false;
+  }
+  return r2Enabled;
+}
+
+async function uploadMediaBlob(
+  blob: Blob,
+  filename: string,
+): Promise<string | null> {
+  if (!(await r2IsEnabled())) return null;
+  const form = new FormData();
+  form.append("file", blob, filename);
+  const res = await fetch("/api/upload", { method: "POST", body: form });
+  if (!res.ok) {
+    r2Enabled = null;
+    return null;
+  }
+  const data = (await res.json()) as { url?: string };
+  return data.url || null;
+}
+
 export async function readMediaFile(file: File): Promise<{
   kind: "photo" | "video";
   url: string;
@@ -473,24 +764,27 @@ export async function readMediaFile(file: File): Promise<{
   if (!kind) throw new Error("Use a photo or video file.");
 
   if (kind === "photo") {
-    const url = await compressImage(file);
-    return { kind, url };
+    const blob = await compressImage(file);
+    const uploaded = await uploadMediaBlob(blob, "photo.jpg");
+    if (uploaded) return { kind, url: uploaded };
+    return { kind, url: await blobToDataUrl(blob) };
   }
 
-  const url = await fileToDataUrl(file);
-  return { kind, url };
+  const uploaded = await uploadMediaBlob(file, file.name || "video.mp4");
+  if (uploaded) return { kind, url: uploaded };
+  return { kind, url: await blobToDataUrl(file) };
 }
 
-function fileToDataUrl(file: File): Promise<string> {
+function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(new Error("Could not read file."));
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(blob);
   });
 }
 
-function compressImage(file: File): Promise<string> {
+function compressImage(file: File): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -508,7 +802,17 @@ function compressImage(file: File): Promise<string> {
       }
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(objectUrl);
-      resolve(canvas.toDataURL("image/jpeg", 0.82));
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error("Could not process image."));
+            return;
+          }
+          resolve(blob);
+        },
+        "image/jpeg",
+        0.82,
+      );
     };
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);

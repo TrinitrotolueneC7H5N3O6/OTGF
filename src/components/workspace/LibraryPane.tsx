@@ -12,7 +12,7 @@ import { ARTIFACT_META_MAX, clampArtifactMeta } from "@/lib/artifactMeta";
 import { autoOrganizeLibrary } from "@/lib/data";
 import { readMediaFile } from "@/lib/store";
 import { ArtifactThumb } from "./ArtifactThumb";
-import { IconPencil, IconTrash, IconX } from "@/components/shared/Icons";
+import { IconPencil, IconStar, IconTrash, IconX } from "@/components/shared/Icons";
 
 interface LibraryPaneProps {
   categories: LibraryCategory[];
@@ -20,6 +20,8 @@ interface LibraryPaneProps {
   filter: string;
   onFilterChange: (value: string) => void;
   onSend: (item: Artifact) => void;
+  onToggleShortcut?: (item: Artifact) => void;
+  shortcutIds?: string[];
   onChange: (next: {
     categories: LibraryCategory[];
     artifacts: Artifact[];
@@ -45,6 +47,8 @@ export function LibraryPane({
   filter,
   onFilterChange,
   onSend,
+  onToggleShortcut,
+  shortcutIds = [],
   onChange,
   sentFlash,
   activeClientName,
@@ -78,6 +82,8 @@ export function LibraryPane({
   uploadTargetRef.current = uploadTarget;
   const existingOnlyRef = useRef(existingOnly);
   existingOnlyRef.current = existingOnly;
+
+  const pinned = useMemo(() => new Set(shortcutIds), [shortcutIds]);
 
   useEffect(() => {
     if (!editing) return;
@@ -548,7 +554,7 @@ export function LibraryPane({
         {visible.map((item) => (
           <li key={item.id}>
             <article
-              className={`library-item is-clickable ${sentFlash === item.id ? "is-sent" : ""} ${!activeClientName ? "is-disabled" : ""}`}
+              className={`library-item is-clickable ${sentFlash === item.id ? "is-sent" : ""} ${!activeClientName ? "is-disabled" : ""} ${pinned.has(item.id) ? "is-pinned" : ""}`}
               role="button"
               tabIndex={activeClientName ? 0 : -1}
               aria-label={`Add ${item.title || item.kind} to chat`}
@@ -561,6 +567,28 @@ export function LibraryPane({
                 }
               }}
             >
+              {onToggleShortcut ? (
+                <button
+                  type="button"
+                  className={`library-pin-btn ${pinned.has(item.id) ? "is-on" : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleShortcut(item);
+                  }}
+                  aria-label={
+                    pinned.has(item.id)
+                      ? `Remove ${item.title || item.kind} from shortcuts`
+                      : `Pin ${item.title || item.kind} to shortcuts`
+                  }
+                  title={
+                    pinned.has(item.id)
+                      ? "Remove from shortcut bar"
+                      : "Pin to shortcut bar"
+                  }
+                >
+                  <IconStar size={13} filled={pinned.has(item.id)} />
+                </button>
+              ) : null}
               <ArtifactThumb artifact={item} />
               <div className="library-body">
                 <h3>{item.title || item.kind}</h3>

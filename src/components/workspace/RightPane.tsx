@@ -22,6 +22,8 @@ interface RightPaneProps {
   filter: string;
   onFilterChange: (value: string) => void;
   onStageArtifact: (item: Artifact) => void;
+  onToggleArtifactShortcut?: (item: Artifact) => void;
+  shortcutArtifactIds?: string[];
   onChangeLibrary: (next: {
     categories: LibraryCategory[];
     artifacts: Artifact[];
@@ -52,6 +54,8 @@ export function RightPane({
   filter,
   onFilterChange,
   onStageArtifact,
+  onToggleArtifactShortcut,
+  shortcutArtifactIds,
   onChangeLibrary,
   sentFlash,
   activeClient,
@@ -107,6 +111,8 @@ export function RightPane({
             filter={filter}
             onFilterChange={onFilterChange}
             onSend={onStageArtifact}
+            onToggleShortcut={onToggleArtifactShortcut}
+            shortcutIds={shortcutArtifactIds}
             onChange={onChangeLibrary}
             sentFlash={sentFlash}
             activeClientName={activeClient?.name}

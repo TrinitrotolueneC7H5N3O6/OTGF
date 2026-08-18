@@ -3,12 +3,13 @@
 import { useLayoutEffect, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Artifact,
-  ChatBanner,
   Client,
+  ComposerShortcut,
   Message,
   MessageReplyRef,
   ResponseWindow,
 } from "@/lib/types";
+import { participantLabel } from "@/lib/forwardChat";
 import { isClientLive } from "@/lib/presence";
 import { formatResponseWindows } from "@/lib/spaceNormalize";
 import { actorKey, reactorKey } from "@/lib/messageSocial";
@@ -17,6 +18,7 @@ import {
   messageCluster,
 } from "@/lib/messageCluster";
 import {
+  forgetThreadScroll,
   recallThreadScroll,
   saveThreadScroll,
 } from "@/lib/threadScroll";
@@ -25,13 +27,17 @@ import { ReceiptCard } from "@/components/shared/ReceiptCard";
 import { MessageReplyQuote } from "@/components/shared/MessageReplyQuote";
 import { MessageReactions } from "@/components/shared/MessageReactions";
 import { MessageActionBar } from "@/components/shared/MessageActionBar";
+import { MessageBodyText } from "@/components/shared/MessageBodyText";
 import { ComposerTextarea } from "@/components/shared/ComposerTextarea";
+import { ScrollToBottomButton } from "@/components/shared/ScrollToBottomButton";
+import { ChatSystemLine } from "@/components/shared/ChatSystemLine";
 import { ArtifactThumb } from "./ArtifactThumb";
 import type { RightTab } from "./RightPane";
 import {
   IconArrowSend,
   IconClock,
   IconPaperclip,
+  IconPencil,
   IconX,
 } from "@/components/shared/Icons";
 
@@ -42,12 +48,15 @@ interface ThreadPaneProps {
   draft: string;
   pendingArtifact: Artifact | null;
   scrollToBottomTick: number;
+  /** Jump to latest on open (unread / new message while away). */
+  openAtBottom?: boolean;
+  onOpenAtBottomDone?: () => void;
   floorMemberName?: string;
   floorMemberId?: string;
   artifacts: Artifact[];
   windows: ResponseWindow[];
   responseNote: string;
-  banners: ChatBanner[];
+  shortcuts: ComposerShortcut[];
   replyTo: MessageReplyRef | null;
   onDraftChange: (value: string) => void;
   onSend: () => void;
@@ -55,8 +64,11 @@ interface ThreadPaneProps {
   onConfirmPending: () => void;
   onDismissPending: () => void;
   onEndChat: () => void;
+  onCopyForwardLink?: () => void;
+  forwardCopied?: boolean;
   onOpenTool: (tab: RightTab) => void;
   onStageArtifact: (item: Artifact) => void;
+  onEditShortcuts: () => void;
   onReplyTo: (message: Message) => void;
   onClearReply: () => void;
   onReact: (messageId: string, emoji: string) => void;
@@ -80,12 +92,14 @@ export function ThreadPane({
   draft,
   pendingArtifact,
   scrollToBottomTick,
+  openAtBottom = false,
+  onOpenAtBottomDone,
   floorMemberName,
   floorMemberId,
   artifacts,
   windows,
   responseNote,
-  banners,
+  shortcuts,
   replyTo,
   onDraftChange,
   onSend,
@@ -93,8 +107,11 @@ export function ThreadPane({
   onConfirmPending,
   onDismissPending,
   onEndChat,
+  onCopyForwardLink,
+  forwardCopied = false,
   onOpenTool,
   onStageArtifact,
+  onEditShortcuts,
   onReplyTo,
   onClearReply,
   onReact,
@@ -103,12 +120,14 @@ export function ThreadPane({
 }: ThreadPaneProps) {
   const [showTimes, setShowTimes] = useState(false);
   const [attaching, setAttaching] = useState(false);
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const fileRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<HTMLDivElement>(null);
   const activeKeyRef = useRef<string | null>(null);
   const messageCountRef = useRef(messages.length);
   const lastTickRef = useRef(scrollToBottomTick);
+  const pinBottomRef = useRef(false);
   const ended = Boolean(client.chatEndedAt);
   const live = !ended && isClientLive(client, now);
 
@@ -117,22 +136,35 @@ export function ThreadPane({
     [windows],
   );
 
-  const shoutouts = useMemo(
-    () =>
-      banners.filter((b) => b.enabled && b.text.trim()).slice(0, 3),
-    [banners],
-  );
-
-  const quickArtifacts = useMemo(() => {
-    return [...artifacts]
-      .sort((a, b) => (b.uses ?? 0) - (a.uses ?? 0))
-      .slice(0, 4);
+  const artifactById = useMemo(() => {
+    const map = new Map<string, Artifact>();
+    for (const item of artifacts) map.set(item.id, item);
+    return map;
   }, [artifacts]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 8_000);
+    const timer = window.setInterval(() => setNow(Date.now()), 5_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!actionsFor) return;
+    const openId = actionsFor;
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(`[data-message-id="${CSS.escape(openId)}"]`)) {
+        return;
+      }
+      setActionsFor(null);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [actionsFor]);
+
+  useEffect(() => {
+    setActionsFor(null);
+  }, [scrollKey]);
 
   function jumpToBottom() {
     const el = streamRef.current;
@@ -157,9 +189,29 @@ export function ThreadPane({
     if (switched) {
       activeKeyRef.current = scrollKey;
       messageCountRef.current = messages.length;
+      pinBottomRef.current = openAtBottom;
+      if (openAtBottom) {
+        forgetThreadScroll(scrollKey);
+        scheduleJumpToBottom();
+        if (messages.length > 0) {
+          pinBottomRef.current = false;
+          onOpenAtBottomDone?.();
+        }
+        return;
+      }
       const saved = recallThreadScroll(scrollKey);
       el.scrollTop =
         typeof saved === "number" ? saved : el.scrollHeight;
+      return;
+    }
+
+    if (pinBottomRef.current || openAtBottom) {
+      messageCountRef.current = messages.length;
+      scheduleJumpToBottom();
+      if (messages.length > 0) {
+        pinBottomRef.current = false;
+        onOpenAtBottomDone?.();
+      }
       return;
     }
 
@@ -168,7 +220,7 @@ export function ThreadPane({
     if (grew && nearBottom(el)) {
       scheduleJumpToBottom();
     }
-  }, [scrollKey, messages]);
+  }, [scrollKey, messages, openAtBottom, onOpenAtBottomDone]);
 
   useLayoutEffect(() => {
     if (scrollToBottomTick === lastTickRef.current) return;
@@ -271,6 +323,12 @@ export function ThreadPane({
               </p>
             ) : null}
             {client.note ? <p className="thread-note">{client.note}</p> : null}
+            {(client.participants ?? []).length > 0 ? (
+              <p className="thread-note">
+                {(client.participants ?? []).map(participantLabel).join(" · ")}{" "}
+                in this chat
+              </p>
+            ) : null}
           </div>
           <div className="thread-head-actions">
             {ended ? (
@@ -278,13 +336,24 @@ export function ThreadPane({
                 Chat ended
               </span>
             ) : (
-              <button
-                type="button"
-                className="thread-end-chat"
-                onClick={onEndChat}
-              >
-                End chat
-              </button>
+              <>
+                {onCopyForwardLink ? (
+                  <button
+                    type="button"
+                    className="thread-end-chat"
+                    onClick={onCopyForwardLink}
+                  >
+                    {forwardCopied ? "Copied" : "Forward link"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="thread-end-chat"
+                  onClick={onEndChat}
+                >
+                  End chat
+                </button>
+              </>
             )}
             <label
               className={`show-times-toggle ${showTimes ? "is-on" : ""}`}
@@ -302,19 +371,30 @@ export function ThreadPane({
         </div>
       </header>
 
-      <div
-        ref={streamRef}
-        className="thread-stream"
-        role="log"
-        aria-live="polite"
-        onScroll={onStreamScroll}
-      >
+      <div className="chat-stream-shell">
+        <div
+          ref={streamRef}
+          className="thread-stream"
+          role="log"
+          aria-live="polite"
+          onScroll={onStreamScroll}
+        >
         {messages.length === 0 && !pendingArtifact ? (
           <div className="thread-empty">
             <p>No messages yet.</p>
           </div>
         ) : (
           messages.map((message, index) => {
+            if (message.kind === "system") {
+              return (
+                <ChatSystemLine
+                  key={message.id}
+                  body={message.body}
+                  at={message.at}
+                  showTime={showTimes}
+                />
+              );
+            }
             const mine = message.from === "business";
             const { role, continued } = messageCluster(messages, index);
             const myEmojis = new Set(
@@ -329,11 +409,23 @@ export function ThreadPane({
               message.from === "business" &&
               Boolean(message.fromName) &&
               !continued;
+            const actionsOpen = actionsFor === message.id;
             return (
               <div
                 key={message.id}
-                className={`msg-wrap ${mine ? "is-mine" : "is-theirs"} ${clusterClassName(role, continued)}`}
+                className={`msg-wrap ${mine ? "is-mine" : "is-theirs"} ${clusterClassName(role, continued)}${actionsOpen ? " is-actions-open" : ""}`}
                 data-message-id={message.id}
+                onClick={(e) => {
+                  if (ended) return;
+                  const target = e.target;
+                  if (!(target instanceof Element)) return;
+                  if (target.closest("a, button, input, textarea, select")) {
+                    return;
+                  }
+                  setActionsFor((cur) =>
+                    cur === message.id ? null : message.id,
+                  );
+                }}
               >
                 <article
                   className={`bubble bubble-${message.from} bubble-${message.kind}${mediaOnly ? " is-media-only" : ""}${pendingIds?.has(message.id) ? " is-pending" : ""}${failedIds?.has(message.id) ? " is-failed" : ""}`}
@@ -355,7 +447,14 @@ export function ThreadPane({
                   ) : (
                     <>
                       <MessageMedia message={message} />
-                      {message.body ? <p>{message.body}</p> : null}
+                      {message.body &&
+                      !(
+                        message.kind === "link" &&
+                        message.linkUrl &&
+                        message.body.trim() === message.linkUrl.trim()
+                      ) ? (
+                        <MessageBodyText text={message.body} />
+                      ) : null}
                     </>
                   )}
                   <MessageReactions
@@ -418,6 +517,8 @@ export function ThreadPane({
             </div>
           </div>
         ) : null}
+        </div>
+        <ScrollToBottomButton containerRef={streamRef} />
       </div>
 
       {!ended ? (
@@ -445,42 +546,59 @@ export function ThreadPane({
               Receipt
             </button>
 
-            {hoursLabel || responseNote.trim() ? (
-              <button
-                type="button"
-                className="composer-chip is-insert"
-                onClick={insertHours}
-                title="Insert hours into message"
-              >
-                Hours
-              </button>
-            ) : null}
+            {shortcuts.map((sc) => {
+              if (sc.kind === "hours") {
+                if (!hoursLabel && !responseNote.trim()) return null;
+                return (
+                  <button
+                    key={sc.id}
+                    type="button"
+                    className="composer-chip is-insert"
+                    onClick={insertHours}
+                    title="Insert hours into message"
+                  >
+                    Hours
+                  </button>
+                );
+              }
+              if (sc.kind === "text") {
+                return (
+                  <button
+                    key={sc.id}
+                    type="button"
+                    className="composer-chip is-insert"
+                    onClick={() => insertText(sc.text)}
+                    title={sc.text}
+                  >
+                    {sc.label}
+                  </button>
+                );
+              }
+              const item = artifactById.get(sc.artifactId);
+              if (!item) return null;
+              return (
+                <button
+                  key={sc.id}
+                  type="button"
+                  className="composer-chip is-artifact"
+                  onClick={() => onStageArtifact(item)}
+                  title={`Load ${item.title || item.kind} into chat`}
+                >
+                  {sc.label?.trim() || item.title?.trim() || item.kind}
+                </button>
+              );
+            })}
 
-            {shoutouts.map((banner) => (
-              <button
-                key={banner.id}
-                type="button"
-                className="composer-chip is-insert"
-                onClick={() => insertText(banner.text.trim())}
-                title={banner.text.trim()}
-              >
-                {banner.label?.trim() ||
-                  banner.text.trim().slice(0, 22) +
-                    (banner.text.trim().length > 22 ? "…" : "")}
-              </button>
-            ))}
-
-            {quickArtifacts.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="composer-chip is-artifact"
-                onClick={() => onStageArtifact(item)}
-                title={`Load ${item.title || item.kind} into chat`}
-              >
-                {item.title?.trim() || item.kind}
-              </button>
-            ))}
+            <button
+              type="button"
+              className="composer-chip is-edit"
+              onClick={onEditShortcuts}
+              title="Edit shortcut bar"
+              aria-label="Edit shortcut bar"
+            >
+              <IconPencil size={12} />
+              {shortcuts.length === 0 ? "Add shortcuts" : "Edit"}
+            </button>
           </div>
         </div>
       ) : null}
