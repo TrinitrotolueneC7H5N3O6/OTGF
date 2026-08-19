@@ -21,7 +21,9 @@ import {
   subscribeSpace,
 } from "@/lib/store";
 import { ClientRail } from "./ClientRail";
+import { ChatInterfaceSetupModal } from "./ChatInterfaceSetupModal";
 import { FloorSettingsPanel } from "./FloorSettingsPanel";
+import { PreChatSetupModal } from "./PreChatSetupModal";
 import { ThreadPane } from "./ThreadPane";
 import { RightPane } from "./RightPane";
 import { FeedbackWidget } from "@/components/shared/FeedbackWidget";
@@ -55,6 +57,8 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const [copied, setCopied] = useState(false);
   const [clientUrl, setClientUrl] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chatInterfaceOpen, setChatInterfaceOpen] = useState(false);
+  const [preChatOpen, setPreChatOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [, startTransition] = useTransition();
 
@@ -514,6 +518,25 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
           </button>
           <button
             type="button"
+            className="chat-interface-setup-btn"
+            onClick={() => setChatInterfaceOpen(true)}
+          >
+            Set up chat interface
+            {(space.settings.chatEndImages?.length ?? 0) > 0 ? (
+              <span className="chat-interface-setup-count" aria-hidden>
+                {space.settings.chatEndImages!.length}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className="chat-interface-setup-btn"
+            onClick={() => setPreChatOpen(true)}
+          >
+            Edit pre-chat page
+          </button>
+          <button
+            type="button"
             className="btn-ghost icon-btn floor-settings-btn"
             onClick={() => setSettingsOpen(true)}
             aria-label="Settings"
@@ -664,6 +687,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
             banners: space.settings.banners ?? [],
             brandBannerUrl: space.settings.brandBannerUrl,
             logoUrl: space.settings.logoUrl,
+            chatEndImages: space.settings.chatEndImages ?? [],
             notifyEmails: space.settings.notifyEmails ?? [],
             assistBehavior: space.settings.assistBehavior ?? "",
           }}
@@ -671,6 +695,25 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
           onChangeSettings={updateSettings}
           onChangeMembers={updateMembers}
           onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+
+      {chatInterfaceOpen ? (
+        <ChatInterfaceSetupModal
+          settings={{
+            ...space.settings,
+            chatEndImages: space.settings.chatEndImages ?? [],
+          }}
+          onChangeSettings={updateSettings}
+          onClose={() => setChatInterfaceOpen(false)}
+        />
+      ) : null}
+
+      {preChatOpen ? (
+        <PreChatSetupModal
+          settings={space.settings}
+          onChangeSettings={updateSettings}
+          onClose={() => setPreChatOpen(false)}
         />
       ) : null}
 

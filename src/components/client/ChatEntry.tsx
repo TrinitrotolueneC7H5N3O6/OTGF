@@ -41,7 +41,8 @@ export function ChatEntry({ slug }: ChatEntryProps) {
 
         if (existingId) {
           const remembered = space.clients.find((c) => c.id === existingId);
-          if (!remembered || remembered.chatEndedAt) {
+          const deleted = (space.deletedClientIds ?? []).includes(existingId);
+          if (!remembered || remembered.chatEndedAt || deleted) {
             forgetChat(spaceSlug, existingId);
             chatId = createChatId();
           }

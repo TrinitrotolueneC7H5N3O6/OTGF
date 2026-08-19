@@ -6,6 +6,7 @@ import {
   titleFromSlug,
 } from "./spaceNormalize";
 import { newerPresentAt } from "./presence";
+import { ensureWelcomeMessagesForSpace } from "./customerAutoReply";
 import { defaultCategories } from "./data";
 import { prisma } from "./db";
 
@@ -56,6 +57,12 @@ function mergeSpaces(
     ...(current.deletedClientIds ?? []),
     ...(incoming.deletedClientIds ?? []),
   ]);
+  const incomingDeleted = new Set(incoming.deletedClientIds ?? []);
+  // Allow resurrection when a writer actively includes the client again and
+  // omits them from deletedClientIds (e.g. customer sends on an old chat link).
+  for (const c of incoming.clients) {
+    if (!incomingDeleted.has(c.id)) deleted.delete(c.id);
+  }
 
   const messagesById = new Map<string, Message>();
   for (const m of current.messages) {
@@ -136,9 +143,10 @@ export async function dbSaveSpace(space: BusinessSpace): Promise<BusinessSpace> 
     const merged = existing
       ? mergeSpaces(existing, space)
       : normalizeSpace(space);
+    const withWelcome = ensureWelcomeMessagesForSpace(merged);
     const toStore: BusinessSpace = {
-      ...merged,
-      business: { ...merged.business, slug: clean },
+      ...withWelcome,
+      business: { ...withWelcome.business, slug: clean },
     };
     await prisma.space.upsert({
       where: { slug: clean },

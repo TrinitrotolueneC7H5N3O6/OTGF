@@ -8,6 +8,7 @@ import {
   saveThreadScroll,
 } from "@/lib/threadScroll";
 import { MessageMedia } from "@/components/shared/MessageMedia";
+import { isReconnectMessage } from "@/lib/customerAutoReply";
 import { ArtifactThumb } from "./ArtifactThumb";
 import {
   IconArrowSend,
@@ -204,8 +205,23 @@ export function ThreadPane({
               {message.from === "business" && message.fromName ? (
                 <span className="bubble-speaker">{message.fromName}</span>
               ) : null}
-              <MessageMedia message={message} />
-              {message.body ? <p>{message.body}</p> : null}
+              {isReconnectMessage(message) ? (
+                <div className="client-reconnect">
+                  <p>{message.body}</p>
+                  {message.linkUrl ? (
+                    <a className="client-reconnect-link" href={message.linkUrl}>
+                      {message.linkUrl}
+                    </a>
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  <MessageMedia message={message} />
+                  {message.body && message.kind !== "link" ? (
+                    <p>{message.body}</p>
+                  ) : null}
+                </>
+              )}
               {showTimes ? <time>{message.at}</time> : null}
             </article>
           ))

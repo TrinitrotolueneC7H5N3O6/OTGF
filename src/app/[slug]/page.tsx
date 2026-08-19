@@ -1,10 +1,10 @@
-import { ChatEntry } from "@/components/client/ChatEntry";
+import { PreChatPage } from "@/components/client/PreChatPage";
 
-export default async function ChatEntryPage({
+export default async function PreChatEntryPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  return <ChatEntry slug={slug} />;
+  return <PreChatPage slug={slug} />;
 }

@@ -3,10 +3,15 @@ import type {
   BusinessSpace,
   ChatBanner,
   Client,
+  DepartmentAttachment,
+  DepartmentContent,
   FloorMember,
   FloorSettings,
   LibraryCategory,
   LibraryItem,
+  PreChatLink,
+  PreChatLinkKind,
+  PreChatPage,
   ResponseWindow,
   Weekday,
 } from "./types";
@@ -31,9 +36,28 @@ export function defaultFloorSettings(): FloorSettings {
     banners: [],
     brandBannerUrl: undefined,
     logoUrl: undefined,
+    chatEndImages: [],
     notifyEmails: [],
     assistBehavior: "",
+    departmentMessages: Array.from({ length: 20 }, () => ""),
+    departments: Array.from({ length: 20 }, emptyDepartment),
+    preChat: defaultPreChat(),
   };
+}
+
+const MAX_CHAT_END_IMAGES = 6;
+
+function normalizeChatEndImages(images: unknown): string[] {
+  if (!Array.isArray(images)) return [];
+  const next: string[] = [];
+  for (const raw of images) {
+    if (typeof raw !== "string") continue;
+    const url = raw.trim();
+    if (!url) continue;
+    next.push(url);
+    if (next.length >= MAX_CHAT_END_IMAGES) break;
+  }
+  return next;
 }
 
 function normalizeWeekdays(days: unknown): Weekday[] {
@@ -117,6 +141,220 @@ function normalizeNotifyEmails(emails: unknown): string[] {
   return next;
 }
 
+export const DEPARTMENT_COUNT = 20;
+export const MAX_DEPARTMENT_ATTACHMENTS = 8;
+
+function emptyDepartment(): DepartmentContent {
+  return { message: "", attachments: [] };
+}
+
+export const DEFAULT_CALL_PHONE = "+1(669)-240-8911";
+
+export function defaultPreChat(): PreChatPage {
+  return {
+    headline: "",
+    bio: "",
+    links: [
+      {
+        id: "pre-call",
+        kind: "call",
+        label: "Call Us",
+        enabled: true,
+        href: DEFAULT_CALL_PHONE,
+      },
+      { id: "pre-live-chat", kind: "chat", label: "Live Chat", enabled: true },
+      {
+        id: "pre-consult",
+        kind: "url",
+        label: "Book Consultation",
+        enabled: true,
+        href: "",
+      },
+      {
+        id: "pre-promo",
+        kind: "url",
+        label: "Daily Promotions",
+        enabled: true,
+        href: "",
+      },
+    ],
+  };
+}
+
+const PRE_CHAT_KINDS: PreChatLinkKind[] = ["chat", "call", "url", "email"];
+
+function normalizePreChatLink(raw: unknown, index: number): PreChatLink | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Partial<PreChatLink>;
+  const kind = PRE_CHAT_KINDS.includes(row.kind as PreChatLinkKind)
+    ? (row.kind as PreChatLinkKind)
+    : "url";
+  const label =
+    typeof row.label === "string" && row.label.trim()
+      ? row.label.trim().slice(0, 80)
+      : kind === "chat"
+        ? "Live Chat"
+        : kind === "call"
+          ? "Call Us"
+          : kind === "email"
+            ? "Email"
+            : "Link";
+  return {
+    id:
+      typeof row.id === "string" && row.id.trim()
+        ? row.id.trim()
+        : `pre-${index}-${kind}`,
+    kind,
+    label:
+      kind === "call" && label === "Call"
+        ? "Call Us"
+        : label === "Live chat"
+          ? "Live Chat"
+          : label === "Book consultation"
+            ? "Book Consultation"
+            : label,
+    enabled: row.enabled !== false,
+    href:
+      kind === "call" &&
+      !(typeof row.href === "string" && row.href.trim())
+        ? DEFAULT_CALL_PHONE
+        : typeof row.href === "string"
+          ? row.href.trim().slice(0, 500)
+          : "",
+  };
+}
+
+const DEFAULT_PROMO_LINK: PreChatLink = {
+  id: "pre-promo",
+  kind: "url",
+  label: "Daily Promotions",
+  enabled: true,
+  href: "",
+};
+
+function isDepartmentsLink(link: PreChatLink) {
+  return (
+    link.id === "pre-departments" ||
+    /^forward message by department$/i.test(link.label)
+  );
+}
+
+function withDefaultPreChatLinks(links: PreChatLink[]): PreChatLink[] {
+  const next = links.filter((link) => !isDepartmentsLink(link));
+  if (!next.some((link) => link.id === "pre-promo") && next.length < 12) {
+    next.push(DEFAULT_PROMO_LINK);
+  }
+  return next;
+}
+
+export function normalizePreChat(raw: unknown): PreChatPage {
+  const defaults = defaultPreChat();
+  if (!raw || typeof raw !== "object") return defaults;
+  const row = raw as Partial<PreChatPage>;
+  const links: PreChatLink[] = [];
+  if (Array.isArray(row.links)) {
+    for (const [index, item] of row.links.entries()) {
+      const link = normalizePreChatLink(item, index);
+      if (link) links.push(link);
+      if (links.length >= 12) break;
+    }
+  }
+  const ordered = [...links];
+  const ids = ordered.map((link) => link.id).join(",");
+  const headline =
+    typeof row.headline === "string" ? row.headline.trim().slice(0, 80) : "";
+  const bio = typeof row.bio === "string" ? row.bio.trim().slice(0, 280) : "";
+  if (ids === "pre-live-chat,pre-call,pre-consult") {
+    const byId = new Map(ordered.map((link) => [link.id, link]));
+    return {
+      headline,
+      bio,
+      links: withDefaultPreChatLinks(
+        ["pre-call", "pre-live-chat", "pre-consult"].map((id) => byId.get(id)!),
+      ),
+    };
+  }
+
+  return {
+    headline,
+    bio,
+    links: withDefaultPreChatLinks(ordered.length ? ordered : defaults.links),
+  };
+}
+
+export function normalizeDepartmentMessages(raw: unknown): string[] {
+  const next = Array.from({ length: DEPARTMENT_COUNT }, () => "");
+  if (!Array.isArray(raw)) return next;
+  for (let i = 0; i < DEPARTMENT_COUNT; i++) {
+    const value = raw[i];
+    if (typeof value === "string") next[i] = value.slice(0, 2000);
+  }
+  return next;
+}
+
+function normalizeDepartmentAttachment(raw: unknown): DepartmentAttachment | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Partial<DepartmentAttachment>;
+  if (row.kind !== "image" && row.kind !== "document") return null;
+  if (typeof row.url !== "string" || !row.url.trim()) return null;
+  return {
+    id:
+      typeof row.id === "string" && row.id.trim()
+        ? row.id.trim()
+        : `att-${Math.random().toString(36).slice(2, 9)}`,
+    kind: row.kind,
+    name:
+      typeof row.name === "string" && row.name.trim()
+        ? row.name.trim().slice(0, 180)
+        : row.kind === "image"
+          ? "Image"
+          : "Document",
+    url: row.url.trim(),
+  };
+}
+
+export function normalizeDepartments(
+  departments: unknown,
+  legacyMessages?: unknown,
+): DepartmentContent[] {
+  const next = Array.from({ length: DEPARTMENT_COUNT }, emptyDepartment);
+  if (Array.isArray(departments)) {
+    for (let i = 0; i < DEPARTMENT_COUNT; i++) {
+      const row = departments[i];
+      if (typeof row === "string") {
+        next[i] = { message: row.slice(0, 2000), attachments: [] };
+        continue;
+      }
+      if (!row || typeof row !== "object") continue;
+      const content = row as Partial<DepartmentContent>;
+      const attachments: DepartmentAttachment[] = [];
+      if (Array.isArray(content.attachments)) {
+        for (const item of content.attachments) {
+          const attachment = normalizeDepartmentAttachment(item);
+          if (attachment) attachments.push(attachment);
+          if (attachments.length >= MAX_DEPARTMENT_ATTACHMENTS) break;
+        }
+      }
+      next[i] = {
+        message:
+          typeof content.message === "string"
+            ? content.message.slice(0, 2000)
+            : "",
+        attachments,
+      };
+    }
+    return next;
+  }
+
+  const legacy = normalizeDepartmentMessages(legacyMessages);
+  return legacy.map((message) => ({ message, attachments: [] }));
+}
+
+export function departmentHasContent(department?: DepartmentContent | null) {
+  if (!department) return false;
+  return Boolean(department.message.trim() || department.attachments.length);
+}
+
 export function normalizeFloorSettings(
   settings?: Partial<FloorSettings> | null,
 ): FloorSettings {
@@ -141,11 +379,18 @@ export function normalizeFloorSettings(
       typeof settings.logoUrl === "string" && settings.logoUrl.trim()
         ? settings.logoUrl.trim()
         : undefined,
+    chatEndImages: normalizeChatEndImages(settings.chatEndImages),
     notifyEmails: normalizeNotifyEmails(settings.notifyEmails),
     assistBehavior:
       typeof settings.assistBehavior === "string"
         ? settings.assistBehavior.trim().slice(0, 4000)
         : "",
+    departmentMessages: normalizeDepartmentMessages(settings.departmentMessages),
+    departments: normalizeDepartments(
+      settings.departments,
+      settings.departmentMessages,
+    ),
+    preChat: normalizePreChat(settings.preChat),
   };
 }
 
@@ -166,7 +411,9 @@ function formatClock(hhmm: string) {
   if (Number.isNaN(h) || Number.isNaN(m)) return hhmm;
   const d = new Date();
   d.setHours(h, m, 0, 0);
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return d
+    .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    .replace(/\s+(AM|PM)/i, "$1");
 }
 
 /** Human label for response windows, e.g. "Mon–Fri 10:00 AM–6:00 PM" */
