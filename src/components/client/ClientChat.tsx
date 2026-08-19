@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { Client, DepartmentAttachment, DepartmentContent, FloorSettings, Message } from "@/lib/types";
+import type { Client, DepartmentAttachment, DepartmentContent, FloorSettings, Message, MessageReplyRef } from "@/lib/types";
 import { rememberChat } from "@/lib/chatMemory";
 import {
   beatPresence,
@@ -13,6 +13,7 @@ import {
   readAttachmentFile,
   readMediaFile,
   subscribeSpace,
+  toggleReaction,
   messageTimeStamp,
 } from "@/lib/store";
 import {
@@ -22,9 +23,19 @@ import {
 } from "@/lib/spaceNormalize";
 import { MessageMedia } from "@/components/shared/MessageMedia";
 import { ChatBannerView } from "@/components/shared/ChatBannerView";
+import { MessageReactions } from "@/components/shared/MessageReactions";
+import { MessageActionBar } from "@/components/shared/MessageActionBar";
+import { MessageReplyQuote } from "@/components/shared/MessageReplyQuote";
+import {
+  buildReplyRef,
+  reactorKey,
+  toggleMessageReaction,
+} from "@/lib/messageSocial";
+import { clusterClassName, messageCluster } from "@/lib/messageCluster";
 import {
   IconArrowSend,
   IconPaperclip,
+  IconX,
 } from "@/components/shared/Icons";
 import { SwipeTimeStream } from "./SwipeTimeStream";
 import { ChatMarketingCarousel } from "./ChatMarketingCarousel";
@@ -34,6 +45,7 @@ import {
   isReconnectMessage,
   isSpecialtiesMessage,
 } from "@/lib/customerAutoReply";
+import { resolveChatIntroMessages } from "@/lib/chatIntroMessages";
 
 interface ClientChatProps {
   slug: string;
@@ -68,6 +80,8 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
   const [departmentSaving, setDepartmentSaving] = useState(false);
   const [copiedReturnLink, setCopiedReturnLink] = useState(false);
   const [linkEmailSent, setLinkEmailSent] = useState(false);
+  const [replyTo, setReplyTo] = useState<MessageReplyRef | null>(null);
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const departmentImageRef = useRef<HTMLInputElement>(null);
@@ -150,50 +164,24 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
     };
   }, [slug, chatId]);
 
-  const welcomeEnsured = useRef(false);
-  useEffect(() => {
-    welcomeEnsured.current = false;
-  }, [chatId]);
+  const introMessages = useMemo(
+    () => (space ? resolveChatIntroMessages(space.settings) : null),
+    [space?.settings],
+  );
 
-  useEffect(() => {
-    if (!space || welcomeEnsured.current) return;
-    const hasCustomer = space.messages.some(
-      (m) => m.clientId === chatId && m.from === "client",
-    );
-    if (!hasCustomer) return;
-
-    const messages = ensureWelcomeMessages(
-      space.messages,
+  const thread = useMemo(() => {
+    if (!space || !introMessages) return [];
+    const stored = space.messages.filter((m) => m.clientId === chatId);
+    return ensureWelcomeMessages(
+      stored,
       chatId,
       space.business.name,
       slug,
+      introMessages,
     );
-    welcomeEnsured.current = true;
-    if (messages === space.messages) return;
-
-    setSpace({ ...space, messages });
-    void patchSpace(slug, (latest) => {
-      const nextMessages = ensureWelcomeMessages(
-        latest.messages,
-        chatId,
-        latest.business.name,
-        slug,
-      );
-      if (nextMessages === latest.messages) return latest;
-      return { ...latest, messages: nextMessages };
-    })
-      .then((next) => setSpace(next))
-      .catch(() => {
-        welcomeEnsured.current = false;
-      });
-  }, [space, slug, chatId]);
+  }, [space, chatId, slug, introMessages]);
 
   const client = space?.clients.find((c) => c.id === chatId);
-
-  const thread = useMemo(() => {
-    if (!space) return [];
-    return space.messages.filter((m) => m.clientId === chatId);
-  }, [space, chatId]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -276,6 +264,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       from: "client",
       kind: "text",
       body,
+      ...(replyTo ? { replyTo } : {}),
       ...messageTimeStamp(),
     };
 
@@ -318,9 +307,11 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
         message,
         space.business.name,
         slug,
+        introMessages!,
       ),
     });
     setDraft("");
+    setReplyTo(null);
 
     try {
       const next = await patchSpace(slug, (latest) => {
@@ -352,6 +343,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
             message,
             latest.business.name,
             latest.business.slug,
+            resolveChatIntroMessages(latest.settings),
           ),
         };
       });
@@ -387,6 +379,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
         kind: "image",
         body: caption,
         imageUrl: media.url,
+        ...(replyTo ? { replyTo } : {}),
         ...messageTimeStamp(),
       };
 
@@ -430,12 +423,14 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
             message,
             latest.business.name,
             latest.business.slug,
+            resolveChatIntroMessages(latest.settings),
           ),
         };
       });
 
       setSpace(next);
       setDraft("");
+      setReplyTo(null);
     } catch (err) {
       setSendError(
         err instanceof Error ? err.message : "Could not send photo.",
@@ -445,6 +440,31 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       setSending(false);
       if (fileRef.current) fileRef.current.value = "";
     }
+  }
+
+  function reactToMessage(messageId: string, emoji: string) {
+    if (client?.chatEndedAt || !space) return;
+    const actor = { from: "client" as const };
+    const prev = space.messages.find((m) => m.id === messageId)?.reactions;
+    const nextReactions = toggleMessageReaction(prev, emoji, actor);
+    setSpace({
+      ...space,
+      messages: space.messages.map((m) =>
+        m.id === messageId ? { ...m, reactions: nextReactions } : m,
+      ),
+    });
+    void toggleReaction(slug, { messageId, emoji, actor }).catch(() => {
+      setSpace((cur) =>
+        cur
+          ? {
+              ...cur,
+              messages: cur.messages.map((m) =>
+                m.id === messageId ? { ...m, reactions: prev } : m,
+              ),
+            }
+          : cur,
+      );
+    });
   }
 
   async function requestLive() {
@@ -496,6 +516,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
           message,
           latest.business.name,
           latest.business.slug,
+          resolveChatIntroMessages(latest.settings),
         ),
       };
     });
@@ -788,6 +809,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
             message,
             latest.business.name,
             latest.business.slug,
+            resolveChatIntroMessages(latest.settings),
           );
         }
 
@@ -864,6 +886,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
             message,
             latest.business.name,
             latest.business.slug,
+            resolveChatIntroMessages(latest.settings),
           ),
         };
       });
@@ -1120,6 +1143,165 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
     </header>
   );
 
+  const quickActions = !chatEnded ? (
+    <div className="client-quick-actions">
+      <div className="client-away-actions">
+        <button
+          type="button"
+          className="client-book-consult-btn"
+          onClick={() => void requestConsultation()}
+          disabled={sending}
+        >
+          Book in-person consultation
+        </button>
+        <div className="client-number-dropdown" ref={numberMenuRef}>
+          <button
+            type="button"
+            className="client-book-consult-btn client-number-dropdown-trigger"
+            aria-haspopup="listbox"
+            aria-expanded={numberMenuOpen}
+            onClick={() => setNumberMenuOpen((open) => !open)}
+          >
+            {selectedNumber != null
+              ? `Department ${selectedNumber}`
+              : "Departments"}
+          </button>
+          {numberMenuOpen ? (
+            <ul className="client-number-dropdown-list" role="listbox">
+              {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => {
+                const department = currentDepartments(settings)[n - 1];
+                const attached = departmentHasContent(department);
+                return (
+                  <li
+                    key={n}
+                    role="none"
+                    className={n === 1 ? "client-number-row" : undefined}
+                  >
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={selectedNumber === n}
+                      className={
+                        [
+                          selectedNumber === n ? "is-selected" : "",
+                          attached ? "has-message" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ") || undefined
+                      }
+                      onClick={() =>
+                        pickDepartment(n, () => setNumberMenuOpen(false))
+                      }
+                    >
+                      {n}
+                    </button>
+                    {n === 1 ? (
+                      <button
+                        type="button"
+                        className="client-promo-btn"
+                        onClick={() => void requestPromo()}
+                        disabled={sending}
+                      >
+                        Promo
+                      </button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+      {selectedNumber != null ? (
+        <form
+          className="client-department-attach"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void attachDepartmentMessage();
+          }}
+        >
+          <label className="composer-field">
+            <span className="sr-only">
+              Message for department {selectedNumber}
+            </span>
+            <textarea
+              value={departmentDraft}
+              onChange={(e) => setDepartmentDraft(e.target.value)}
+              placeholder={`Attach a message to department ${selectedNumber}…`}
+              rows={3}
+            />
+          </label>
+          {departmentDraftAttachments.length > 0 ? (
+            <ul className="client-department-files">
+              {departmentDraftAttachments.map((file) => (
+                <li key={file.id} className="client-department-file">
+                  {file.kind === "image" ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={file.url} alt="" />
+                  ) : (
+                    <span className="client-department-file-doc">PDF</span>
+                  )}
+                  <span className="client-department-file-name">{file.name}</span>
+                  <button
+                    type="button"
+                    className="client-department-file-remove"
+                    aria-label={`Remove ${file.name}`}
+                    onClick={() =>
+                      setDepartmentDraftAttachments((prev) =>
+                        prev.filter((item) => item.id !== file.id),
+                      )
+                    }
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="client-department-attach-actions">
+            <input
+              ref={departmentImageRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="sr-only"
+              id="department-attach-image"
+              onChange={(e) => void addDepartmentFiles(e.target.files)}
+            />
+            <input
+              ref={departmentDocRef}
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,.rtf,application/pdf,text/plain"
+              multiple
+              className="sr-only"
+              id="department-attach-doc"
+              onChange={(e) => void addDepartmentFiles(e.target.files)}
+            />
+            <label
+              htmlFor="department-attach-image"
+              className="client-department-file-btn"
+            >
+              Add images
+            </label>
+            <label
+              htmlFor="department-attach-doc"
+              className="client-department-file-btn"
+            >
+              Add documents
+            </label>
+            <button
+              type="submit"
+              className="btn-solid client-away-submit"
+              disabled={departmentSaving}
+            >
+              {departmentSaving ? "Saving…" : "Attach"}
+            </button>
+          </div>
+        </form>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
     <div className={`client-chat${embedded ? " is-embedded" : ""}`}>
       <div
@@ -1209,168 +1391,10 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                 </button>
               </form>
             )}
-            <div className="client-away-actions">
-              <button
-                type="button"
-                className="client-book-consult-btn"
-                onClick={() => void requestConsultation()}
-                disabled={sending}
-              >
-                Book in-person consultation
-              </button>
-              <div className="client-number-dropdown" ref={numberMenuRef}>
-                <button
-                  type="button"
-                  className="client-book-consult-btn client-number-dropdown-trigger"
-                  aria-haspopup="listbox"
-                  aria-expanded={numberMenuOpen}
-                  onClick={() => setNumberMenuOpen((open) => !open)}
-                >
-                  {selectedNumber != null
-                    ? `Department ${selectedNumber}`
-                    : "Departments"}
-                </button>
-                {numberMenuOpen ? (
-                  <ul className="client-number-dropdown-list" role="listbox">
-                    {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => {
-                      const department = currentDepartments(settings)[n - 1];
-                      const attached = departmentHasContent(department);
-                      return (
-                        <li
-                          key={n}
-                          role="none"
-                          className={n === 1 ? "client-number-row" : undefined}
-                        >
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={selectedNumber === n}
-                            className={
-                              [
-                                selectedNumber === n ? "is-selected" : "",
-                                attached ? "has-message" : "",
-                              ]
-                                .filter(Boolean)
-                                .join(" ") || undefined
-                            }
-                            onClick={() =>
-                              pickDepartment(n, () => setNumberMenuOpen(false))
-                            }
-                          >
-                            {n}
-                          </button>
-                          {n === 1 ? (
-                            <button
-                              type="button"
-                              className="client-promo-btn"
-                              onClick={() => void requestPromo()}
-                              disabled={sending}
-                            >
-                              Promo
-                            </button>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : null}
-              </div>
-            </div>
-            {selectedNumber != null ? (
-              <form
-                className="client-department-attach"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void attachDepartmentMessage();
-                }}
-              >
-                <label className="composer-field">
-                  <span className="sr-only">
-                    Message for department {selectedNumber}
-                  </span>
-                  <textarea
-                    value={departmentDraft}
-                    onChange={(e) => setDepartmentDraft(e.target.value)}
-                    placeholder={`Attach a message to department ${selectedNumber}…`}
-                    rows={3}
-                  />
-                </label>
-                {departmentDraftAttachments.length > 0 ? (
-                  <ul className="client-department-files">
-                    {departmentDraftAttachments.map((file) => (
-                      <li key={file.id} className="client-department-file">
-                        {file.kind === "image" ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={file.url} alt="" />
-                        ) : (
-                          <span className="client-department-file-doc">PDF</span>
-                        )}
-                        <span className="client-department-file-name">
-                          {file.name}
-                        </span>
-                        <button
-                          type="button"
-                          className="client-department-file-remove"
-                          aria-label={`Remove ${file.name}`}
-                          onClick={() =>
-                            setDepartmentDraftAttachments((prev) =>
-                              prev.filter((item) => item.id !== file.id),
-                            )
-                          }
-                        >
-                          ×
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                <div className="client-department-attach-actions">
-                  <input
-                    ref={departmentImageRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="sr-only"
-                    id="department-attach-image"
-                    onChange={(e) =>
-                      void addDepartmentFiles(e.target.files)
-                    }
-                  />
-                  <input
-                    ref={departmentDocRef}
-                    type="file"
-                    accept=".pdf,.doc,.docx,.txt,.rtf,application/pdf,text/plain"
-                    multiple
-                    className="sr-only"
-                    id="department-attach-doc"
-                    onChange={(e) =>
-                      void addDepartmentFiles(e.target.files)
-                    }
-                  />
-                  <label
-                    htmlFor="department-attach-image"
-                    className="client-department-file-btn"
-                  >
-                    Add images
-                  </label>
-                  <label
-                    htmlFor="department-attach-doc"
-                    className="client-department-file-btn"
-                  >
-                    Add documents
-                  </label>
-                  <button
-                    type="submit"
-                    className="btn-solid client-away-submit"
-                    disabled={departmentSaving}
-                  >
-                    {departmentSaving ? "Saving…" : "Attach"}
-                  </button>
-                </div>
-              </form>
-            ) : null}
           </div>
         ) : null}
+
+        {quickActions}
 
         {banners.length > 0 ? (
           <div className="client-chat-banners">
@@ -1390,8 +1414,14 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
           </div>
         }
       >
-        {thread.map((message) => {
+        {thread.map((message, index) => {
           const fromCustomer = message.from === "client";
+          const { role, continued } = messageCluster(thread, index);
+          const myEmojis = new Set(
+            (message.reactions ?? [])
+              .filter((r) => reactorKey(r) === "client")
+              .map((r) => r.emoji),
+          );
           const staffName =
             !fromCustomer
               ? message.fromName?.trim() ||
@@ -1404,8 +1434,27 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
           const specialties = isSpecialtiesMessage(message);
           const reconnect = isReconnectMessage(message);
           const reconnectPath = message.linkUrl || `/${slug}/c/${chatId}`;
+          const interactive = !specialties && !reconnect;
+          const actionsOpen = actionsFor === message.id;
           return (
-            <div key={message.id} className="chat-row">
+            <div
+              key={message.id}
+              className={`chat-row ${clusterClassName(role, continued)}${
+                actionsOpen ? " is-actions-open" : ""
+              }`}
+              data-message-id={message.id}
+              onClick={(e) => {
+                if (client?.chatEndedAt || !interactive) return;
+                const target = e.target;
+                if (!(target instanceof Element)) return;
+                if (target.closest("a, button, input, textarea, select")) {
+                  return;
+                }
+                setActionsFor((cur) =>
+                  cur === message.id ? null : message.id,
+                );
+              }}
+            >
               <div className="chat-row-main">
                 <article
                   className={`bubble bubble-${fromCustomer ? "business" : "client"} ${
@@ -1414,6 +1463,9 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                 >
                   {staffName ? (
                     <span className="bubble-speaker">{staffName}</span>
+                  ) : null}
+                  {message.replyTo ? (
+                    <MessageReplyQuote reply={message.replyTo} />
                   ) : null}
                   {specialties ? (
                     <div
@@ -1429,7 +1481,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                           setSpecialtiesMenuOpen((open) => !open)
                         }
                       >
-                        Specialties
+                        {message.body}
                       </button>
                       {specialtiesMenuOpen ? (
                         <ul
@@ -1549,7 +1601,21 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                       ) : null}
                     </>
                   )}
+                  <MessageReactions
+                    reactions={message.reactions}
+                    myEmojis={myEmojis}
+                    disabled={Boolean(client?.chatEndedAt)}
+                    onToggle={(emoji) => reactToMessage(message.id, emoji)}
+                  />
                 </article>
+                {interactive ? (
+                  <MessageActionBar
+                    align={fromCustomer ? "end" : "start"}
+                    disabled={Boolean(client?.chatEndedAt)}
+                    onReply={() => setReplyTo(buildReplyRef(message))}
+                    onReact={(emoji) => reactToMessage(message.id, emoji)}
+                  />
+                ) : null}
               </div>
               <time className="chat-row-time" dateTime={message.at}>
                 <span className="chat-row-time-inner">
@@ -1569,6 +1635,22 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
           </div>
         ) : (
           <form className="client-composer" onSubmit={(e) => void send(e)}>
+            {replyTo ? (
+              <div className="composer-reply" role="status">
+                <div className="composer-reply-body">
+                  <span className="composer-reply-label">Replying</span>
+                  <span className="composer-reply-text">{replyTo.preview}</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn-text icon-btn"
+                  onClick={() => setReplyTo(null)}
+                  aria-label="Cancel reply"
+                >
+                  <IconX size={14} />
+                </button>
+              </div>
+            ) : null}
             {thread.length === 0 ? (
               <label className="client-name-field">
                 <span className="sr-only">Your name</span>
@@ -1612,7 +1694,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                     setDraft(e.target.value);
                     if (sendError) setSendError(null);
                   }}
-                  placeholder="Message…"
+                  placeholder={replyTo ? "Write a reply…" : "Message…"}
                   autoFocus
                   disabled={sending}
                 />

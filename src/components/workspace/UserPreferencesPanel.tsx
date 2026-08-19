@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { FloorSettings, ProfileLink } from "@/lib/types";
+import { resolveChatIntroMessages } from "@/lib/chatIntroMessages";
 import {
   ACTIVE_CHAT_SOUND_OPTIONS,
   loadFloorPrefs,
@@ -14,13 +15,22 @@ import {
   type NewChatSound,
 } from "@/lib/floorPrefs";
 import { IconTrash, IconX } from "@/components/shared/Icons";
+import { ChatInterfaceSetupModal } from "./ChatInterfaceSetupModal";
+import { PreChatSetupModal } from "./PreChatSetupModal";
 
-export type PrefSection = "sounds" | "intro" | "links";
+export type PrefSection =
+  | "sounds"
+  | "intro"
+  | "links"
+  | "chat-interface"
+  | "pre-chat";
 
 export const PREF_SECTIONS: { id: PrefSection; label: string }[] = [
   { id: "sounds", label: "Sounds" },
   { id: "intro", label: "Intro" },
   { id: "links", label: "Links" },
+  { id: "chat-interface", label: "Chat interface" },
+  { id: "pre-chat", label: "Pre-chat page" },
 ];
 
 interface UserPreferencesPanelProps {
@@ -75,6 +85,22 @@ export function UserPreferencesPanel({
     onChangeSettings({ ...settings, ...partial });
   }
 
+  function patchIntroMessages(
+    partial: Partial<NonNullable<FloorSettings["chatIntroMessages"]>>,
+  ) {
+    patch({
+      chatIntroMessages: {
+        ...(settings.chatIntroMessages ?? {
+          welcome: "",
+          promoFollowUp: "",
+          specialtiesLabel: "Specialties",
+          reconnectCopy: "",
+        }),
+        ...partial,
+      },
+    });
+  }
+
   function addLink() {
     setLinkError(null);
     const label = linkLabel.trim();
@@ -120,6 +146,7 @@ export function UserPreferencesPanel({
   }
 
   const links = settings.profileLinks ?? [];
+  const chatIntro = resolveChatIntroMessages(settings);
   const showAll = variant === "modal";
   const show = (id: PrefSection) => showAll || section === id;
 
@@ -209,6 +236,73 @@ export function UserPreferencesPanel({
             />
           </label>
           <p className="editor-hint">{(settings.intro ?? "").length}/500</p>
+
+          <h3 className="prefs-subhead">Chat intro messages</h3>
+          <p className="floor-settings-help">
+            These are the first messages customers see when they open chat —
+            before they type anything.
+          </p>
+
+          <label className="floor-settings-note">
+            <span>Welcome message</span>
+            <textarea
+              rows={5}
+              value={chatIntro.welcome}
+              onChange={(e) =>
+                patchIntroMessages({ welcome: e.target.value.slice(0, 2000) })
+              }
+              placeholder="Greeting when a customer opens chat…"
+              maxLength={2000}
+            />
+          </label>
+          <p className="editor-hint">{chatIntro.welcome.length}/2000</p>
+
+          <label className="floor-settings-note">
+            <span>Promo follow-up</span>
+            <textarea
+              rows={2}
+              value={chatIntro.promoFollowUp}
+              onChange={(e) =>
+                patchIntroMessages({
+                  promoFollowUp: e.target.value.slice(0, 500),
+                })
+              }
+              placeholder="Shown right after the welcome…"
+              maxLength={500}
+            />
+          </label>
+          <p className="editor-hint">{chatIntro.promoFollowUp.length}/500</p>
+
+          <label className="floor-settings-note">
+            <span>Specialties button label</span>
+            <input
+              type="text"
+              value={chatIntro.specialtiesLabel}
+              onChange={(e) =>
+                patchIntroMessages({
+                  specialtiesLabel: e.target.value.slice(0, 40),
+                })
+              }
+              placeholder="Specialties"
+              maxLength={40}
+            />
+          </label>
+
+          <label className="floor-settings-note">
+            <span>Reconnect message</span>
+            <textarea
+              rows={2}
+              value={chatIntro.reconnectCopy}
+              onChange={(e) =>
+                patchIntroMessages({
+                  reconnectCopy: e.target.value.slice(0, 300),
+                })
+              }
+              placeholder="Copy above the unique chat return link…"
+              maxLength={300}
+            />
+          </label>
+          <p className="editor-hint">{chatIntro.reconnectCopy.length}/300</p>
         </section>
       ) : null}
 
@@ -282,6 +376,44 @@ export function UserPreferencesPanel({
             </div>
           ) : null}
           {linkError ? <p className="editor-error">{linkError}</p> : null}
+        </section>
+      ) : null}
+
+      {show("chat-interface") ? (
+        <section className="floor-settings-section">
+          {variant === "page" ? (
+            <h2 className="dashboard-panel-title">Set up chat interface</h2>
+          ) : (
+            <h3>Set up chat interface</h3>
+          )}
+          <p className="floor-settings-help">
+            Pick up to 6 photos. They appear as a carousel at the bottom of
+            customer chat as soon as it opens.
+          </p>
+          <ChatInterfaceSetupModal
+            variant="page"
+            settings={settings}
+            onChangeSettings={onChangeSettings}
+          />
+        </section>
+      ) : null}
+
+      {show("pre-chat") ? (
+        <section className="floor-settings-section">
+          {variant === "page" ? (
+            <h2 className="dashboard-panel-title">Edit pre-chat page</h2>
+          ) : (
+            <h3>Edit pre-chat page</h3>
+          )}
+          <p className="floor-settings-help">
+            This Linktree-style page is what people see at your public link
+            before they start a live chat.
+          </p>
+          <PreChatSetupModal
+            variant="page"
+            settings={settings}
+            onChangeSettings={onChangeSettings}
+          />
         </section>
       ) : null}
     </div>

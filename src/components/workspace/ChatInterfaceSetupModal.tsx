@@ -10,13 +10,15 @@ const MAX_IMAGES = 6;
 interface ChatInterfaceSetupModalProps {
   settings: FloorSettings;
   onChangeSettings: (settings: FloorSettings) => void;
-  onClose: () => void;
+  onClose?: () => void;
+  variant?: "modal" | "page";
 }
 
 export function ChatInterfaceSetupModal({
   settings,
   onChangeSettings,
   onClose,
+  variant = "modal",
 }: ChatInterfaceSetupModalProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -24,12 +26,13 @@ export function ChatInterfaceSetupModal({
   const images = settings.chatEndImages ?? [];
 
   useEffect(() => {
+    if (variant !== "modal" || !onClose) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onClose?.();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, variant]);
 
   function patchImages(next: string[]) {
     onChangeSettings({
@@ -71,6 +74,61 @@ export function ChatInterfaceSetupModal({
     patchImages(images.filter((_, i) => i !== index));
   }
 
+  const body = (
+    <div className="floor-settings-body chat-interface-body">
+      <div className="chat-interface-grid" role="list">
+        {images.map((url, index) => (
+          <div
+            key={`${index}-${url.slice(0, 24)}`}
+            className="chat-interface-slot is-filled"
+            role="listitem"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={url} alt={`Marketing photo ${index + 1}`} />
+            <button
+              type="button"
+              className="chat-interface-remove"
+              onClick={() => removeAt(index)}
+              aria-label={`Remove photo ${index + 1}`}
+            >
+              <IconX />
+            </button>
+          </div>
+        ))}
+        {images.length < MAX_IMAGES
+          ? Array.from({ length: MAX_IMAGES - images.length }).map((_, i) => (
+              <label
+                key={`empty-${i}`}
+                className={`chat-interface-slot is-empty ${busy ? "is-busy" : ""}`}
+                htmlFor="chat-interface-file"
+              >
+                <span>{busy ? "…" : "+"}</span>
+                <span className="chat-interface-slot-label">Add photo</span>
+              </label>
+            ))
+          : null}
+      </div>
+
+      <input
+        ref={fileRef}
+        id="chat-interface-file"
+        type="file"
+        accept="image/*"
+        multiple
+        className="sr-only"
+        disabled={busy || images.length >= MAX_IMAGES}
+        onChange={(e) => void onAddFiles(e.target.files)}
+      />
+
+      <p className="floor-settings-help">
+        {images.length}/{MAX_IMAGES} photos · under 4MB each
+      </p>
+      {error ? <p className="editor-error">{error}</p> : null}
+    </div>
+  );
+
+  if (variant === "page") return body;
+
   return (
     <div className="floor-settings-backdrop" onClick={onClose}>
       <div
@@ -98,57 +156,7 @@ export function ChatInterfaceSetupModal({
             <IconX />
           </button>
         </header>
-
-        <div className="floor-settings-body chat-interface-body">
-          <div className="chat-interface-grid" role="list">
-            {images.map((url, index) => (
-              <div
-                key={`${index}-${url.slice(0, 24)}`}
-                className="chat-interface-slot is-filled"
-                role="listitem"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt={`Marketing photo ${index + 1}`} />
-                <button
-                  type="button"
-                  className="chat-interface-remove"
-                  onClick={() => removeAt(index)}
-                  aria-label={`Remove photo ${index + 1}`}
-                >
-                  <IconX />
-                </button>
-              </div>
-            ))}
-            {images.length < MAX_IMAGES
-              ? Array.from({ length: MAX_IMAGES - images.length }).map((_, i) => (
-                  <label
-                    key={`empty-${i}`}
-                    className={`chat-interface-slot is-empty ${busy ? "is-busy" : ""}`}
-                    htmlFor="chat-interface-file"
-                  >
-                    <span>{busy ? "…" : "+"}</span>
-                    <span className="chat-interface-slot-label">Add photo</span>
-                  </label>
-                ))
-              : null}
-          </div>
-
-          <input
-            ref={fileRef}
-            id="chat-interface-file"
-            type="file"
-            accept="image/*"
-            multiple
-            className="sr-only"
-            disabled={busy || images.length >= MAX_IMAGES}
-            onChange={(e) => void onAddFiles(e.target.files)}
-          />
-
-          <p className="floor-settings-help">
-            {images.length}/{MAX_IMAGES} photos · under 4MB each
-          </p>
-          {error ? <p className="editor-error">{error}</p> : null}
-        </div>
+        {body}
       </div>
     </div>
   );

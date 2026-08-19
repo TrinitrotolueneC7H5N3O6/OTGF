@@ -21,9 +21,6 @@ interface WorkspaceTopBarProps {
   members: FloorMember[];
   floorMemberId: string;
   onChooseMember: (id: string) => void;
-  onOpenChatInterface?: () => void;
-  onOpenPreChat?: () => void;
-  chatEndImageCount?: number;
   /** Dashboard-only share tools */
   copied?: boolean;
   onCopyLink?: () => void;
@@ -40,9 +37,6 @@ export function WorkspaceTopBar({
   members,
   floorMemberId,
   onChooseMember,
-  onOpenChatInterface,
-  onOpenPreChat,
-  chatEndImageCount = 0,
   copied = false,
   onCopyLink,
   onOpenQr,
@@ -106,29 +100,6 @@ export function WorkspaceTopBar({
                   ))}
                 </select>
               </label>
-            ) : null}
-            {onOpenChatInterface ? (
-              <button
-                type="button"
-                className="chat-interface-setup-btn"
-                onClick={onOpenChatInterface}
-              >
-                Set up chat interface
-                {chatEndImageCount > 0 ? (
-                  <span className="chat-interface-setup-count" aria-hidden>
-                    {chatEndImageCount}
-                  </span>
-                ) : null}
-              </button>
-            ) : null}
-            {onOpenPreChat ? (
-              <button
-                type="button"
-                className="chat-interface-setup-btn"
-                onClick={onOpenPreChat}
-              >
-                Edit pre-chat page
-              </button>
             ) : null}
           </>
         ) : null}

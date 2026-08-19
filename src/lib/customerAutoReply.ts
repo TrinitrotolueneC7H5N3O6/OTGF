@@ -1,12 +1,17 @@
-import type { Message } from "./types";
-import { messageTimeStamp } from "./spaceNormalize";
+import type { ChatIntroMessages, Message } from "./types";
+import { resolveChatIntroMessages } from "./chatIntroMessages";
+import type { FloorSettings } from "./types";
+import { messageCreatedMs } from "./messageTime";
 
+/** @deprecated use resolveChatIntroMessages().welcome */
 export const CUSTOMER_AUTO_REPLY =
   "Hi! Thank you for contacting Plastic Surgery Company. Let us know what procedures you are interested in, along with inspiration pictures, and current images of yourself if applicable. Looking forward to hearing from you soon!";
 
+/** @deprecated use resolveChatIntroMessages().promoFollowUp */
 export const CUSTOMER_AUTO_FOLLOW_UP =
   "While your beauty is loading, have a look at your daily promotions";
 
+/** @deprecated use resolveChatIntroMessages().reconnectCopy */
 export const CUSTOMER_RECONNECT_COPY =
   "If you get disconnected, reopen this chat with your history:";
 
@@ -41,7 +46,7 @@ export function isReconnectMessage(message: Message) {
   return message.id.startsWith("m-auto-reconnect-");
 }
 
-function isOldWelcomeCopy(message: Message, clientId: string) {
+function isIntroMessage(message: Message, clientId: string) {
   if (message.clientId !== clientId || message.from !== "business") return false;
   if (
     message.id === autoReplyId(clientId) ||
@@ -53,7 +58,7 @@ function isOldWelcomeCopy(message: Message, clientId: string) {
   }
   const body = message.body.trim();
   return (
-    body.startsWith("Hi! Thank you for contacting Plastic Surgery Company") ||
+    body.startsWith("Hi! Thank you for contacting") ||
     body.startsWith("In the meanwhile, while your beauty is loading") ||
     body.startsWith("While your beauty is loading") ||
     message.kind === "specialties" ||
@@ -62,96 +67,48 @@ function isOldWelcomeCopy(message: Message, clientId: string) {
   );
 }
 
-function coreWelcomeMatch(
-  messages: Message[],
-  clientId: string,
-): boolean {
-  const auto = messages.find((m) => m.id === autoReplyId(clientId));
-  const promo = messages.find((m) => m.id === promoFollowUpId(clientId));
-  const specialties = messages.find((m) => m.id === specialtiesId(clientId));
-  return (
-    auto?.body === CUSTOMER_AUTO_REPLY &&
-    promo?.body === CUSTOMER_AUTO_FOLLOW_UP &&
-    Boolean(specialties && isSpecialtiesMessage(specialties))
+function sortMessagesByTime(messages: Message[]): Message[] {
+  return [...messages].sort(
+    (a, b) => (messageCreatedMs(a) ?? 0) - (messageCreatedMs(b) ?? 0),
   );
 }
 
-function welcomeMessagesMatch(
-  messages: Message[],
-  clientId: string,
-  slug: string,
-): boolean {
-  const reconnect = messages.find((m) => m.id === reconnectId(clientId));
-  return (
-    coreWelcomeMatch(messages, clientId) &&
-    reconnect?.kind === "text" &&
-    reconnect.body === CUSTOMER_RECONNECT_COPY &&
-    reconnect.linkUrl === reconnectChatPath(slug, clientId)
-  );
-}
-
-function offsetStamp(stamp: ReturnType<typeof messageTimeStamp>, ms: number) {
-  const createdAt = new Date(Date.parse(stamp.createdAt ?? "") + ms).toISOString();
+function messageStampAt(ms: number) {
+  const d = new Date(ms);
   return {
-    at: stamp.at,
-    createdAt: Number.isNaN(Date.parse(createdAt)) ? stamp.createdAt : createdAt,
+    at: d.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }),
+    createdAt: d.toISOString(),
   };
 }
 
-/** Attach (or replace) the first-message auto-replies for this chat. */
-export function ensureWelcomeMessages(
-  messages: Message[],
+function introAnchorMs(conversation: Message[]): number {
+  if (conversation.length === 0) return Date.now();
+  const earliest = Math.min(
+    ...conversation.map((m) => messageCreatedMs(m) ?? Date.now()),
+  );
+  return earliest - 10_000;
+}
+
+function buildIntroBlock(
   clientId: string,
   businessName: string,
   slug: string,
+  intro: ChatIntroMessages,
+  baseMs: number,
 ): Message[] {
-  if (welcomeMessagesMatch(messages, clientId, slug)) return messages;
-
-  const stamp = messageTimeStamp();
-  const reconnectMessage: Message = {
-    id: reconnectId(clientId),
-    clientId,
-    from: "business",
-    kind: "text",
-    body: CUSTOMER_RECONNECT_COPY,
-    linkUrl: reconnectChatPath(slug, clientId),
-    ...offsetStamp(stamp, 3),
-    fromName: businessName,
-  };
-
-  if (coreWelcomeMatch(messages, clientId)) {
-    const withoutReconnect = messages.filter(
-      (m) => m.id !== reconnectId(clientId),
-    );
-    const specialtiesIndex = withoutReconnect.findIndex(
-      (m) => m.id === specialtiesId(clientId),
-    );
-    if (specialtiesIndex >= 0) {
-      const specialties = withoutReconnect[specialtiesIndex];
-      const created = Date.parse(specialties.createdAt ?? "");
-      return [
-        ...withoutReconnect.slice(0, specialtiesIndex + 1),
-        {
-          ...reconnectMessage,
-          at: specialties.at,
-          createdAt: Number.isNaN(created)
-            ? specialties.createdAt
-            : new Date(created + 1).toISOString(),
-        },
-        ...withoutReconnect.slice(specialtiesIndex + 1),
-      ];
-    }
-  }
-
   return [
-    ...messages.filter((m) => !isOldWelcomeCopy(m, clientId)),
     {
       id: autoReplyId(clientId),
       clientId,
       from: "business",
       kind: "text",
-      body: CUSTOMER_AUTO_REPLY,
-      ...stamp,
+      body: intro.welcome,
+      ...messageStampAt(baseMs),
       fromName: businessName,
     },
     {
@@ -159,8 +116,8 @@ export function ensureWelcomeMessages(
       clientId,
       from: "business",
       kind: "text",
-      body: CUSTOMER_AUTO_FOLLOW_UP,
-      ...offsetStamp(stamp, 1),
+      body: intro.promoFollowUp,
+      ...messageStampAt(baseMs + 1),
       fromName: businessName,
     },
     {
@@ -168,12 +125,90 @@ export function ensureWelcomeMessages(
       clientId,
       from: "business",
       kind: "specialties",
-      body: "Specialties",
-      ...offsetStamp(stamp, 2),
+      body: intro.specialtiesLabel,
+      ...messageStampAt(baseMs + 2),
       fromName: businessName,
     },
-    reconnectMessage,
+    {
+      id: reconnectId(clientId),
+      clientId,
+      from: "business",
+      kind: "text",
+      body: intro.reconnectCopy,
+      linkUrl: reconnectChatPath(slug, clientId),
+      ...messageStampAt(baseMs + 3),
+      fromName: businessName,
+    },
   ];
+}
+
+function welcomeMessagesMatch(
+  messages: Message[],
+  clientId: string,
+  slug: string,
+  intro: ChatIntroMessages,
+): boolean {
+  const auto = messages.find((m) => m.id === autoReplyId(clientId));
+  const promo = messages.find((m) => m.id === promoFollowUpId(clientId));
+  const specialties = messages.find((m) => m.id === specialtiesId(clientId));
+  const reconnect = messages.find((m) => m.id === reconnectId(clientId));
+  return (
+    auto?.body === intro.welcome &&
+    promo?.body === intro.promoFollowUp &&
+    Boolean(
+      specialties &&
+        isSpecialtiesMessage(specialties) &&
+        specialties.body === intro.specialtiesLabel,
+    ) &&
+    reconnect?.kind === "text" &&
+    reconnect.body === intro.reconnectCopy &&
+    reconnect.linkUrl === reconnectChatPath(slug, clientId)
+  );
+}
+
+function introPrecedesConversation(
+  messages: Message[],
+  clientId: string,
+): boolean {
+  const sorted = sortMessagesByTime(messages);
+  const firstConv = sorted.find((m) => !isIntroMessage(m, clientId));
+  if (!firstConv) return true;
+  const lastIntro = [...sorted]
+    .reverse()
+    .find((m) => isIntroMessage(m, clientId));
+  if (!lastIntro) return true;
+  return (
+    (messageCreatedMs(lastIntro) ?? 0) < (messageCreatedMs(firstConv) ?? 0)
+  );
+}
+
+/** Ensure intro messages exist at the top of the thread, like normal chat history. */
+export function ensureWelcomeMessages(
+  messages: Message[],
+  clientId: string,
+  businessName: string,
+  slug: string,
+  intro: ChatIntroMessages,
+): Message[] {
+  const conversation = messages.filter((m) => !isIntroMessage(m, clientId));
+
+  if (
+    welcomeMessagesMatch(messages, clientId, slug, intro) &&
+    introPrecedesConversation(messages, clientId)
+  ) {
+    return sortMessagesByTime(messages);
+  }
+
+  const baseMs = introAnchorMs(conversation);
+  const introBlock = buildIntroBlock(
+    clientId,
+    businessName,
+    slug,
+    intro,
+    baseMs,
+  );
+
+  return sortMessagesByTime([...introBlock, ...conversation]);
 }
 
 export function appendCustomerMessageWithAutoReply(
@@ -182,17 +217,23 @@ export function appendCustomerMessageWithAutoReply(
   customerMessage: Message,
   businessName: string,
   slug: string,
+  intro: ChatIntroMessages,
 ): Message[] {
   const next = messages.some((m) => m.id === customerMessage.id)
     ? messages
     : [...messages, customerMessage];
-  return ensureWelcomeMessages(next, clientId, businessName, slug);
+  return ensureWelcomeMessages(next, clientId, businessName, slug, intro);
 }
 
-/** After any customer message exists, keep the welcome replies in that thread. */
+/** After any customer message exists, keep intro replies in that thread. */
 export function ensureWelcomeMessagesForSpace<
-  T extends { business: { name: string; slug: string }; messages: Message[] },
+  T extends {
+    business: { name: string; slug: string };
+    messages: Message[];
+    settings: FloorSettings;
+  },
 >(space: T): T {
+  const intro = resolveChatIntroMessages(space.settings);
   const clientIds = new Set(
     space.messages.filter((m) => m.from === "client").map((m) => m.clientId),
   );
@@ -203,8 +244,11 @@ export function ensureWelcomeMessagesForSpace<
       clientId,
       space.business.name,
       space.business.slug,
+      intro,
     );
   }
   if (messages === space.messages) return space;
   return { ...space, messages };
 }
+
+export { sortMessagesByTime };

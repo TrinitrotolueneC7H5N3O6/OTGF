@@ -3813,6 +3813,15 @@ a {
   align-items: start;
   column-gap: 0.35rem;
   width: 100%;
+  margin-top: 0.6rem;
+}
+
+.chat-row:first-child {
+  margin-top: 0;
+}
+
+.chat-row.is-continued {
+  margin-top: 0.25rem;
 }
 
 .client-chat-pane.is-times-visible .chat-row {
@@ -3926,7 +3935,7 @@ a {
   width: fit-content;
   position: relative;
   overflow: visible;
-  margin-top: 2px;
+  margin-top: 0.6rem;
 }
 
 /* Client chat rows stay full-width for the swipe-time column */
@@ -3974,9 +3983,9 @@ a {
   margin-top: 0;
 }
 
-/* Same person sending several in a row — stay close */
+/* Same person sending several in a row — stay closer */
 .msg-wrap.is-continued {
-  margin-top: 2px;
+  margin-top: 0.25rem;
 }
 
 .msg-wrap.is-theirs {
@@ -4037,7 +4046,9 @@ a {
 .msg-wrap:hover .msg-action-bar,
 .msg-wrap:focus-within .msg-action-bar,
 .msg-wrap.is-actions-open .msg-action-bar,
+.chat-row:hover .msg-action-bar,
 .chat-row-main:hover .msg-action-bar,
+.chat-row.is-actions-open .msg-action-bar,
 .chat-row-main:focus-within .msg-action-bar,
 .msg-action-bar:focus-within {
   opacity: 1;
@@ -4053,6 +4064,7 @@ a {
 
   .msg-wrap.is-actions-open .msg-action-bar,
   .msg-wrap:focus-within .msg-action-bar,
+  .chat-row.is-actions-open .msg-action-bar,
   .chat-row-main:focus-within .msg-action-bar,
   .msg-action-bar:focus-within {
     opacity: 1;
@@ -7025,6 +7037,12 @@ html:has(.otgf-embed-root) body {
   font-size: 0.75rem;
 }
 
+.prefs-subhead {
+  margin: 1.25rem 0 0.35rem;
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
 .floor-time-row input,
 .floor-settings-note input,
 .floor-settings-note textarea,
@@ -8189,6 +8207,22 @@ html.floor-lock .corner-tools {
   text-underline-offset: 0.12em;
   cursor: pointer;
   padding: 0;
+}
+
+.client-quick-actions {
+  margin: 0 0.85rem 0.45rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in oklab, var(--line) 85%, transparent);
+  background: var(--surface);
+  border-radius: 0.45rem;
+}
+
+.client-quick-actions .client-away-actions {
+  margin-top: 0;
+}
+
+.client-quick-actions .client-department-attach {
+  margin-top: 0.55rem;
 }
 
 .client-away-actions {

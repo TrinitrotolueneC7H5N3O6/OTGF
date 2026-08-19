@@ -14,6 +14,7 @@ import {
   ensureWelcomeMessages,
   ensureWelcomeMessagesForSpace,
 } from "./customerAutoReply";
+import { resolveChatIntroMessages } from "./chatIntroMessages";
 import { defaultCategories } from "./data";
 import { prisma, syncDbFromCookies } from "./db";
 import { emitSpaceEvent } from "./spaceEvents";
@@ -573,6 +574,7 @@ export async function dbAppendMessage(
 
     if (!duplicate && input.message.from === "client") {
       const doc = parseSpaceDoc(spaceRow.data);
+      const intro = resolveChatIntroMessages(doc.settings);
       const chat = await prisma.chat.findUnique({
         where: { spaceSlug_id: { spaceSlug: clean, id: nextClient.id } },
         select: { messagesData: true },
@@ -583,6 +585,7 @@ export async function dbAppendMessage(
         nextClient.id,
         doc.business.name,
         clean,
+        intro,
       );
       if (withWelcome !== currentMessages) {
         await upsertChatRow(clean, nextClient, sortMessages(withWelcome));

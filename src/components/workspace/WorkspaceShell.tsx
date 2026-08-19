@@ -45,10 +45,10 @@ import {
   noteIncomingMessages,
 } from "@/lib/chatLatency";
 import { parseSoloUrl } from "@/lib/messageLinks";
+import { ensureWelcomeMessages } from "@/lib/customerAutoReply";
+import { resolveChatIntroMessages } from "@/lib/chatIntroMessages";
 import { ClientRail } from "./ClientRail";
 import { WorkspaceTopBar } from "./WorkspaceTopBar";
-import { ChatInterfaceSetupModal } from "./ChatInterfaceSetupModal";
-import { PreChatSetupModal } from "./PreChatSetupModal";
 import { ThreadPane } from "./ThreadPane";
 import { RightPane, type RightTab } from "./RightPane";
 import { CornerTools } from "@/components/shared/CornerTools";
@@ -86,8 +86,6 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set());
   const [forwardCopied, setForwardCopied] = useState(false);
-  const [chatInterfaceOpen, setChatInterfaceOpen] = useState(false);
-  const [preChatOpen, setPreChatOpen] = useState(false);
   const localSentIds = useRef<Set<string>>(new Set());
   const opsInFlight = useRef(0);
   const soundPrimed = useRef(false);
@@ -408,10 +406,18 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     if (!active && activeId) setActiveId("");
   }, [active, activeId]);
 
-  const thread = useMemo(
-    () => messages.filter((m) => m.clientId === active?.id),
-    [messages, active?.id],
-  );
+  const thread = useMemo(() => {
+    if (!active?.id || !space) return [];
+    const stored = messages.filter((m) => m.clientId === active.id);
+    const intro = resolveChatIntroMessages(space.settings);
+    return ensureWelcomeMessages(
+      stored,
+      active.id,
+      space.business.name,
+      slug,
+      intro,
+    );
+  }, [messages, active?.id, space, slug]);
 
   function runOp(op: SpaceOp) {
     setSpace((current) =>
@@ -1005,9 +1011,6 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
         members={members}
         floorMemberId={floorMemberId}
         onChooseMember={chooseFloorMember}
-        onOpenChatInterface={() => setChatInterfaceOpen(true)}
-        onOpenPreChat={() => setPreChatOpen(true)}
-        chatEndImageCount={space.settings.chatEndImages?.length ?? 0}
       />
 
       <div className="workspace-grid">
@@ -1150,25 +1153,6 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
           </button>
         ))}
       </nav>
-
-      {chatInterfaceOpen ? (
-        <ChatInterfaceSetupModal
-          settings={{
-            ...space.settings,
-            chatEndImages: space.settings.chatEndImages ?? [],
-          }}
-          onChangeSettings={updateSettings}
-          onClose={() => setChatInterfaceOpen(false)}
-        />
-      ) : null}
-
-      {preChatOpen ? (
-        <PreChatSetupModal
-          settings={space.settings}
-          onChangeSettings={updateSettings}
-          onClose={() => setPreChatOpen(false)}
-        />
-      ) : null}
 
       <CornerTools />
     </div>

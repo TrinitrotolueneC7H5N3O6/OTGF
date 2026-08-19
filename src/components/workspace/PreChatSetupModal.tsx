@@ -15,13 +15,15 @@ const KIND_OPTIONS: { id: PreChatLinkKind; label: string }[] = [
 interface PreChatSetupModalProps {
   settings: FloorSettings;
   onChangeSettings: (settings: FloorSettings) => void;
-  onClose: () => void;
+  onClose?: () => void;
+  variant?: "modal" | "page";
 }
 
 export function PreChatSetupModal({
   settings,
   onChangeSettings,
   onClose,
+  variant = "modal",
 }: PreChatSetupModalProps) {
   const page = settings.preChat ?? defaultPreChat();
   const [headline, setHeadline] = useState(page.headline);
@@ -29,12 +31,13 @@ export function PreChatSetupModal({
   const [links, setLinks] = useState<PreChatLink[]>(page.links);
 
   useEffect(() => {
+    if (variant !== "modal" || !onClose) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onClose?.();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, variant]);
 
   function persist(next: {
     headline?: string;
@@ -88,6 +91,153 @@ export function PreChatSetupModal({
     persist({ links: next });
   }
 
+  const body = (
+    <div className="floor-settings-body pre-chat-editor">
+      <label className="floor-settings-note">
+        <span>Headline</span>
+        <input
+          value={headline}
+          onChange={(e) => persist({ headline: e.target.value })}
+          placeholder="Business name"
+        />
+      </label>
+      <label className="floor-settings-note">
+        <span>Bio</span>
+        <textarea
+          value={bio}
+          onChange={(e) => persist({ bio: e.target.value })}
+          placeholder="A short line about the business"
+          rows={3}
+        />
+      </label>
+
+      <label className="floor-settings-note">
+        <span>Phone number</span>
+        <input
+          type="tel"
+          value={links.find((link) => link.kind === "call")?.href ?? ""}
+          onChange={(e) => {
+            const phone = e.target.value;
+            const existing = links.find((link) => link.kind === "call");
+            if (existing) {
+              patchLink(existing.id, { href: phone });
+              return;
+            }
+            persist({
+              links: [
+                {
+                  id: "pre-call",
+                  kind: "call",
+                  label: "Call Us",
+                  enabled: true,
+                  href: phone,
+                },
+                ...links,
+              ],
+            });
+          }}
+          placeholder={DEFAULT_CALL_PHONE}
+          autoComplete="tel"
+        />
+      </label>
+
+      <div className="pre-chat-editor-links">
+        <div className="pre-chat-editor-links-head">
+          <h3>Buttons</h3>
+          <button type="button" className="btn-ghost" onClick={addLink}>
+            Add button
+          </button>
+        </div>
+        {links.map((link, index) => (
+          <div key={link.id} className="pre-chat-editor-row">
+            <label className="pre-chat-editor-enabled">
+              <input
+                type="checkbox"
+                checked={link.enabled}
+                onChange={(e) =>
+                  patchLink(link.id, { enabled: e.target.checked })
+                }
+              />
+              <span className="sr-only">Show {link.label}</span>
+            </label>
+            <input
+              className="pre-chat-editor-label"
+              value={link.label}
+              onChange={(e) => patchLink(link.id, { label: e.target.value })}
+              placeholder="Label"
+            />
+            <select
+              value={link.kind}
+              onChange={(e) =>
+                patchLink(link.id, {
+                  kind: e.target.value as PreChatLinkKind,
+                })
+              }
+            >
+              {KIND_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {link.kind === "chat" ? (
+              <p className="pre-chat-editor-hint">Opens live chat</p>
+            ) : link.kind === "call" ? (
+              <p className="pre-chat-editor-hint">Uses phone number above</p>
+            ) : (
+              <input
+                value={link.href ?? ""}
+                onChange={(e) => patchLink(link.id, { href: e.target.value })}
+                placeholder={
+                  link.kind === "email" ? "hello@email.com" : "https://"
+                }
+              />
+            )}
+            <div className="pre-chat-editor-move">
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => moveLink(index, -1)}
+                disabled={index === 0}
+                aria-label="Move up"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => moveLink(index, 1)}
+                disabled={index === links.length - 1}
+                aria-label="Move down"
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                className="btn-ghost icon-btn"
+                onClick={() =>
+                  persist({
+                    links: links.filter((item) => item.id !== link.id),
+                  })
+                }
+                aria-label={`Remove ${link.label}`}
+              >
+                <IconTrash />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="floor-settings-help">
+        Call Us stays hidden on the public page until you add a phone number.
+        Email and link buttons also need a value. Logo and banner come from
+        Brand settings.
+      </p>
+    </div>
+  );
+
+  if (variant === "page") return body;
+
   return (
     <div className="floor-settings-backdrop" onClick={onClose}>
       <div
@@ -115,149 +265,7 @@ export function PreChatSetupModal({
             <IconX />
           </button>
         </header>
-
-        <div className="floor-settings-body pre-chat-editor">
-          <label className="floor-settings-note">
-            <span>Headline</span>
-            <input
-              value={headline}
-              onChange={(e) => persist({ headline: e.target.value })}
-              placeholder="Business name"
-            />
-          </label>
-          <label className="floor-settings-note">
-            <span>Bio</span>
-            <textarea
-              value={bio}
-              onChange={(e) => persist({ bio: e.target.value })}
-              placeholder="A short line about the business"
-              rows={3}
-            />
-          </label>
-
-          <label className="floor-settings-note">
-            <span>Phone number</span>
-            <input
-              type="tel"
-              value={links.find((link) => link.kind === "call")?.href ?? ""}
-              onChange={(e) => {
-                const phone = e.target.value;
-                const existing = links.find((link) => link.kind === "call");
-                if (existing) {
-                  patchLink(existing.id, { href: phone });
-                  return;
-                }
-                persist({
-                  links: [
-                    {
-                      id: "pre-call",
-                      kind: "call",
-                      label: "Call Us",
-                      enabled: true,
-                      href: phone,
-                    },
-                    ...links,
-                  ],
-                });
-              }}
-              placeholder={DEFAULT_CALL_PHONE}
-              autoComplete="tel"
-            />
-          </label>
-
-          <div className="pre-chat-editor-links">
-            <div className="pre-chat-editor-links-head">
-              <h3>Buttons</h3>
-              <button type="button" className="btn-ghost" onClick={addLink}>
-                Add button
-              </button>
-            </div>
-            {links.map((link, index) => (
-              <div key={link.id} className="pre-chat-editor-row">
-                <label className="pre-chat-editor-enabled">
-                  <input
-                    type="checkbox"
-                    checked={link.enabled}
-                    onChange={(e) =>
-                      patchLink(link.id, { enabled: e.target.checked })
-                    }
-                  />
-                  <span className="sr-only">Show {link.label}</span>
-                </label>
-                <input
-                  className="pre-chat-editor-label"
-                  value={link.label}
-                  onChange={(e) => patchLink(link.id, { label: e.target.value })}
-                  placeholder="Label"
-                />
-                <select
-                  value={link.kind}
-                  onChange={(e) =>
-                    patchLink(link.id, {
-                      kind: e.target.value as PreChatLinkKind,
-                    })
-                  }
-                >
-                  {KIND_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                {link.kind === "chat" ? (
-                  <p className="pre-chat-editor-hint">Opens live chat</p>
-                ) : link.kind === "call" ? (
-                  <p className="pre-chat-editor-hint">Uses phone number above</p>
-                ) : (
-                  <input
-                    value={link.href ?? ""}
-                    onChange={(e) => patchLink(link.id, { href: e.target.value })}
-                    placeholder={
-                      link.kind === "email" ? "hello@email.com" : "https://"
-                    }
-                  />
-                )}
-                <div className="pre-chat-editor-move">
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    onClick={() => moveLink(index, -1)}
-                    disabled={index === 0}
-                    aria-label="Move up"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    onClick={() => moveLink(index, 1)}
-                    disabled={index === links.length - 1}
-                    aria-label="Move down"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost icon-btn"
-                    onClick={() =>
-                      persist({
-                        links: links.filter((item) => item.id !== link.id),
-                      })
-                    }
-                    aria-label={`Remove ${link.label}`}
-                  >
-                    <IconTrash />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="floor-settings-help">
-            Call Us stays hidden on the public page until you add a phone
-            number. Email and link buttons also need a value. Logo and banner
-            come from Brand settings.
-          </p>
-        </div>
+        {body}
       </div>
     </div>
   );

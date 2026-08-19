@@ -26,6 +26,10 @@ import type {
 import { defaultCategories, ensureInboxCategory, legacyDefaultArtifactIds } from "./data";
 import { newerPresentAt } from "./presence";
 import { clampArtifactMeta } from "./artifactMeta";
+import {
+  defaultChatIntroMessages,
+  normalizeChatIntroMessages,
+} from "./chatIntroMessages";
 
 const WEEKDAYS: Weekday[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -97,6 +101,7 @@ export function defaultFloorSettings(): FloorSettings {
     logoUrl: undefined,
     intro: "",
     profileLinks: [],
+    chatIntroMessages: defaultChatIntroMessages(),
     chatEndImages: [],
     notifyEmails: [],
     assistBehavior: "",
@@ -524,6 +529,7 @@ export function normalizeFloorSettings(
         ? settings.intro.trim().slice(0, 500)
         : "",
     profileLinks: normalizeProfileLinks(settings.profileLinks),
+    chatIntroMessages: normalizeChatIntroMessages(settings.chatIntroMessages),
     notifyEmails: normalizeNotifyEmails(settings.notifyEmails),
     assistBehavior:
       typeof settings.assistBehavior === "string"

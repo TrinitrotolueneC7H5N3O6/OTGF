@@ -217,6 +217,18 @@ export interface ProfileLink {
   url: string;
 }
 
+/** Auto-messages shown at the top of a new customer chat thread */
+export interface ChatIntroMessages {
+  /** First greeting when a customer opens chat */
+  welcome: string;
+  /** Shown after the greeting */
+  promoFollowUp: string;
+  /** Label on the specialties picker button */
+  specialtiesLabel: string;
+  /** Copy above the unique chat return link */
+  reconnectCopy: string;
+}
+
 export interface FloorSettings {
   /** Business is currently available for live replies */
   live: boolean;
@@ -238,6 +250,8 @@ export interface FloorSettings {
   intro: string;
   /** Optional links under the intro (Instagram, booking, etc.) */
   profileLinks: ProfileLink[];
+  /** Default messages customers see when they open chat */
+  chatIntroMessages: ChatIntroMessages;
   /**
    * Up to 6 marketing photos shown at the end of customer chat
    * after the floor ends the conversation.
