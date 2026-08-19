@@ -10,6 +10,10 @@ import {
 } from "./spaceNormalize";
 import { newerPresentAt } from "./presence";
 import { messageCreatedMs } from "./messageTime";
+import {
+  ensureWelcomeMessages,
+  ensureWelcomeMessagesForSpace,
+} from "./customerAutoReply";
 import { defaultCategories } from "./data";
 import { prisma, syncDbFromCookies } from "./db";
 import { emitSpaceEvent } from "./spaceEvents";
@@ -566,6 +570,25 @@ export async function dbAppendMessage(
       input.client,
       input.message,
     );
+
+    if (!duplicate && input.message.from === "client") {
+      const doc = parseSpaceDoc(spaceRow.data);
+      const chat = await prisma.chat.findUnique({
+        where: { spaceSlug_id: { spaceSlug: clean, id: nextClient.id } },
+        select: { messagesData: true },
+      });
+      const currentMessages = parseMessages(chat?.messagesData);
+      const withWelcome = ensureWelcomeMessages(
+        currentMessages,
+        nextClient.id,
+        doc.business.name,
+        clean,
+      );
+      if (withWelcome !== currentMessages) {
+        await upsertChatRow(clean, nextClient, sortMessages(withWelcome));
+      }
+    }
+
     if (duplicate) {
       const meta = await dbGetSpaceMeta(clean);
       return {
@@ -694,7 +717,7 @@ export async function dbApplySpaceOp(
 export async function dbSaveSpace(space: BusinessSpace): Promise<BusinessSpace> {
   const clean = slugify(space.business.slug);
   return withSpaceLock(clean, async () => {
-    const normalized = normalizeSpace(space);
+    const normalized = ensureWelcomeMessagesForSpace(normalizeSpace(space));
     const { clients, messages, deletedClientIds: _d, ...doc } = normalized;
 
     await prisma.space.upsert({
@@ -715,10 +738,30 @@ export async function dbSaveSpace(space: BusinessSpace): Promise<BusinessSpace> 
       messagesByClient.set(message.clientId, list);
     }
 
+    const clientIds = clients
+      .filter((client) => !(normalized.deletedClientIds ?? []).includes(client.id))
+      .map((client) => client.id);
+    const existingRows = clientIds.length
+      ? await prisma.chat.findMany({
+          where: { spaceSlug: clean, id: { in: clientIds } },
+          select: { id: true, messagesData: true },
+        })
+      : [];
+    const existingById = new Map(
+      existingRows.map((row) => [row.id, parseMessages(row.messagesData)]),
+    );
+
     for (const client of clients) {
       if ((normalized.deletedClientIds ?? []).includes(client.id)) continue;
-      const clientMessages = sortMessages(messagesByClient.get(client.id) ?? []);
-      await upsertChatRow(clean, client, clientMessages);
+      const incoming = messagesByClient.get(client.id) ?? [];
+      if (incoming.length === 0) {
+        await upsertChatRow(clean, client);
+        continue;
+      }
+      const existing = existingById.get(client.id) ?? [];
+      const byId = new Map(existing.map((message) => [message.id, message]));
+      for (const message of incoming) byId.set(message.id, message);
+      await upsertChatRow(clean, client, sortMessages([...byId.values()]));
     }
 
     return (await dbGetSpace(clean)) ?? normalized;

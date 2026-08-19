@@ -7,7 +7,8 @@ export type MessageKind =
   | "link"
   | "item"
   | "receipt"
-  | "system";
+  | "system"
+  | "specialties";
 
 export type Trade = "salon" | "hair" | "food";
 
@@ -237,6 +238,11 @@ export interface FloorSettings {
   intro: string;
   /** Optional links under the intro (Instagram, booking, etc.) */
   profileLinks: ProfileLink[];
+  /**
+   * Up to 6 marketing photos shown at the end of customer chat
+   * after the floor ends the conversation.
+   */
+  chatEndImages?: string[];
   /** Emails that receive floor notifications */
   notifyEmails: string[];
   /** Custom instructions for AI Assist tone / behavior */
@@ -246,6 +252,40 @@ export interface FloorSettings {
    * Tool chips (Assist / Artifacts / Receipt) stay fixed in the UI.
    */
   shortcuts: ComposerShortcut[];
+  /** Attached customer-chat messages for Departments 1–20 */
+  departmentMessages?: string[];
+  /** Rich department content (message + files) for Departments 1–20 */
+  departments?: DepartmentContent[];
+  /** Linktree-style page shown at /{slug} before live chat */
+  preChat?: PreChatPage;
+}
+export interface DepartmentAttachment {
+  id: string;
+  kind: "image" | "document";
+  name: string;
+  url: string;
+}
+
+export interface DepartmentContent {
+  message: string;
+  attachments: DepartmentAttachment[];
+}
+
+export type PreChatLinkKind = "chat" | "call" | "url" | "email";
+
+export interface PreChatLink {
+  id: string;
+  kind: PreChatLinkKind;
+  label: string;
+  enabled: boolean;
+  /** Phone, URL, or email depending on kind */
+  href?: string;
+}
+
+export interface PreChatPage {
+  headline: string;
+  bio: string;
+  links: PreChatLink[];
 }
 
 /** One-tap chips above the floor composer */

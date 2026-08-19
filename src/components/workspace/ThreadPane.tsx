@@ -31,6 +31,7 @@ import { MessageBodyText } from "@/components/shared/MessageBodyText";
 import { ComposerTextarea } from "@/components/shared/ComposerTextarea";
 import { ScrollToBottomButton } from "@/components/shared/ScrollToBottomButton";
 import { ChatSystemLine } from "@/components/shared/ChatSystemLine";
+import { isReconnectMessage } from "@/lib/customerAutoReply";
 import { ArtifactThumb } from "./ArtifactThumb";
 import type { RightTab } from "./RightPane";
 import {
@@ -444,6 +445,15 @@ export function ThreadPane({
                       receipt={message.receipt}
                       linkUrl={message.linkUrl}
                     />
+                  ) : isReconnectMessage(message) ? (
+                    <div className="client-reconnect">
+                      <p>{message.body}</p>
+                      {message.linkUrl ? (
+                        <a className="client-reconnect-link" href={message.linkUrl}>
+                          {message.linkUrl}
+                        </a>
+                      ) : null}
+                    </div>
                   ) : (
                     <>
                       <MessageMedia message={message} />

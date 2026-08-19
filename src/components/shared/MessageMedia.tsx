@@ -284,10 +284,17 @@ export function MessageMedia({ message }: MessageMediaProps) {
   }
 
   if (message.kind === "link" && message.linkUrl) {
+    const label = message.body.trim() || "Document";
+    const download = message.linkUrl.startsWith("data:") ? label : undefined;
     return (
-      <div className="bubble-link">
-        <a href={message.linkUrl} target="_blank" rel="noreferrer">
-          {message.linkUrl}
+      <div className="bubble-file">
+        <a
+          href={message.linkUrl}
+          target="_blank"
+          rel="noreferrer"
+          download={download}
+        >
+          {label}
         </a>
       </div>
     );

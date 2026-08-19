@@ -980,7 +980,7 @@ a {
 .url-bar button,
 .composer-send,
 .library-actions button:not(.library-send-btn):not(.btn-text),
-.floor-share button:not(.btn-ghost):not(.floor-live-btn):not(.icon-btn) {
+.floor-share button:not(.btn-ghost):not(.floor-live-btn):not(.icon-btn):not(.chat-interface-setup-btn) {
   border: none;
   background: var(--send);
   color: #fff;
@@ -999,7 +999,7 @@ a {
 .url-bar button:hover,
 .composer-send:hover,
 .library-actions button:not(.library-send-btn):not(.btn-text):hover,
-.floor-share button:not(.btn-ghost):not(.floor-live-btn):not(.icon-btn):hover {
+.floor-share button:not(.btn-ghost):not(.floor-live-btn):not(.icon-btn):not(.chat-interface-setup-btn):hover {
   background: #2a2e36;
 }
 
@@ -1581,7 +1581,7 @@ a {
   white-space: nowrap;
 }
 
-.floor-share button:not(.btn-ghost):not(.floor-live-btn),
+.floor-share button:not(.btn-ghost):not(.floor-live-btn):not(.chat-interface-setup-btn),
 .floor-preview {
   padding: 0.38rem 0.7rem;
   font-size: 0.8rem;
@@ -7997,4 +7997,809 @@ html.floor-lock .corner-tools {
 .bubble.is-failed {
   outline: 1px solid #c44;
   opacity: 0.85;
+}
+
+/* ——— Chat / pre-chat UI from A_frontend_edits ——— */
+
+.chat-interface-setup-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid color-mix(in oklab, var(--line) 90%, transparent);
+  background: color-mix(in oklab, var(--surface) 92%, var(--bg));
+  color: var(--ink);
+  border-radius: 0.55rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--ink) 4%, transparent);
+}
+
+.chat-interface-setup-btn:hover {
+  background: var(--surface);
+  border-color: color-mix(in oklab, var(--ink) 18%, transparent);
+}
+
+.chat-interface-setup-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ink) 88%, transparent);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.chat-interface-modal {
+  width: min(28rem, calc(100vw - 2rem));
+  height: auto;
+  max-height: min(34rem, calc(100dvh - 2rem));
+}
+
+.chat-interface-body {
+  padding-bottom: 1.15rem;
+}
+
+.chat-interface-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.chat-interface-slot {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.chat-interface-slot.is-filled img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-interface-slot.is-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  cursor: pointer;
+  color: var(--muted);
+  border-style: dashed;
+  user-select: none;
+}
+
+.chat-interface-slot.is-empty:hover {
+  color: var(--ink);
+  border-color: color-mix(in oklab, var(--ink) 28%, transparent);
+  background: color-mix(in oklab, var(--surface) 70%, var(--bg));
+}
+
+.chat-interface-slot.is-empty > span:first-child {
+  font-size: 1.35rem;
+  line-height: 1;
+  font-weight: 500;
+}
+
+.chat-interface-slot-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.chat-interface-slot.is-busy {
+  pointer-events: none;
+  opacity: 0.65;
+}
+
+.chat-interface-remove {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(20, 22, 26, 0.72);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.chat-interface-remove:hover {
+  background: rgba(20, 22, 26, 0.9);
+}
+
+.chat-interface-remove svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.client-away-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.client-away-panel {
+  margin: 0 0.85rem 0.45rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #e2c28a;
+  background: #fff6e5;
+  border-radius: 0.45rem;
+}
+
+.client-away-copy {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.client-away-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.client-away-submit {
+  padding: 0.55rem 0.75rem;
+  font-size: 0.82rem;
+  border-radius: 0.7rem;
+  white-space: nowrap;
+}
+
+.client-away-saved {
+  margin: 0.4rem 0 0;
+  color: #5c4a1f;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.client-away-edit {
+  margin-left: 0.45rem;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+  cursor: pointer;
+  padding: 0;
+}
+
+.client-away-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+}
+
+.client-book-consult-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0;
+  padding: 0.6rem 0.55rem;
+  border: 1px solid color-mix(in oklab, var(--ink) 18%, transparent);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+
+.client-book-consult-btn:hover {
+  background: color-mix(in oklab, var(--surface) 70%, #fff6e5);
+  border-color: color-mix(in oklab, var(--ink) 28%, transparent);
+}
+
+.client-book-consult-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.client-number-dropdown {
+  position: relative;
+  min-width: 0;
+}
+
+.client-number-dropdown-trigger {
+  min-height: 100%;
+}
+
+.client-number-dropdown-list {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 14rem;
+  margin: 0;
+  padding: 0.2rem;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid color-mix(in oklab, var(--ink) 18%, transparent);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  box-shadow: 0 8px 24px color-mix(in oklab, var(--ink) 12%, transparent);
+}
+
+.client-number-dropdown-list button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.35rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.client-number-dropdown-list button:hover,
+.client-number-dropdown-list button.is-selected {
+  background: color-mix(in oklab, var(--surface) 70%, #fff6e5);
+}
+
+.client-number-dropdown-list button.has-message {
+  font-weight: 750;
+}
+
+.client-number-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem;
+  align-items: stretch;
+}
+
+.client-promo-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: color-mix(in oklab, var(--surface) 55%, #fff6e5);
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.client-promo-btn:hover {
+  background: color-mix(in oklab, var(--surface) 30%, #fff6e5);
+}
+
+.client-promo-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.client-specialties-dropdown {
+  width: 100%;
+}
+
+.client-specialties-dropdown .client-number-dropdown-list {
+  position: relative;
+  top: 0.35rem;
+  max-height: 16rem;
+  box-shadow: none;
+}
+
+.client-reconnect {
+  display: grid;
+  gap: 0.4rem;
+  text-align: left;
+}
+
+.client-reconnect p {
+  margin: 0;
+  line-height: 1.4;
+  font-size: 0.88rem;
+}
+
+.client-reconnect-link {
+  display: block;
+  color: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.client-reconnect-copy {
+  justify-self: start;
+  margin: 0;
+  padding: 0.15rem 0 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 750;
+  cursor: pointer;
+  opacity: 0.78;
+}
+
+.client-reconnect-copy:hover {
+  text-decoration: underline;
+  opacity: 1;
+}
+
+.client-reconnect-form {
+  margin-top: 0.15rem;
+}
+
+.client-reconnect-form input {
+  min-width: 0;
+}
+
+.client-reconnect-sent {
+  margin: 0.1rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.client-reconnect-sent .client-away-edit {
+  margin-left: 0.35rem;
+}
+
+.client-department-attach {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.client-department-attach textarea {
+  width: 100%;
+  min-height: 4.2rem;
+  resize: vertical;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid color-mix(in oklab, var(--ink) 18%, transparent);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.client-department-attach textarea:focus {
+  outline: 2px solid color-mix(in oklab, var(--ink) 28%, transparent);
+  outline-offset: 1px;
+}
+
+.client-department-attach .client-away-submit {
+  justify-self: end;
+}
+
+.client-department-files {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.client-department-file {
+  display: grid;
+  grid-template-columns: 2rem 1fr auto;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid color-mix(in oklab, var(--ink) 14%, transparent);
+  border-radius: 0.55rem;
+  background: var(--surface);
+}
+
+.client-department-file img,
+.client-department-file-doc {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.35rem;
+  object-fit: cover;
+}
+
+.client-department-file-doc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklab, var(--surface) 70%, #fff6e5);
+  color: var(--ink);
+  font-size: 0.58rem;
+  font-weight: 750;
+}
+
+.client-department-file-name {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-department-file-remove {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.client-department-attach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.client-department-file-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid color-mix(in oklab, var(--ink) 18%, transparent);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.client-department-file-btn:hover {
+  background: color-mix(in oklab, var(--surface) 70%, #fff6e5);
+}
+
+.client-department-attach-actions .client-away-submit {
+  margin-left: auto;
+}
+
+.bubble-file {
+  margin: 0 0 0.35rem;
+}
+
+.bubble-file a {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--surface) 70%, #fff6e5);
+  color: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.bubble-file a:hover {
+  text-decoration: underline;
+}
+
+.client-chat-end-wrap {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-top: 1px solid color-mix(in oklab, var(--line) 85%, transparent);
+  background: var(--surface);
+}
+
+.client-chat-end-wrap .client-composer,
+.client-chat-end-wrap .client-composer-ended {
+  border-top: none;
+}
+
+.client-chat-carousel {
+  padding: 0.65rem 0.75rem 0.45rem;
+  background: color-mix(in oklab, var(--bg) 55%, var(--surface));
+}
+
+.client-chat-carousel-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 9.5rem;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid color-mix(in oklab, var(--line) 80%, transparent);
+}
+
+.client-chat-carousel-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: scale(1.02);
+  transition:
+    opacity 0.45s ease,
+    transform 0.45s ease;
+  pointer-events: none;
+}
+
+.client-chat-carousel-slide.is-active {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.client-chat-carousel-slide img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.client-chat-carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.client-chat-carousel-dots button {
+  width: 0.45rem;
+  height: 0.45rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ink) 18%, transparent);
+  cursor: pointer;
+}
+
+.client-chat-carousel-dots button.is-active {
+  background: color-mix(in oklab, var(--ink) 72%, transparent);
+  width: 0.85rem;
+}
+
+.client-send-error {
+  margin: 0;
+  padding: 0.35rem 0.15rem 0;
+  color: #be123c;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.composer-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ——— Pre-chat (Linktree) ——— */
+
+.pre-chat {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 1.15rem 3rem;
+  background: var(--bg);
+}
+
+.pre-chat.has-banner {
+  justify-content: flex-start;
+  padding-top: 0;
+}
+
+.pre-chat-banner {
+  width: min(26rem, 100%);
+  height: 10rem;
+  overflow: hidden;
+  border-radius: 0 0 1.4rem 1.4rem;
+  background: var(--accent-soft);
+}
+
+.pre-chat-banner img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pre-chat-card {
+  width: min(24rem, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 1.5rem 0.15rem 0;
+  text-align: center;
+}
+
+.pre-chat.has-banner .pre-chat-card {
+  margin-top: -2.4rem;
+}
+
+.pre-chat-logo {
+  width: 5.2rem;
+  height: 5.2rem;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 3px solid var(--surface);
+  background: var(--surface);
+  box-shadow: var(--shadow-pane);
+}
+
+.pre-chat-logo.is-fallback {
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.pre-chat-card h1 {
+  margin: 0.2rem 0 0;
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.pre-chat-bio {
+  margin: 0;
+  max-width: 22rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.pre-chat-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  width: 100%;
+  margin-top: 0.85rem;
+}
+
+.pre-chat-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 3.05rem;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ink) 14%, transparent);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+}
+
+.pre-chat-link.is-chat {
+  gap: 0.15rem;
+  padding-top: 0.7rem;
+  padding-bottom: 0.65rem;
+}
+
+.pre-chat-link-label {
+  line-height: 1.2;
+}
+
+.pre-chat-link-meta {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.pre-chat-link:hover {
+  background: color-mix(in oklab, var(--surface) 70%, #fff);
+  border-color: color-mix(in oklab, var(--ink) 28%, transparent);
+}
+
+.pre-chat-modal {
+  width: min(40rem, calc(100vw - 2rem));
+  height: min(40rem, calc(100dvh - 2rem));
+}
+
+.pre-chat-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.pre-chat-editor-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.pre-chat-editor-links-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.pre-chat-editor-links-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.pre-chat-editor-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 7.2rem minmax(0, 1.2fr) auto;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--bg);
+}
+
+.pre-chat-editor-enabled {
+  display: flex;
+  align-items: center;
+}
+
+.pre-chat-editor-row input,
+.pre-chat-editor-row select {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 0.45rem;
+  padding: 0.4rem 0.5rem;
+  font: inherit;
+  font-size: 0.8rem;
+  width: 100%;
+}
+
+.pre-chat-editor-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.pre-chat-editor-move {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.pre-chat-editor-move .btn-ghost {
+  padding: 0.25rem 0.4rem;
+  min-width: 1.7rem;
 }

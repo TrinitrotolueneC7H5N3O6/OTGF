@@ -749,6 +749,46 @@ async function uploadMediaBlob(
   return data.url || null;
 }
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function readAttachmentFile(file: File): Promise<{
+  kind: "image" | "document";
+  name: string;
+  url: string;
+}> {
+  if (file.size > MAX_FILE_BYTES) {
+    throw new Error("Keep files under 4MB for this prototype.");
+  }
+
+  if (file.type.startsWith("image/")) {
+    const media = await readMediaFile(file);
+    return { kind: "image", name: file.name || "Image", url: media.url };
+  }
+
+  const allowedType =
+    file.type === "application/pdf" ||
+    file.type === "application/msword" ||
+    file.type ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    file.type === "text/plain" ||
+    file.type === "application/rtf" ||
+    /\.(pdf|doc|docx|txt|rtf)$/i.test(file.name);
+
+  if (!allowedType) {
+    throw new Error("Use an image, PDF, Word, or text file.");
+  }
+
+  const url = await fileToDataUrl(file);
+  return { kind: "document", name: file.name || "Document", url };
+}
+
 export async function readMediaFile(file: File): Promise<{
   kind: "photo" | "video";
   url: string;

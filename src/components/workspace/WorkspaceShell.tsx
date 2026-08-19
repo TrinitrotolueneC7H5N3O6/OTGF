@@ -47,6 +47,8 @@ import {
 import { parseSoloUrl } from "@/lib/messageLinks";
 import { ClientRail } from "./ClientRail";
 import { WorkspaceTopBar } from "./WorkspaceTopBar";
+import { ChatInterfaceSetupModal } from "./ChatInterfaceSetupModal";
+import { PreChatSetupModal } from "./PreChatSetupModal";
 import { ThreadPane } from "./ThreadPane";
 import { RightPane, type RightTab } from "./RightPane";
 import { CornerTools } from "@/components/shared/CornerTools";
@@ -84,6 +86,8 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set());
   const [forwardCopied, setForwardCopied] = useState(false);
+  const [chatInterfaceOpen, setChatInterfaceOpen] = useState(false);
+  const [preChatOpen, setPreChatOpen] = useState(false);
   const localSentIds = useRef<Set<string>>(new Set());
   const opsInFlight = useRef(0);
   const soundPrimed = useRef(false);
@@ -1001,6 +1005,9 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
         members={members}
         floorMemberId={floorMemberId}
         onChooseMember={chooseFloorMember}
+        onOpenChatInterface={() => setChatInterfaceOpen(true)}
+        onOpenPreChat={() => setPreChatOpen(true)}
+        chatEndImageCount={space.settings.chatEndImages?.length ?? 0}
       />
 
       <div className="workspace-grid">
@@ -1143,6 +1150,25 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
           </button>
         ))}
       </nav>
+
+      {chatInterfaceOpen ? (
+        <ChatInterfaceSetupModal
+          settings={{
+            ...space.settings,
+            chatEndImages: space.settings.chatEndImages ?? [],
+          }}
+          onChangeSettings={updateSettings}
+          onClose={() => setChatInterfaceOpen(false)}
+        />
+      ) : null}
+
+      {preChatOpen ? (
+        <PreChatSetupModal
+          settings={space.settings}
+          onChangeSettings={updateSettings}
+          onClose={() => setPreChatOpen(false)}
+        />
+      ) : null}
 
       <CornerTools />
     </div>
