@@ -23,6 +23,10 @@ function promoFollowUpId(clientId: string) {
   return `m-auto-promo-${clientId}`;
 }
 
+function extraIntroId(clientId: string, id: string) {
+  return `m-auto-extra-${id}-${clientId}`;
+}
+
 function specialtiesId(clientId: string) {
   return `m-auto-specialties-${clientId}`;
 }
@@ -51,6 +55,7 @@ function isIntroMessage(message: Message, clientId: string) {
   if (
     message.id === autoReplyId(clientId) ||
     message.id === promoFollowUpId(clientId) ||
+    message.id.startsWith("m-auto-extra-") ||
     message.id === specialtiesId(clientId) ||
     message.id === reconnectId(clientId)
   ) {
@@ -101,8 +106,10 @@ function buildIntroBlock(
   intro: ChatIntroMessages,
   baseMs: number,
 ): Message[] {
-  return [
-    {
+  const introBlock: Message[] = [];
+  let offset = 0;
+  if (intro.welcome.trim()) {
+    introBlock.push({
       id: autoReplyId(clientId),
       clientId,
       from: "business",
@@ -110,36 +117,61 @@ function buildIntroBlock(
       body: intro.welcome,
       ...messageStampAt(baseMs),
       fromName: businessName,
-    },
-    {
+    });
+    offset += 1;
+  }
+  if (intro.promoFollowUp.trim()) {
+    introBlock.push({
       id: promoFollowUpId(clientId),
       clientId,
       from: "business",
       kind: "text",
       body: intro.promoFollowUp,
-      ...messageStampAt(baseMs + 1),
+      ...messageStampAt(baseMs + offset),
       fromName: businessName,
-    },
-    {
+    });
+    offset += 1;
+  }
+  const extraMessages = intro.extraMessages.filter((message) =>
+    message.body.trim(),
+  );
+  for (const message of extraMessages) {
+    introBlock.push({
+      id: extraIntroId(clientId, message.id),
+      clientId,
+      from: "business",
+      kind: "text",
+      body: message.body,
+      ...messageStampAt(baseMs + offset),
+      fromName: businessName,
+    });
+    offset += 1;
+  }
+  if (intro.specialtiesEnabled) {
+    introBlock.push({
       id: specialtiesId(clientId),
       clientId,
       from: "business",
       kind: "specialties",
       body: intro.specialtiesLabel,
-      ...messageStampAt(baseMs + 2),
+      ...messageStampAt(baseMs + offset),
       fromName: businessName,
-    },
-    {
+    });
+    offset += 1;
+  }
+  if (intro.reconnectEnabled) {
+    introBlock.push({
       id: reconnectId(clientId),
       clientId,
       from: "business",
       kind: "text",
       body: intro.reconnectCopy,
       linkUrl: reconnectChatPath(slug, clientId),
-      ...messageStampAt(baseMs + 3),
+      ...messageStampAt(baseMs + offset),
       fromName: businessName,
-    },
-  ];
+    });
+  }
+  return introBlock;
 }
 
 function welcomeMessagesMatch(
@@ -152,17 +184,42 @@ function welcomeMessagesMatch(
   const promo = messages.find((m) => m.id === promoFollowUpId(clientId));
   const specialties = messages.find((m) => m.id === specialtiesId(clientId));
   const reconnect = messages.find((m) => m.id === reconnectId(clientId));
+  const welcomeEnabled = Boolean(intro.welcome.trim());
+  const promoEnabled = Boolean(intro.promoFollowUp.trim());
+  const extraMessages = intro.extraMessages.filter((item) => item.body.trim());
+  const expectedExtraIds = new Set(
+    extraMessages.map((item) => extraIntroId(clientId, item.id)),
+  );
+  const currentExtraMessages = messages.filter(
+    (message) =>
+      message.clientId === clientId && message.id.startsWith("m-auto-extra-"),
+  );
+  const extraMessagesMatch =
+    extraMessages.every((item) => {
+      const message = messages.find(
+        (m) => m.id === extraIntroId(clientId, item.id),
+      );
+      return message?.kind === "text" && message.body === item.body;
+    }) &&
+    currentExtraMessages.every((message) => expectedExtraIds.has(message.id));
   return (
-    auto?.body === intro.welcome &&
-    promo?.body === intro.promoFollowUp &&
-    Boolean(
-      specialties &&
-        isSpecialtiesMessage(specialties) &&
-        specialties.body === intro.specialtiesLabel,
-    ) &&
-    reconnect?.kind === "text" &&
-    reconnect.body === intro.reconnectCopy &&
-    reconnect.linkUrl === reconnectChatPath(slug, clientId)
+    (welcomeEnabled ? auto?.body === intro.welcome : !auto) &&
+    (promoEnabled ? promo?.body === intro.promoFollowUp : !promo) &&
+    extraMessagesMatch &&
+    (intro.specialtiesEnabled
+      ? Boolean(
+          specialties &&
+            isSpecialtiesMessage(specialties) &&
+            specialties.body === intro.specialtiesLabel,
+        )
+      : !specialties) &&
+    (intro.reconnectEnabled
+      ? Boolean(
+          reconnect?.kind === "text" &&
+            reconnect.body === intro.reconnectCopy &&
+            reconnect.linkUrl === reconnectChatPath(slug, clientId),
+        )
+      : !reconnect)
   );
 }
 

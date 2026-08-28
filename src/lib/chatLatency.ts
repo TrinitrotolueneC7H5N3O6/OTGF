@@ -1,6 +1,5 @@
-/** Optional chat latency instrumentation (?latency=1 or localStorage otgf-latency=1). */
+/** Optional chat latency instrumentation (?latency=1). */
 
-const STORAGE_KEY = "otgf-latency";
 const CHANNEL = "otgf-latency";
 const RING = 40;
 
@@ -50,20 +49,11 @@ function pushSample(partial: LatencySample) {
 
 export function isLatencyEnabled(): boolean {
   if (typeof window === "undefined") return false;
-  try {
-    if (window.localStorage.getItem(STORAGE_KEY) === "1") return true;
-  } catch {
-    // ignore
-  }
   return new URLSearchParams(window.location.search).get("latency") === "1";
 }
 
 export function enableLatencyHud() {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, "1");
-  } catch {
-    // ignore
-  }
+  // Kept as an explicit hook for instrumentation setup; display is query-gated.
 }
 
 function ensureChannel() {

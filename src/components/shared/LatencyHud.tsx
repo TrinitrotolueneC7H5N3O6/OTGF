@@ -15,15 +15,12 @@ function fmt(n: number | null | undefined) {
 }
 
 export function LatencyHud() {
-  const [on, setOn] = useState(false);
   const [tick, setTick] = useState(0);
+  const on = isLatencyEnabled();
 
   useEffect(() => {
-    if (isLatencyEnabled()) {
-      enableLatencyHud();
-      setOn(true);
-    }
-  }, []);
+    if (on) enableLatencyHud();
+  }, [on]);
 
   useEffect(() => {
     if (!on) return;
@@ -41,7 +38,7 @@ export function LatencyHud() {
       className="latency-hud"
       role="status"
       aria-live="polite"
-      title="Chat latency HUD — disable with localStorage otgf-latency=0"
+      title="Chat latency HUD"
     >
       <div className="latency-hud-title">Latency</div>
       <div>

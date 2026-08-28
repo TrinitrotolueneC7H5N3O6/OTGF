@@ -116,20 +116,31 @@
       </p>
 
       <div class="card">
-        <h2>Try the widget</h2>
+        <h2>Try the chat bubble</h2>
         <p>
-          Click the round button bottom-right. It should open the same chat your
-          floor uses for slug <code>riveryogi</code>.
+          Click the round button bottom-right. It opens live chat for
+          <code id="slug-label">your space</code>.
         </p>
       </div>
 
       <p class="hint">
-        Dev tip: keep <code>npm run dev</code> on port 3010, then open
-        <code>http://localhost:3010/widget-demo.html</code>.
+        This is a sample site so you can see the bubble before pasting the
+        snippet on your real pages.
       </p>
     </main>
 
-    <!-- OTGF widget — same snippet stores would paste -->
-    <script src="http://localhost:3010/widget.js" data-slug="riveryogi" async></script>
+    <script>
+      (function () {
+        var slug =
+          new URLSearchParams(location.search).get("slug") || "riveryogi";
+        var label = document.getElementById("slug-label");
+        if (label) label.textContent = slug;
+        var s = document.createElement("script");
+        s.src = "/widget.js";
+        s.async = true;
+        s.setAttribute("data-slug", slug);
+        document.body.appendChild(s);
+      })();
+    </script>
   </body>
 </html>

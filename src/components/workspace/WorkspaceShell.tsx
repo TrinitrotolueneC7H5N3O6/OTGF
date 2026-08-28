@@ -14,6 +14,7 @@ import type {
   ReceiptProduct,
   ComposerShortcut,
 } from "@/lib/types";
+import { withoutAutoAnswerDraft } from "@/lib/autoAnswer";
 import { forgetChat } from "@/lib/chatMemory";
 import {
   forgetThreadScroll,
@@ -47,7 +48,8 @@ import {
 import { parseSoloUrl } from "@/lib/messageLinks";
 import { ensureWelcomeMessages } from "@/lib/customerAutoReply";
 import { resolveChatIntroMessages } from "@/lib/chatIntroMessages";
-import { ClientRail } from "./ClientRail";
+import { isSolutionEnabled } from "@/lib/setupSolutions";
+import { ClientRail, type InboxQuickFilter } from "./ClientRail";
 import { WorkspaceTopBar } from "./WorkspaceTopBar";
 import { ThreadPane } from "./ThreadPane";
 import { RightPane, type RightTab } from "./RightPane";
@@ -63,12 +65,65 @@ interface WorkspaceShellProps {
   slug: string;
 }
 
+const EMPTY_CLIENTS: Client[] = [];
+const EMPTY_MESSAGES: Message[] = [];
+const EMPTY_CATEGORIES: LibraryCategory[] = [];
+const EMPTY_ARTIFACTS: Artifact[] = [];
+const EMPTY_MEMBERS: FloorMember[] = [];
+
+function floorToolTabs(settings: FloorSettings): RightTab[] {
+  const tabs: RightTab[] = [];
+  if (isSolutionEnabled(settings, "artifacts")) tabs.push("artifacts");
+  if (isSolutionEnabled(settings, "assist")) tabs.push("assist");
+  if (isSolutionEnabled(settings, "receipts")) tabs.push("receipts");
+  return tabs;
+}
+
+function chatIdCreatedMs(id: string): number | null {
+  const match = /^c-([a-z0-9]+)-/i.exec(id);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1], 36);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clientCreatedMs(client: Client, messages: Message[]): number {
+  const fromId = chatIdCreatedMs(client.id);
+  if (fromId != null) return fromId;
+  const firstMessageMs = messages
+    .filter((message) => message.clientId === client.id)
+    .map((message) => messageCreatedMs(message))
+    .filter((value): value is number => value != null)
+    .sort((a, b) => a - b)[0];
+  return firstMessageMs ?? 0;
+}
+
+function clientAwaitingReply(client: Client, messages: Message[]): boolean {
+  if (client.chatEndedAt) return false;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.clientId === client.id) return message.from === "client";
+  }
+  return (client.unread ?? 0) > 0;
+}
+
+function clientMatchesInboxFilter(
+  client: Client,
+  messages: Message[],
+  filter: InboxQuickFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "unanswered") return clientAwaitingReply(client, messages);
+  if (filter === "new") return (client.unread ?? 0) > 0;
+  return Boolean(client.caseId);
+}
+
 export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const router = useRouter();
   const [space, setSpace] = useState<BusinessSpace | null>(null);
   const [activeId, setActiveId] = useState("");
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
+  const [inboxFilter, setInboxFilter] = useState<InboxQuickFilter>("all");
   const [libraryFilter, setLibraryFilter] = useState("all");
   const [sentFlash, setSentFlash] = useState<string | null>(null);
   const [pendingArtifacts, setPendingArtifacts] = useState<
@@ -158,7 +213,12 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
         const aid = activeIdRef.current;
         const merged =
           opsInFlight.current > 0 && current
-            ? { ...next, settings: current.settings }
+            ? {
+                ...next,
+                settings: current.settings,
+                offerings: current.offerings,
+                knowledgeNotes: current.knowledgeNotes,
+              }
             : next;
 
         const byClient = new Map<string, Message[]>();
@@ -228,7 +288,11 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
 
       setClientUrl(`${window.location.origin}/${slug}`);
 
+      const wanted = new URLSearchParams(window.location.search).get("chat")?.trim();
       const mostRecent = loaded.clients.find((c) => c.preview.trim());
+      const pick =
+        loaded.clients.find((c) => c.id === wanted && c.preview.trim()) ||
+        mostRecent;
       let seeded = loaded;
 
       if (mostRecent) {
@@ -237,16 +301,23 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
           (m) => m.clientId === mostRecent.id,
         );
         threadCacheRef.current.set(mostRecent.id, threadMsgs);
-        activeIdRef.current = mostRecent.id;
+      }
 
-        if ((mostRecent.unread ?? 0) > 0) {
-          forgetThreadScroll(threadScrollKey(slug, mostRecent.id));
+      if (pick) {
+        activeIdRef.current = pick.id;
+        if ((pick.unread ?? 0) > 0) {
+          forgetThreadScroll(threadScrollKey(slug, pick.id));
           setOpenAtBottom(true);
         }
-
         setSpace(loaded);
-        setActiveId(mostRecent.id);
-        seeded = { ...loaded, messages: threadMsgs };
+        setActiveId(pick.id);
+        seeded = {
+          ...loaded,
+          messages:
+            pick.id === mostRecent?.id
+              ? loaded.messages.filter((m) => m.clientId === pick.id)
+              : [],
+        };
       } else {
         setSpace(loaded);
         setActiveId("");
@@ -272,11 +343,22 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     };
   }, [slug]);
 
-  const clients = space?.clients ?? [];
-  const messages = space?.messages ?? [];
-  const categories = space?.categories ?? [];
-  const artifacts = space?.artifacts ?? [];
-  const members = space?.members ?? [];
+  const clients = space?.clients ?? EMPTY_CLIENTS;
+  const messages = space?.messages ?? EMPTY_MESSAGES;
+  const categories = space?.categories ?? EMPTY_CATEGORIES;
+  const artifacts = space?.artifacts ?? EMPTY_ARTIFACTS;
+  const members = space?.members ?? EMPTY_MEMBERS;
+
+  useEffect(() => {
+    if (!space) return;
+    const tabs = floorToolTabs(space.settings);
+    if (tabs.length > 0 && !tabs.includes(rightTab)) {
+      setRightTab(tabs[0]);
+    }
+    if (tabs.length === 0 && mobilePane === "library") {
+      setMobilePane("thread");
+    }
+  }, [space, rightTab, mobilePane]);
 
   useEffect(() => {
     if (!space) return;
@@ -348,17 +430,42 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     );
   }
 
+  const inboxClients = useMemo(() => {
+    return clients
+      .filter((client) => client.preview.trim() && !client.hiddenFromInbox)
+      .sort(
+        (a, b) =>
+          clientCreatedMs(a, messages) - clientCreatedMs(b, messages),
+      );
+  }, [clients, messages]);
+
+  const inboxQuickCounts = useMemo(
+    () => ({
+      all: inboxClients.length,
+      unanswered: inboxClients.filter((client) =>
+        clientAwaitingReply(client, messages),
+      ).length,
+      new: inboxClients.filter((client) => (client.unread ?? 0) > 0).length,
+      cases: inboxClients.filter((client) => client.caseId).length,
+    }),
+    [inboxClients, messages],
+  );
+
   const filteredClients = useMemo(() => {
-    const withGuestActivity = clients.filter((c) => c.preview.trim());
+    const quickFiltered = inboxClients.filter((client) =>
+      clientMatchesInboxFilter(client, messages, inboxFilter),
+    );
     const q = query.trim().toLowerCase();
-    if (!q) return withGuestActivity;
-    return withGuestActivity.filter(
+    if (!q) return quickFiltered;
+    return quickFiltered.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.preview.toLowerCase().includes(q) ||
+        (c.note ?? "").toLowerCase().includes(q) ||
+        (c.caseId ?? "").toLowerCase().includes(q) ||
         c.trade.includes(q),
     );
-  }, [clients, query]);
+  }, [inboxClients, messages, inboxFilter, query]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -487,6 +594,18 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   }
 
   function deleteClient(clientId: string) {
+    const client = space?.clients.find((c) => c.id === clientId);
+    if (client?.caseId) {
+      runOp({ type: "hideClient", clientId, hidden: true });
+      if (activeId === clientId) {
+        setActiveId(
+          (space?.clients.find(
+            (c) => c.id !== clientId && c.preview.trim() && !c.hiddenFromInbox,
+          )?.id ?? "") || "",
+        );
+      }
+      return;
+    }
     forgetThreadScroll(threadScrollKey(slug, clientId));
     threadCacheRef.current.delete(clientId);
     loadedThreadsRef.current.delete(clientId);
@@ -510,8 +629,11 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     if (!active || active.chatEndedAt) return;
     const clientId = active.id;
     const speaker = speakerStamp(active, members);
+    const endScreen = space?.settings.endScreenBehavior;
     const body =
-      "Chat ended. If you'd like a recording of this conversation, enter your email and we'll send one.";
+      endScreen && endScreen.kind !== "none"
+        ? `Chat ended. ${endScreen.title}: ${endScreen.body}`
+        : "Chat ended.";
     const nextMsg: Message = {
       id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       clientId,
@@ -599,6 +721,88 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     });
   }
 
+  function sendApprovedAutoAnswer(body: string) {
+    if (!active || active.chatEndedAt || !body.trim() || !space) return;
+    const text = body.trim();
+    const clientId = active.id;
+    const speaker = speakerStamp(active, members);
+    const nextMsg: Message = {
+      id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      clientId,
+      from: "business",
+      kind: "text",
+      body: text,
+      ...messageTimeStamp(),
+      ...speaker,
+    };
+    const nextClients = claimChatOwner(space.clients, clientId).map((c) =>
+      c.id === clientId
+        ? withoutAutoAnswerDraft({
+            ...c,
+            preview: text,
+            lastActive: "Just now",
+            unread: 0,
+          })
+        : c,
+    );
+    const nextClient =
+      nextClients.find((c) => c.id === clientId) ??
+      withoutAutoAnswerDraft({
+        ...active,
+        preview: text,
+        lastActive: "Just now",
+        unread: 0,
+      });
+
+    localSentIds.current.add(nextMsg.id);
+    markSendStart(nextMsg.id);
+    setPendingIds((prev) => new Set(prev).add(nextMsg.id));
+    setSpace({
+      ...space,
+      clients: nextClients,
+      messages: [...space.messages, nextMsg],
+    });
+    bumpScrollToBottom();
+    void appendMessage(slug, {
+      message: nextMsg,
+      client: nextClient,
+      upsertClient: true,
+      bumpClient: true,
+    })
+      .then(() => {
+        markSendAck(nextMsg.id);
+        setPendingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(nextMsg.id);
+          return next;
+        });
+      })
+      .catch((err) => {
+        console.warn("Auto-answer send failed:", err);
+        setPendingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(nextMsg.id);
+          return next;
+        });
+        setFailedIds((prev) => new Set(prev).add(nextMsg.id));
+      });
+  }
+
+  function skipAutoAnswer() {
+    if (!active) return;
+    runOp({ type: "setAutoAnswerDraft", clientId: active.id, draft: null });
+  }
+
+  function retryAutoAnswer() {
+    if (!active) return;
+    runOp({ type: "retryAutoAnswer", clientId: active.id });
+  }
+
+  function toggleAutoAnswerPause(off: boolean) {
+    if (!active) return;
+    runOp({ type: "setAutoAnswerOff", clientId: active.id, off });
+  }
+
   function sendText() {
     if (!active || active.chatEndedAt || !draft.trim() || !space) return;
     const body = draft.trim();
@@ -619,12 +823,22 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     };
     const nextClients = claimChatOwner(space.clients, clientId).map((c) =>
       c.id === clientId
-        ? { ...c, preview: body, lastActive: "Just now", unread: 0 }
+        ? withoutAutoAnswerDraft({
+            ...c,
+            preview: body,
+            lastActive: "Just now",
+            unread: 0,
+          })
         : c,
     );
     const nextClient =
       nextClients.find((c) => c.id === clientId) ??
-      ({ ...active, preview: body, lastActive: "Just now", unread: 0 } as Client);
+      withoutAutoAnswerDraft({
+        ...active,
+        preview: body,
+        lastActive: "Just now",
+        unread: 0,
+      });
 
     localSentIds.current.add(nextMsg.id);
     markSendStart(nextMsg.id);
@@ -1000,6 +1214,16 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     return <div className="client-chat-loading">Loading floor…</div>;
   }
 
+  const toolTabs = floorToolTabs(space.settings);
+  const showLibrary = toolTabs.length > 0;
+  const enabledTools = {
+    assist: isSolutionEnabled(space.settings, "assist"),
+    artifacts: isSolutionEnabled(space.settings, "artifacts"),
+    receipts: isSolutionEnabled(space.settings, "receipts"),
+    shortcuts: isSolutionEnabled(space.settings, "shortcuts"),
+    hours: isSolutionEnabled(space.settings, "hours"),
+  };
+
   return (
     <div className="workspace">
       <WorkspaceTopBar
@@ -1013,7 +1237,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
         onChooseMember={chooseFloorMember}
       />
 
-      <div className="workspace-grid">
+      <div className={`workspace-grid${showLibrary ? "" : " is-two-col"}`}>
         <aside
           className={`pane pane-clients ${mobilePane === "clients" ? "is-mobile-show" : ""}`}
         >
@@ -1023,7 +1247,10 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
             messages={messages}
             activeId={active?.id ?? ""}
             query={query}
+            quickFilter={inboxFilter}
+            quickCounts={inboxQuickCounts}
             onQueryChange={setQuery}
+            onQuickFilterChange={setInboxFilter}
             onSelect={selectClient}
             onRename={renameClient}
             onOwnerChange={changeClientOwner}
@@ -1069,11 +1296,16 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
               onCopyForwardLink={() => void copyForwardLink()}
               forwardCopied={forwardCopied}
               onOpenTool={openTool}
+              enabledTools={enabledTools}
               onStageArtifact={stageArtifact}
               onEditShortcuts={openShortcutSettings}
               onReplyTo={startReply}
               onClearReply={() => setReplyTo(null)}
               onReact={reactToMessage}
+              onSendAutoAnswer={sendApprovedAutoAnswer}
+              onSkipAutoAnswer={skipAutoAnswer}
+              onRetryAutoAnswer={retryAutoAnswer}
+              onToggleAutoAnswerPause={toggleAutoAnswerPause}
             />
           ) : (
             <div className="thread thread-empty-floor">
@@ -1087,11 +1319,13 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
           )}
         </main>
 
+        {showLibrary ? (
         <aside
           className={`pane pane-library ${mobilePane === "library" ? "is-mobile-show" : ""}`}
         >
           <RightPane
-            tab={rightTab}
+            tab={toolTabs.includes(rightTab) ? rightTab : toolTabs[0]}
+            enabledTabs={toolTabs}
             onTabChange={(tab) => {
               setRightTab(tab);
               setMobilePane("library");
@@ -1133,15 +1367,21 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
             onSendReceipt={sendReceipt}
           />
         </aside>
+        ) : null}
       </div>
 
       <nav className="mobile-tabs" aria-label="Workspace panes">
         {(
-          [
-            ["clients", "Inbox"],
-            ["thread", "Chat"],
-            ["library", "Tools"],
-          ] as const
+          showLibrary
+            ? ([
+                ["clients", "Inbox"],
+                ["thread", "Chat"],
+                ["library", "Tools"],
+              ] as const)
+            : ([
+                ["clients", "Inbox"],
+                ["thread", "Chat"],
+              ] as const)
         ).map(([id, label]) => (
           <button
             key={id}

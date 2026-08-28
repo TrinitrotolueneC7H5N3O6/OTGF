@@ -44,6 +44,7 @@ interface RightPaneProps {
     product: ReceiptProduct;
     payment: ReceiptPayment;
   }) => void;
+  enabledTabs?: RightTab[];
 }
 
 export function RightPane({
@@ -70,10 +71,12 @@ export function RightPane({
   onChangeReceiptPayments,
   onChangeReceiptProducts,
   onSendReceipt,
+  enabledTabs = ["artifacts", "assist", "receipts"],
 }: RightPaneProps) {
   return (
     <div className="right-pane">
       <div className="right-pane-tabs" role="tablist" aria-label="Side tools">
+        {enabledTabs.includes("artifacts") ? (
         <button
           type="button"
           role="tab"
@@ -83,6 +86,8 @@ export function RightPane({
         >
           Artifacts
         </button>
+        ) : null}
+        {enabledTabs.includes("assist") ? (
         <button
           type="button"
           role="tab"
@@ -92,6 +97,8 @@ export function RightPane({
         >
           Assist
         </button>
+        ) : null}
+        {enabledTabs.includes("receipts") ? (
         <button
           type="button"
           role="tab"
@@ -101,6 +108,7 @@ export function RightPane({
         >
           Receipts
         </button>
+        ) : null}
       </div>
 
       <div className="right-pane-body">

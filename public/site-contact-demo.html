@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contact us — sample site</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1a1c20;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --bg: #f6f4ef;
+        --surface: #fff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--ink);
+        background: var(--bg);
+        min-height: 100vh;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+      .logo {
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        font-size: 0.95rem;
+      }
+      nav {
+        display: flex;
+        gap: 1rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      main {
+        max-width: 44rem;
+        margin: 0 auto;
+        padding: 2rem 1.5rem 3rem;
+      }
+      h1 {
+        font-size: clamp(1.8rem, 5vw, 2.6rem);
+        line-height: 1.1;
+        margin: 0 0 0.5rem;
+        letter-spacing: -0.03em;
+      }
+      .lede {
+        font-size: 1.05rem;
+        line-height: 1.5;
+        color: var(--muted);
+        margin: 0 0 1.5rem;
+      }
+      #otgf {
+        min-height: 720px;
+        height: min(820px, 80vh);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo">Your website</div>
+      <nav>
+        <span>Home</span>
+        <span>About</span>
+        <span>Contact</span>
+      </nav>
+    </header>
+
+    <main>
+      <h1>Contact us</h1>
+      <p class="lede">
+        This is a sample Contact page on your site. The public page and chat
+        load here instead of a form.
+      </p>
+      <div id="otgf"></div>
+    </main>
+
+    <script>
+      (function () {
+        var slug =
+          new URLSearchParams(location.search).get("slug") || "riveryogi";
+        var s = document.createElement("script");
+        s.src = "/widget.js";
+        s.async = true;
+        s.setAttribute("data-slug", slug);
+        s.setAttribute("data-mode", "page");
+        document.body.appendChild(s);
+      })();
+    </script>
+  </body>
+</html>

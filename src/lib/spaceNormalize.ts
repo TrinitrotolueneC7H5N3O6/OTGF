@@ -5,10 +5,15 @@ import type {
   ChatParticipant,
   Client,
   ComposerShortcut,
+  CustomerCase,
+  CustomerCaseIdentifier,
+  CustomerCaseStatus,
   DepartmentAttachment,
   DepartmentContent,
   FloorMember,
   FloorSettings,
+  ChatEndScreenBehavior,
+  ChatEndScreenKind,
   LibraryCategory,
   LibraryItem,
   Message,
@@ -23,6 +28,10 @@ import type {
   ResponseWindow,
   Weekday,
 } from "./types";
+import {
+  normalizeAutoAnswerDraft,
+  withoutAutoAnswerDraft,
+} from "./autoAnswer";
 import { defaultCategories, ensureInboxCategory, legacyDefaultArtifactIds } from "./data";
 import { newerPresentAt } from "./presence";
 import { clampArtifactMeta } from "./artifactMeta";
@@ -30,6 +39,13 @@ import {
   defaultChatIntroMessages,
   normalizeChatIntroMessages,
 } from "./chatIntroMessages";
+import {
+  allSolutionIds,
+  normalizeEnabledSolutions,
+  normalizeSetupIndustry,
+} from "./setupSolutions";
+import { normalizeOfferings } from "./offerings";
+import { normalizeKnowledgeNotes } from "./knowledge";
 
 const WEEKDAYS: Weekday[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -103,12 +119,85 @@ export function defaultFloorSettings(): FloorSettings {
     profileLinks: [],
     chatIntroMessages: defaultChatIntroMessages(),
     chatEndImages: [],
+    endScreenBehavior: defaultChatEndScreenBehavior(),
     notifyEmails: [],
     assistBehavior: "",
+    autoAnswer: false,
     shortcuts: [],
     departmentMessages: Array.from({ length: 20 }, () => ""),
     departments: Array.from({ length: 20 }, () => ({ message: "", attachments: [] })),
     preChat: defaultPreChat(),
+    setupIndustry: "custom",
+    enabledSolutions: allSolutionIds(),
+  };
+}
+
+export function defaultChatEndScreenBehavior(): ChatEndScreenBehavior {
+  return {
+    kind: "record_contact",
+    title: "Before you go",
+    body:
+      "Want a copy of this conversation or future updates? Leave your name, email, or phone number.",
+    collectLabel: "Contact info",
+    collectPlaceholder: "Name, email, or phone",
+    submitLabel: "Send",
+    offerCode: "THANKYOU10",
+    ctaLabel: "Book a follow-up",
+    ctaUrl: "",
+  };
+}
+
+function normalizeChatEndScreenKind(raw: unknown): ChatEndScreenKind {
+  if (
+    raw === "record_contact" ||
+    raw === "offer" ||
+    raw === "book_follow_up" ||
+    raw === "review" ||
+    raw === "none"
+  ) {
+    return raw;
+  }
+  return "record_contact";
+}
+
+export function normalizeChatEndScreenBehavior(
+  raw: unknown,
+): ChatEndScreenBehavior {
+  const defaults = defaultChatEndScreenBehavior();
+  if (!raw || typeof raw !== "object") return defaults;
+  const row = raw as Partial<ChatEndScreenBehavior>;
+  return {
+    kind: normalizeChatEndScreenKind(row.kind),
+    title:
+      typeof row.title === "string" && row.title.trim()
+        ? row.title.trim().slice(0, 80)
+        : defaults.title,
+    body:
+      typeof row.body === "string" && row.body.trim()
+        ? row.body.trim().slice(0, 500)
+        : defaults.body,
+    collectLabel:
+      typeof row.collectLabel === "string" && row.collectLabel.trim()
+        ? row.collectLabel.trim().slice(0, 50)
+        : defaults.collectLabel,
+    collectPlaceholder:
+      typeof row.collectPlaceholder === "string" && row.collectPlaceholder.trim()
+        ? row.collectPlaceholder.trim().slice(0, 80)
+        : defaults.collectPlaceholder,
+    submitLabel:
+      typeof row.submitLabel === "string" && row.submitLabel.trim()
+        ? row.submitLabel.trim().slice(0, 40)
+        : defaults.submitLabel,
+    offerCode:
+      typeof row.offerCode === "string"
+        ? row.offerCode.trim().slice(0, 40)
+        : defaults.offerCode,
+    ctaLabel:
+      typeof row.ctaLabel === "string" && row.ctaLabel.trim()
+        ? row.ctaLabel.trim().slice(0, 60)
+        : defaults.ctaLabel,
+    ctaUrl:
+      typeof row.ctaUrl === "string" ? row.ctaUrl.trim().slice(0, 500) : "",
   };
 }
 
@@ -290,7 +379,7 @@ export const DEPARTMENT_COUNT = 20;
 export const MAX_DEPARTMENT_ATTACHMENTS = 8;
 
 function emptyDepartment(): DepartmentContent {
-  return { message: "", attachments: [] };
+  return { label: "", message: "", attachments: [] };
 }
 
 export const DEFAULT_CALL_PHONE = "+1(669)-240-8911";
@@ -481,6 +570,10 @@ export function normalizeDepartments(
         }
       }
       next[i] = {
+        label:
+          typeof content.label === "string"
+            ? content.label.trim().slice(0, 80)
+            : "",
         message:
           typeof content.message === "string"
             ? content.message.slice(0, 2000)
@@ -492,7 +585,7 @@ export function normalizeDepartments(
   }
 
   const legacy = normalizeDepartmentMessages(legacyMessages);
-  return legacy.map((message) => ({ message, attachments: [] }));
+  return legacy.map((message) => ({ label: "", message, attachments: [] }));
 }
 
 export function departmentHasContent(department?: DepartmentContent | null) {
@@ -530,11 +623,15 @@ export function normalizeFloorSettings(
         : "",
     profileLinks: normalizeProfileLinks(settings.profileLinks),
     chatIntroMessages: normalizeChatIntroMessages(settings.chatIntroMessages),
+    endScreenBehavior: normalizeChatEndScreenBehavior(
+      settings.endScreenBehavior,
+    ),
     notifyEmails: normalizeNotifyEmails(settings.notifyEmails),
     assistBehavior:
       typeof settings.assistBehavior === "string"
         ? settings.assistBehavior.trim().slice(0, 4000)
         : "",
+    autoAnswer: Boolean(settings.autoAnswer),
     shortcuts: normalizeShortcuts(settings.shortcuts),
     chatEndImages: normalizeChatEndImages(settings.chatEndImages),
     departmentMessages: normalizeDepartmentMessages(settings.departmentMessages),
@@ -543,6 +640,11 @@ export function normalizeFloorSettings(
       settings.departmentMessages,
     ),
     preChat: normalizePreChat(settings.preChat),
+    setupIndustry: normalizeSetupIndustry(settings.setupIndustry),
+    enabledSolutions: normalizeEnabledSolutions(
+      settings.enabledSolutions,
+      normalizeSetupIndustry(settings.setupIndustry),
+    ),
   };
 }
 
@@ -736,7 +838,7 @@ export function normalizeSpace(raw: BusinessSpace): BusinessSpace {
         ? c.ownerMemberId
         : soleOwnerId;
     const participants = normalizeParticipants(c.participants);
-    return {
+    const base: Client = {
       ...c,
       id: c.id || `c-repaired-${index}-${Date.now().toString(36)}`,
       status: normalizeClientStatus(c.status ?? "unknown"),
@@ -763,7 +865,16 @@ export function normalizeSpace(raw: BusinessSpace): BusinessSpace {
       ...(typeof c.forwardExpiresAt === "string" && c.forwardExpiresAt.trim()
         ? { forwardExpiresAt: c.forwardExpiresAt.trim() }
         : {}),
+      ...(c.autoAnswerOff ? { autoAnswerOff: true } : {}),
+      ...(typeof c.caseId === "string" && c.caseId.trim()
+        ? { caseId: c.caseId.trim().slice(0, 48) }
+        : {}),
+      ...(c.hiddenFromInbox ? { hiddenFromInbox: true } : {}),
     };
+    const draft = normalizeAutoAnswerDraft(c.autoAnswerDraft);
+    return draft
+      ? { ...withoutAutoAnswerDraft(base), autoAnswerDraft: draft }
+      : withoutAutoAnswerDraft(base);
   });
 
   const cleaned = ensureInboxCategory(space.categories ?? []);
@@ -777,10 +888,13 @@ export function normalizeSpace(raw: BusinessSpace): BusinessSpace {
     settings: normalizeFloorSettings(space.settings),
     receiptPayments: normalizeReceiptPayments(space.receiptPayments),
     receiptProducts: normalizeReceiptProducts(space.receiptProducts),
+    offerings: normalizeOfferings(space.offerings),
+    knowledgeNotes: normalizeKnowledgeNotes(space.knowledgeNotes),
+    cases: normalizeCustomerCases(space.cases),
     categories: cleaned.categories,
     artifacts,
     messages: (space.messages ?? []).map(normalizeMessage),
-    clients: numberGuestNames(withIds).filter(
+    clients: migrateGuestNames(withIds).filter(
       (c) => !(space.deletedClientIds ?? []).includes(c.id),
     ),
     deletedClientIds: Array.isArray(space.deletedClientIds)
@@ -978,31 +1092,139 @@ function normalizeClientStatus(status: string): Client["status"] {
   return "unknown";
 }
 
-function numberGuestNames(clients: Client[]): Client[] {
-  let max = 0;
-  for (const c of clients) {
-    const match = /^Guest\s+(\d+)$/i.exec(c.name.trim());
-    if (match) max = Math.max(max, Number(match[1]));
+export function normalizeCustomerCases(raw: unknown): CustomerCase[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw
+    .map((item) => {
+      const row = item as Partial<CustomerCase>;
+      const id = typeof row.id === "string" ? row.id.trim().slice(0, 48) : "";
+      if (!id || seen.has(id)) return null;
+      seen.add(id);
+      return {
+        id,
+        status: normalizeCustomerCaseStatus(row.status),
+        notes:
+          typeof row.notes === "string" ? row.notes.trim().slice(0, 4000) : "",
+        identifiers: normalizeCustomerCaseIdentifiers(row.identifiers),
+        ...(typeof row.createdAt === "string" && row.createdAt.trim()
+          ? { createdAt: row.createdAt.trim() }
+          : {}),
+        ...(typeof row.updatedAt === "string" && row.updatedAt.trim()
+          ? { updatedAt: row.updatedAt.trim() }
+          : {}),
+      };
+    })
+    .filter((item): item is CustomerCase => Boolean(item));
+}
+
+export function normalizeCustomerCaseStatus(
+  raw: unknown,
+): CustomerCaseStatus {
+  if (raw === "in_progress" || raw === "resolved") return raw;
+  return "open";
+}
+
+export function normalizeCustomerCaseIdentifiers(
+  raw: unknown,
+): CustomerCaseIdentifier[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw
+    .map((item) => {
+      const row = item as Partial<CustomerCaseIdentifier>;
+      const fallbackId =
+        typeof row.label === "string" || typeof row.value === "string"
+          ? `${row.label ?? ""}:${row.value ?? ""}`
+          : "";
+      const id =
+        typeof row.id === "string" && row.id.trim()
+          ? row.id.trim().slice(0, 64)
+          : fallbackId.trim().slice(0, 64);
+      const label =
+        typeof row.label === "string" ? row.label.trim().slice(0, 80) : "";
+      const value =
+        typeof row.value === "string" ? row.value.trim().slice(0, 160) : "";
+      const url =
+        typeof row.url === "string" ? row.url.trim().slice(0, 500) : "";
+      if (!id || !label || !value || seen.has(id)) return null;
+      seen.add(id);
+      return {
+        id,
+        label,
+        value,
+        ...(url ? { url } : {}),
+      };
+    })
+    .filter((item): item is CustomerCaseIdentifier => Boolean(item))
+    .slice(0, 20);
+}
+
+const GUEST_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function guestCodeFromSeed(seed: string) {
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
   }
 
-  return clients.map((c) => {
-    if (!/^Guest$/i.test(c.name.trim())) return c;
-    max += 1;
-    return { ...c, name: `Guest ${max}` };
+  let code = "";
+  let value = hash >>> 0;
+  for (let i = 0; i < 4; i++) {
+    code += GUEST_CODE_ALPHABET[value % GUEST_CODE_ALPHABET.length];
+    value = Math.floor(value / GUEST_CODE_ALPHABET.length);
+  }
+  return code;
+}
+
+function isGeneratedGuestName(name: string) {
+  return /^Guest\s+[A-Z0-9]{4}$/i.test(name.trim());
+}
+
+function isLegacyGuestName(name: string) {
+  return /^Guest(?:\s+\d+)?$/i.test(name.trim());
+}
+
+function dedupeGuestCode(seed: string, used: Set<string>) {
+  let attempt = 0;
+  let code = guestCodeFromSeed(seed);
+  while (used.has(code)) {
+    attempt += 1;
+    code = guestCodeFromSeed(`${seed}:${attempt}`);
+  }
+  used.add(code);
+  return code;
+}
+
+function migrateGuestNames(clients: Client[]): Client[] {
+  const used = new Set<string>();
+  for (const c of clients) {
+    const match = /^Guest\s+([A-Z0-9]{4})$/i.exec(c.name.trim());
+    if (match) used.add(match[1].toUpperCase());
+  }
+
+  return clients.map((c, index) => {
+    const name = c.name.trim();
+    if (!isLegacyGuestName(name) || isGeneratedGuestName(name)) return c;
+    const code = dedupeGuestCode(c.id || `${name}:${index}`, used);
+    return { ...c, name: `Guest ${code}` };
   });
 }
 
-/** Guest 1, Guest 2, … based on existing names. */
+/** Guest ABC4, Guest 7KQ2, … using a collision-safe random code. */
 export function nextGuestName(clients: Client[]): string {
-  let max = 0;
+  const used = new Set<string>();
   for (const c of clients) {
-    const match = /^Guest\s+(\d+)$/i.exec(c.name.trim());
-    if (match) max = Math.max(max, Number(match[1]));
+    const match = /^Guest\s+([A-Z0-9]{4})$/i.exec(c.name.trim());
+    if (match) used.add(match[1].toUpperCase());
   }
-  const plainGuests = clients.filter((c) =>
-    /^Guest$/i.test(c.name.trim()),
-  ).length;
-  return `Guest ${max + plainGuests + 1}`;
+
+  const code = dedupeGuestCode(
+    `${Date.now()}:${Math.random().toString(36).slice(2)}`,
+    used,
+  );
+  return `Guest ${code}`;
 }
 
 export function formatMessageTime() {

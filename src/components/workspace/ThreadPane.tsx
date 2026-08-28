@@ -33,6 +33,7 @@ import { ScrollToBottomButton } from "@/components/shared/ScrollToBottomButton";
 import { ChatSystemLine } from "@/components/shared/ChatSystemLine";
 import { isReconnectMessage } from "@/lib/customerAutoReply";
 import { ArtifactThumb } from "./ArtifactThumb";
+import { AutoAnswerReview } from "./AutoAnswerReview";
 import type { RightTab } from "./RightPane";
 import {
   IconArrowSend,
@@ -75,6 +76,18 @@ interface ThreadPaneProps {
   onReact: (messageId: string, emoji: string) => void;
   pendingIds?: Set<string>;
   failedIds?: Set<string>;
+  enabledTools?: {
+    assist?: boolean;
+    artifacts?: boolean;
+    receipts?: boolean;
+    shortcuts?: boolean;
+    hours?: boolean;
+  };
+  autoAnswerSending?: boolean;
+  onSendAutoAnswer?: (body: string) => void;
+  onSkipAutoAnswer?: () => void;
+  onRetryAutoAnswer?: () => void;
+  onToggleAutoAnswerPause?: (off: boolean) => void;
 }
 
 function nearBottom(el: HTMLElement, threshold = 72) {
@@ -118,6 +131,18 @@ export function ThreadPane({
   onReact,
   pendingIds,
   failedIds,
+  enabledTools = {
+    assist: true,
+    artifacts: true,
+    receipts: true,
+    shortcuts: true,
+    hours: true,
+  },
+  autoAnswerSending,
+  onSendAutoAnswer,
+  onSkipAutoAnswer,
+  onRetryAutoAnswer,
+  onToggleAutoAnswerPause,
 }: ThreadPaneProps) {
   const [showTimes, setShowTimes] = useState(false);
   const [attaching, setAttaching] = useState(false);
@@ -372,6 +397,23 @@ export function ThreadPane({
         </div>
       </header>
 
+      {client.autoAnswerDraft && onSendAutoAnswer && onSkipAutoAnswer ? (
+        <AutoAnswerReview
+          client={client}
+          draft={client.autoAnswerDraft}
+          variant="banner"
+          sending={autoAnswerSending}
+          onSend={onSendAutoAnswer}
+          onSkip={onSkipAutoAnswer}
+          onRetry={
+            client.autoAnswerDraft.status === "failed"
+              ? onRetryAutoAnswer
+              : undefined
+          }
+          onTogglePause={onToggleAutoAnswerPause}
+        />
+      ) : null}
+
       <div className="chat-stream-shell">
         <div
           ref={streamRef}
@@ -531,9 +573,14 @@ export function ThreadPane({
         <ScrollToBottomButton containerRef={streamRef} />
       </div>
 
-      {!ended ? (
+      {!ended &&
+      (enabledTools.assist ||
+        enabledTools.artifacts ||
+        enabledTools.receipts ||
+        enabledTools.shortcuts) ? (
         <div className="composer-shortcuts" aria-label="Quick actions">
           <div className="composer-shortcut-row">
+            {enabledTools.assist ? (
             <button
               type="button"
               className="composer-chip"
@@ -541,6 +588,8 @@ export function ThreadPane({
             >
               Assist
             </button>
+            ) : null}
+            {enabledTools.artifacts ? (
             <button
               type="button"
               className="composer-chip"
@@ -548,6 +597,8 @@ export function ThreadPane({
             >
               Artifacts
             </button>
+            ) : null}
+            {enabledTools.receipts ? (
             <button
               type="button"
               className="composer-chip"
@@ -555,9 +606,12 @@ export function ThreadPane({
             >
               Receipt
             </button>
+            ) : null}
 
-            {shortcuts.map((sc) => {
+            {enabledTools.shortcuts
+              ? shortcuts.map((sc) => {
               if (sc.kind === "hours") {
+                if (!enabledTools.hours) return null;
                 if (!hoursLabel && !responseNote.trim()) return null;
                 return (
                   <button
@@ -584,6 +638,7 @@ export function ThreadPane({
                   </button>
                 );
               }
+              if (!enabledTools.artifacts) return null;
               const item = artifactById.get(sc.artifactId);
               if (!item) return null;
               return (
@@ -597,8 +652,10 @@ export function ThreadPane({
                   {sc.label?.trim() || item.title?.trim() || item.kind}
                 </button>
               );
-            })}
+            })
+              : null}
 
+            {enabledTools.shortcuts ? (
             <button
               type="button"
               className="composer-chip is-edit"
@@ -609,6 +666,7 @@ export function ThreadPane({
               <IconPencil size={12} />
               {shortcuts.length === 0 ? "Add shortcuts" : "Edit"}
             </button>
+            ) : null}
           </div>
         </div>
       ) : null}

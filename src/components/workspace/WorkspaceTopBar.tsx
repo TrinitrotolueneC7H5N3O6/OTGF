@@ -2,13 +2,6 @@
 
 import Link from "next/link";
 import type { FloorMember } from "@/lib/types";
-import {
-  IconCheck,
-  IconCode,
-  IconEye,
-  IconLink,
-  IconQr,
-} from "@/components/shared/Icons";
 
 export type WorkspaceView = "floor" | "dashboard";
 
@@ -21,11 +14,6 @@ interface WorkspaceTopBarProps {
   members: FloorMember[];
   floorMemberId: string;
   onChooseMember: (id: string) => void;
-  /** Dashboard-only share tools */
-  copied?: boolean;
-  onCopyLink?: () => void;
-  onOpenQr?: () => void;
-  onOpenWidget?: () => void;
 }
 
 export function WorkspaceTopBar({
@@ -37,15 +25,10 @@ export function WorkspaceTopBar({
   members,
   floorMemberId,
   onChooseMember,
-  copied = false,
-  onCopyLink,
-  onOpenQr,
-  onOpenWidget,
 }: WorkspaceTopBarProps) {
   const switchHref =
     view === "floor" ? `/${slug}/dashboard` : `/${slug}/floor`;
   const switchLabel = view === "floor" ? "Dashboard" : "Floor";
-  const showTools = view === "dashboard";
 
   return (
     <header
@@ -101,46 +84,6 @@ export function WorkspaceTopBar({
                 </select>
               </label>
             ) : null}
-          </>
-        ) : null}
-
-        {showTools ? (
-          <>
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={onCopyLink}
-              aria-label={copied ? "Copied" : "Copy link"}
-              title={copied ? "Copied" : "Copy link"}
-            >
-              {copied ? <IconCheck /> : <IconLink />}
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={onOpenQr}
-              aria-label="QR code"
-              title="QR code"
-            >
-              <IconQr />
-            </button>
-            <Link
-              href={`/${slug}`}
-              className="floor-preview icon-btn"
-              aria-label="Preview"
-              title="Preview customer chat"
-            >
-              <IconEye />
-            </Link>
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={onOpenWidget}
-              aria-label="Website widget"
-              title="Website widget"
-            >
-              <IconCode />
-            </button>
           </>
         ) : null}
       </div>

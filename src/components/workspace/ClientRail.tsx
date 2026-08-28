@@ -15,7 +15,17 @@ import {
   waitSinceLabel,
   waitSinceTitle,
 } from "@/lib/messageTime";
-import { IconPencil, IconTrash } from "@/components/shared/Icons";
+import { ClientAvatar } from "@/components/shared/ClientAvatar";
+import { IconEyeOff, IconPencil, IconTrash } from "@/components/shared/Icons";
+
+export type InboxQuickFilter = "all" | "unanswered" | "new" | "cases";
+
+export interface InboxQuickCounts {
+  all: number;
+  unanswered: number;
+  new: number;
+  cases: number;
+}
 
 interface ClientRailProps {
   clients: Client[];
@@ -23,12 +33,22 @@ interface ClientRailProps {
   messages: Message[];
   activeId: string;
   query: string;
+  quickFilter: InboxQuickFilter;
+  quickCounts: InboxQuickCounts;
   onQueryChange: (value: string) => void;
+  onQuickFilterChange: (value: InboxQuickFilter) => void;
   onSelect: (client: Client) => void;
   onRename: (clientId: string, name: string) => void;
   onOwnerChange: (clientId: string, ownerMemberId: string | undefined) => void;
   onDelete: (clientId: string) => void;
 }
+
+const QUICK_FILTERS: { id: InboxQuickFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "unanswered", label: "Unanswered" },
+  { id: "new", label: "New" },
+  { id: "cases", label: "Cases" },
+];
 
 function awaitingReply(clientId: string, messages: Message[], ended?: boolean) {
   if (ended) return false;
@@ -54,7 +74,10 @@ export function ClientRail({
   messages,
   activeId,
   query,
+  quickFilter,
+  quickCounts,
   onQueryChange,
+  onQuickFilterChange,
   onSelect,
   onRename,
   onOwnerChange,
@@ -62,6 +85,7 @@ export function ClientRail({
 }: ClientRailProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -104,7 +128,12 @@ export function ClientRail({
   function deleteChat(client: Client, e: MouseEvent) {
     e.stopPropagation();
     e.preventDefault();
-    const ok = window.confirm(`Delete chat with ${client.name}?`);
+    const assigned = Boolean(client.caseId);
+    const ok = window.confirm(
+      assigned
+        ? `Hide ${client.name} from the inbox? It will stay in ${client.caseId}.`
+        : `Delete chat with ${client.name}?`,
+    );
     if (ok) onDelete(client.id);
   }
 
@@ -125,14 +154,38 @@ export function ClientRail({
           <h2>Inbox</h2>
           <span className="rail-count">{clients.length}</span>
         </div>
-        <label className="search">
-          <span className="sr-only">Search clients</span>
-          <input
-            value={query ?? ""}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Search chats"
-          />
-        </label>
+        <div className="rail-quick-filters" aria-label="Inbox filters">
+          {QUICK_FILTERS.map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              className={quickFilter === filter.id ? "is-active" : undefined}
+              onClick={() => onQuickFilterChange(filter.id)}
+              aria-pressed={quickFilter === filter.id}
+            >
+              <span>{filter.label}</span>
+              <strong>{quickCounts[filter.id]}</strong>
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="rail-advanced-toggle"
+          onClick={() => setAdvancedOpen((open) => !open)}
+          aria-expanded={advancedOpen}
+        >
+          Advanced filter
+        </button>
+        {advancedOpen || query.trim() ? (
+          <label className="search">
+            <span className="sr-only">Search clients</span>
+            <input
+              value={query ?? ""}
+              onChange={(e) => onQueryChange(e.target.value)}
+              placeholder="Search chats"
+            />
+          </label>
+        ) : null}
       </div>
 
       {clients.length === 0 ? (
@@ -175,12 +228,7 @@ export function ClientRail({
                     }
                   }}
                 >
-                  <span
-                    className={`client-avatar tone-${(client.name?.charCodeAt(0) ?? 0) % 4}`}
-                    aria-hidden
-                  >
-                    {initials(client.name || "G")}
-                  </span>
+                  <ClientAvatar id={client.id} name={client.name || "Guest"} />
 
                   <div className="client-body">
                     <div className="client-row-top">
@@ -204,6 +252,20 @@ export function ClientRail({
                           >
                             {client.name}
                           </span>
+                          {client.autoAnswerDraft ? (
+                            <span
+                              className="auto-answer-badge"
+                              title={
+                                client.autoAnswerDraft.status === "working"
+                                  ? "AI is writing a reply"
+                                  : client.autoAnswerDraft.status === "failed"
+                                    ? "AI draft failed"
+                                    : "AI draft waiting for you"
+                              }
+                            >
+                              AI
+                            </span>
+                          ) : null}
                           {live ? (
                             <span
                               className="client-live-dot"
@@ -293,10 +355,18 @@ export function ClientRail({
                         type="button"
                         className="client-delete-btn"
                         onClick={(e) => deleteChat(client, e)}
-                        aria-label={`Delete chat with ${client.name}`}
-                        title="Delete"
+                        aria-label={
+                          client.caseId
+                            ? `Hide chat with ${client.name}`
+                            : `Delete chat with ${client.name}`
+                        }
+                        title={client.caseId ? "Hide" : "Delete"}
                       >
-                        <IconTrash size={13} />
+                        {client.caseId ? (
+                          <IconEyeOff size={13} />
+                        ) : (
+                          <IconTrash size={13} />
+                        )}
                       </button>
                     </div>
                   </div>

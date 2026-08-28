@@ -4,31 +4,21 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { IconCheck, IconLink, IconX } from "@/components/shared/Icons";
 
-interface QrShareModalProps {
+interface ShareQrCardProps {
   url: string;
   businessName: string;
-  onClose: () => void;
   onCopyLink: () => void;
   copied: boolean;
 }
 
-export function QrShareModal({
+export function ShareQrCard({
   url,
   businessName,
-  onClose,
   onCopyLink,
   copied,
-}: QrShareModalProps) {
+}: ShareQrCardProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +51,59 @@ export function QrShareModal({
   }
 
   return (
+    <div className="qr-share-body">
+      {error ? <p className="editor-error">{error}</p> : null}
+      {dataUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="qr-share-image" src={dataUrl} alt="QR code" />
+      ) : !error ? (
+        <p className="editor-hint">Generating…</p>
+      ) : null}
+      <code className="qr-share-url">{url}</code>
+      <div className="widget-snippet-actions">
+        <button type="button" className="btn-solid" onClick={downloadPng}>
+          Download PNG
+        </button>
+        <button type="button" className="btn-ghost" onClick={onCopyLink}>
+          {copied ? (
+            <>
+              <IconCheck size={14} /> Copied
+            </>
+          ) : (
+            <>
+              <IconLink size={14} /> Copy link
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface QrShareModalProps {
+  url: string;
+  businessName: string;
+  onClose: () => void;
+  onCopyLink: () => void;
+  copied: boolean;
+}
+
+export function QrShareModal({
+  url,
+  businessName,
+  onClose,
+  onCopyLink,
+  copied,
+}: QrShareModalProps) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
     <div className="widget-snippet-backdrop" onClick={onClose}>
       <div
         className="widget-snippet-modal qr-share-modal"
@@ -84,31 +127,13 @@ export function QrShareModal({
             <IconX />
           </button>
         </header>
-        <div className="widget-snippet-body qr-share-body">
-          {error ? <p className="editor-error">{error}</p> : null}
-          {dataUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img className="qr-share-image" src={dataUrl} alt="QR code" />
-          ) : !error ? (
-            <p className="editor-hint">Generating…</p>
-          ) : null}
-          <code className="qr-share-url">{url}</code>
-          <div className="widget-snippet-actions">
-            <button type="button" className="btn-solid" onClick={downloadPng}>
-              Download PNG
-            </button>
-            <button type="button" className="btn-ghost" onClick={onCopyLink}>
-              {copied ? (
-                <>
-                  <IconCheck size={14} /> Copied
-                </>
-              ) : (
-                <>
-                  <IconLink size={14} /> Copy link
-                </>
-              )}
-            </button>
-          </div>
+        <div className="widget-snippet-body">
+          <ShareQrCard
+            url={url}
+            businessName={businessName}
+            copied={copied}
+            onCopyLink={onCopyLink}
+          />
         </div>
       </div>
     </div>

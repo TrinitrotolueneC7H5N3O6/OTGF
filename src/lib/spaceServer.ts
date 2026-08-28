@@ -1,8 +1,12 @@
 import { randomBytes } from "crypto";
-import type { Business, BusinessSpace, ChatParticipant, Client, Message, Trade } from "./types";
+import type { Prisma } from "@prisma/client";
+import type { AutoAnswerDraft, Business, BusinessSpace, ChatParticipant, Client, CustomerCase, Message, Offering, KnowledgeNote, Trade } from "./types";
 import { applySpaceOpToSpace, type SpaceOp } from "./spaceOps";
 import {
   defaultFloorSettings,
+  normalizeCustomerCaseIdentifiers,
+  normalizeCustomerCaseStatus,
+  normalizeCustomerCases,
   normalizeSpace,
   slugify,
   titleFromSlug,
@@ -20,6 +24,15 @@ import { prisma, syncDbFromCookies } from "./db";
 import { emitSpaceEvent } from "./spaceEvents";
 import { toggleMessageReaction } from "./messageSocial";
 import { FORWARD_LINK_TTL_MS, joinedChatLabel } from "./forwardChat";
+import { normalizeOfferings } from "./offerings";
+import { normalizeKnowledgeNotes } from "./knowledge";
+import {
+  generateAutoAnswerBody,
+  latestAnswerableClientMessage,
+  newAutoAnswerDraftId,
+  shouldStartAutoAnswer,
+  withoutAutoAnswerDraft,
+} from "./autoAnswer";
 
 const writeChains = new Map<string, Promise<unknown>>();
 const EMPTY_MESSAGES = "[]";
@@ -52,7 +65,7 @@ async function withSpaceLock<T>(slug: string, fn: () => Promise<T>): Promise<T> 
 /** Business config stored in Space.data — no clients or messages. */
 type SpaceDocument = Omit<
   BusinessSpace,
-  "clients" | "messages" | "deletedClientIds"
+  "clients" | "messages" | "deletedClientIds" | "cases"
 >;
 
 function blankSpaceDoc(business: Business): SpaceDocument {
@@ -64,6 +77,8 @@ function blankSpaceDoc(business: Business): SpaceDocument {
     members: [],
     receiptPayments: [],
     receiptProducts: [],
+    offerings: [],
+    knowledgeNotes: [],
   };
 }
 
@@ -74,13 +89,55 @@ function parseSpaceDoc(raw: string): SpaceDocument {
     clients: [],
     messages: [],
     deletedClientIds: [],
+    cases: [],
   } as BusinessSpace);
-  const { clients: _c, messages: _m, deletedClientIds: _d, ...doc } = normalized;
-  return doc;
+  const {
+    clients: _c,
+    messages: _m,
+    deletedClientIds: _d,
+    offerings: _o,
+    knowledgeNotes: _k,
+    cases: _cases,
+    ...doc
+  } = normalized;
+  return { ...doc, offerings: [], knowledgeNotes: [] };
 }
 
 function parseClient(raw: string): Client {
   return JSON.parse(raw) as Client;
+}
+
+function clientFromRow(row: {
+  clientData: string;
+  customerCaseId?: string | null;
+  hiddenFromInbox?: boolean | null;
+}): Client {
+  return {
+    ...parseClient(row.clientData),
+    ...(row.customerCaseId ? { caseId: row.customerCaseId } : {}),
+    ...(row.hiddenFromInbox ? { hiddenFromInbox: true } : {}),
+  };
+}
+
+function stripChatDbFields(client: Client): Client {
+  const { caseId: _caseId, hiddenFromInbox: _hiddenFromInbox, ...rest } = client;
+  return rest;
+}
+
+/** Keep staff-only auto-answer fields unless the writer explicitly sent them. */
+function mergeClientRecord(existing: Client, incoming: Client): Client {
+  const merged: Client = { ...existing, ...incoming, id: incoming.id };
+  if (!Object.prototype.hasOwnProperty.call(incoming, "autoAnswerDraft")) {
+    if (existing.autoAnswerDraft) merged.autoAnswerDraft = existing.autoAnswerDraft;
+    else delete merged.autoAnswerDraft;
+  } else if (!incoming.autoAnswerDraft) {
+    delete merged.autoAnswerDraft;
+  }
+  if (!Object.prototype.hasOwnProperty.call(incoming, "autoAnswerOff")) {
+    if (existing.autoAnswerOff) merged.autoAnswerOff = true;
+    else delete merged.autoAnswerOff;
+  }
+  return merged;
 }
 
 function parseMessages(raw: string | null | undefined): Message[] {
@@ -113,9 +170,9 @@ async function loadClients(slug: string): Promise<Client[]> {
   const rows = await prisma.chat.findMany({
     where: { spaceSlug: slug, deleted: false },
     orderBy: { updatedAt: "desc" },
-    select: { clientData: true },
+    select: { clientData: true, customerCaseId: true, hiddenFromInbox: true },
   });
-  return rows.map((row) => parseClient(row.clientData));
+  return rows.map(clientFromRow);
 }
 
 async function loadThread(
@@ -125,10 +182,15 @@ async function loadThread(
   if (!chatIds.length) return { clients: [], messages: [] };
   const rows = await prisma.chat.findMany({
     where: { spaceSlug: slug, id: { in: chatIds }, deleted: false },
-    select: { clientData: true, messagesData: true },
+    select: {
+      clientData: true,
+      messagesData: true,
+      customerCaseId: true,
+      hiddenFromInbox: true,
+    },
   });
   return {
-    clients: rows.map((row) => parseClient(row.clientData)),
+    clients: rows.map(clientFromRow),
     messages: sortMessages(
       rows.flatMap((row) => parseMessages(row.messagesData)),
     ),
@@ -160,13 +222,170 @@ export async function dbChatExists(
   return Boolean(row && !row.deleted);
 }
 
+function serializeSpaceDoc(doc: SpaceDocument): string {
+  const { offerings: _offerings, knowledgeNotes: _knowledge, cases: _cases, ...rest } =
+    doc as SpaceDocument & { cases?: CustomerCase[] };
+  return JSON.stringify(rest);
+}
+
+function offeringFromRow(row: {
+  id: string;
+  title: string;
+  description: string;
+  price: string;
+  kind: string;
+  imageUrl: string;
+  sortOrder: number;
+}): Offering {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    price: row.price,
+    kind: row.kind === "product" ? "product" : "service",
+    ...(row.imageUrl ? { imageUrl: row.imageUrl } : {}),
+    sortOrder: row.sortOrder,
+  };
+}
+
+async function loadOfferings(slug: string): Promise<Offering[]> {
+  const rows = await prisma.offering.findMany({
+    where: { spaceSlug: slug },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+  return rows.map(offeringFromRow);
+}
+
+async function replaceOfferings(slug: string, offerings: Offering[]) {
+  const next = normalizeOfferings(offerings);
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.offering.deleteMany({ where: { spaceSlug: slug } }),
+    ...(next.length
+      ? [
+          prisma.offering.createMany({
+            data: next.map((item, index) => ({
+              id: item.id,
+              spaceSlug: slug,
+              title: item.title,
+              description: item.description,
+              price: item.price,
+              kind: item.kind,
+              imageUrl: item.imageUrl ?? "",
+              sortOrder: item.sortOrder ?? index,
+              createdAt: now,
+              updatedAt: now,
+            })),
+          }),
+        ]
+      : []),
+  ]);
+}
+
+function knowledgeFromRow(row: {
+  id: string;
+  horizon: string;
+  title: string;
+  body: string;
+  expiresAt: Date | null;
+  sortOrder: number;
+}): KnowledgeNote {
+  return {
+    id: row.id,
+    horizon: row.horizon === "short" ? "short" : "long",
+    title: row.title,
+    body: row.body,
+    ...(row.expiresAt ? { expiresAt: row.expiresAt.toISOString() } : {}),
+    sortOrder: row.sortOrder,
+  };
+}
+
+async function loadKnowledgeNotes(slug: string): Promise<KnowledgeNote[]> {
+  const rows = await prisma.knowledgeNote.findMany({
+    where: { spaceSlug: slug },
+    orderBy: [{ horizon: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+  return rows.map(knowledgeFromRow);
+}
+
+async function replaceKnowledgeNotes(slug: string, notes: KnowledgeNote[]) {
+  const next = normalizeKnowledgeNotes(notes);
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.knowledgeNote.deleteMany({ where: { spaceSlug: slug } }),
+    ...(next.length
+      ? [
+          prisma.knowledgeNote.createMany({
+            data: next.map((item, index) => ({
+              id: item.id,
+              spaceSlug: slug,
+              horizon: item.horizon,
+              title: item.title,
+              body: item.body,
+              expiresAt: item.expiresAt ? new Date(item.expiresAt) : null,
+              sortOrder: item.sortOrder ?? index,
+              createdAt: now,
+              updatedAt: now,
+            })),
+          }),
+        ]
+      : []),
+  ]);
+}
+
+function customerCaseFromRow(row: {
+  id: string;
+  status: string;
+  notes: string;
+  identifiers: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}): CustomerCase {
+  return {
+    id: row.id,
+    status: normalizeCustomerCaseStatus(row.status),
+    notes: row.notes,
+    identifiers: normalizeCustomerCaseIdentifiers(row.identifiers),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+async function loadCases(slug: string): Promise<CustomerCase[]> {
+  const rows = await prisma.customerCase.findMany({
+    where: { spaceSlug: slug },
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+  });
+  return rows.map(customerCaseFromRow);
+}
+
+export async function dbGetOffering(
+  slug: string,
+  offeringId: string,
+): Promise<Offering | null> {
+  await readyDb();
+  const clean = slugify(slug);
+  const id = offeringId.trim();
+  if (!id) return null;
+  const row = await prisma.offering.findFirst({
+    where: { spaceSlug: clean, id },
+  });
+  return row ? offeringFromRow(row) : null;
+}
+
 function assembleSpace(
   doc: SpaceDocument,
   clients: Client[],
   messages: Message[],
+  offerings: Offering[] = [],
+  knowledgeNotes: KnowledgeNote[] = [],
+  cases: CustomerCase[] = [],
 ): BusinessSpace {
   return normalizeSpace({
     ...doc,
+    offerings,
+    knowledgeNotes,
+    cases,
     clients,
     messages,
     deletedClientIds: [],
@@ -245,28 +464,45 @@ export async function dbGetSpace(
   const threadOnly = Boolean(options?.threadOnly && chatIds.length > 0);
 
   if (threadOnly) {
-    const [row, thread] = await Promise.all([
+    const [row, thread, offerings, knowledgeNotes, cases] = await Promise.all([
       prisma.space.findUnique({ where: { slug: clean } }),
       loadThread(clean, chatIds),
+      loadOfferings(clean),
+      loadKnowledgeNotes(clean),
+      loadCases(clean),
     ]);
     if (!row) return null;
     return assembleSpace(
       parseSpaceDoc(row.data),
-      thread.clients,
+      thread.clients.map(withoutAutoAnswerDraft),
       thread.messages,
+      offerings,
+      knowledgeNotes,
+      cases,
     );
   }
 
-  const [row, clients, messages, presence] = await Promise.all([
-    prisma.space.findUnique({ where: { slug: clean } }),
-    loadClients(clean),
-    chatIds.length > 0
-      ? loadMessages(clean, chatIds)
-      : Promise.resolve([] as Message[]),
-    dbListPresence(clean),
-  ]);
+  const [row, clients, messages, presence, offerings, knowledgeNotes, cases] =
+    await Promise.all([
+      prisma.space.findUnique({ where: { slug: clean } }),
+      loadClients(clean),
+      chatIds.length > 0
+        ? loadMessages(clean, chatIds)
+        : Promise.resolve([] as Message[]),
+      dbListPresence(clean),
+      loadOfferings(clean),
+      loadKnowledgeNotes(clean),
+      loadCases(clean),
+    ]);
   if (!row) return null;
-  const space = assembleSpace(parseSpaceDoc(row.data), clients, messages);
+  const space = assembleSpace(
+    parseSpaceDoc(row.data),
+    clients,
+    messages,
+    offerings,
+    knowledgeNotes,
+    cases,
+  );
   return applyPresence(space, presence);
 }
 
@@ -276,19 +512,22 @@ export async function dbGetSpaceFloorBoot(
 ): Promise<BusinessSpace | null> {
   await readyDb();
   const clean = slugify(slug);
-  const [row, clientRows, presence] = await Promise.all([
+  const [row, clientRows, presence, offerings, knowledgeNotes, cases] = await Promise.all([
     prisma.space.findUnique({ where: { slug: clean } }),
     prisma.chat.findMany({
       where: { spaceSlug: clean, deleted: false },
       orderBy: { updatedAt: "desc" },
-      select: { clientData: true },
+      select: { clientData: true, customerCaseId: true, hiddenFromInbox: true },
     }),
     dbListPresence(clean),
+    loadOfferings(clean),
+    loadKnowledgeNotes(clean),
+    loadCases(clean),
   ]);
   if (!row) return null;
 
-  const clients = clientRows.map((chatRow) => parseClient(chatRow.clientData));
-  const mostRecent = clients.find((c) => c.preview.trim());
+  const clients = clientRows.map(clientFromRow);
+  const mostRecent = clients.find((c) => c.preview.trim() && !c.hiddenFromInbox);
 
   let messages: Message[] = [];
   if (mostRecent) {
@@ -307,6 +546,9 @@ export async function dbGetSpaceFloorBoot(
     parseSpaceDoc(row.data),
     clients,
     sortMessages(messages),
+    offerings,
+    knowledgeNotes,
+    cases,
   );
   return applyPresence(space, presence);
 }
@@ -404,13 +646,15 @@ async function upsertChatRow(
   client: Client,
   messages?: Message[],
 ) {
-  const clientData = JSON.stringify(client);
+  const clientData = JSON.stringify(stripChatDbFields(client));
   if (messages !== undefined) {
     await prisma.chat.upsert({
       where: { spaceSlug_id: { spaceSlug: slug, id: client.id } },
       create: {
         id: client.id,
         spaceSlug: slug,
+        customerCaseId: client.caseId,
+        hiddenFromInbox: Boolean(client.hiddenFromInbox),
         clientData,
         messagesData: JSON.stringify(messages),
         deleted: false,
@@ -426,10 +670,12 @@ async function upsertChatRow(
 
   await prisma.chat.upsert({
     where: { spaceSlug_id: { spaceSlug: slug, id: client.id } },
-    create: {
-      id: client.id,
-      spaceSlug: slug,
-      clientData,
+      create: {
+        id: client.id,
+        spaceSlug: slug,
+        customerCaseId: client.caseId,
+        hiddenFromInbox: Boolean(client.hiddenFromInbox),
+        clientData,
       messagesData: EMPTY_MESSAGES,
       deleted: false,
     },
@@ -447,19 +693,29 @@ async function appendMessageToChat(
 ): Promise<{ client: Client; duplicate: boolean }> {
   const row = await prisma.chat.findUnique({
     where: { spaceSlug_id: { spaceSlug: slug, id: client.id } },
-    select: { clientData: true, messagesData: true, deleted: true },
+    select: {
+      clientData: true,
+      messagesData: true,
+      deleted: true,
+      customerCaseId: true,
+      hiddenFromInbox: true,
+    },
   });
 
   if (row && !row.deleted) {
     const messages = parseMessages(row.messagesData);
+    const existing = clientFromRow(row);
     if (messages.some((m) => m.id === message.id)) {
       return {
-        client: { ...parseClient(row.clientData), ...client, id: client.id },
+        client: mergeClientRecord(existing, client),
         duplicate: true,
       };
     }
     messages.push(message);
-    const nextClient = { ...parseClient(row.clientData), ...client, id: client.id };
+    let nextClient = mergeClientRecord(existing, client);
+    if (message.from === "business") {
+      nextClient = withoutAutoAnswerDraft(nextClient);
+    }
     await upsertChatRow(slug, nextClient, sortMessages(messages));
     return { client: nextClient, duplicate: false };
   }
@@ -468,10 +724,171 @@ async function appendMessageToChat(
   return { client, duplicate: false };
 }
 
+/** One chat only — never scan sibling conversations. */
+async function loadIsolatedChat(slug: string, chatId: string) {
+  const row = await prisma.chat.findUnique({
+    where: { spaceSlug_id: { spaceSlug: slug, id: chatId } },
+    select: {
+      clientData: true,
+      messagesData: true,
+      deleted: true,
+      customerCaseId: true,
+      hiddenFromInbox: true,
+    },
+  });
+  if (!row || row.deleted) return null;
+  return {
+    client: clientFromRow(row),
+    messages: sortMessages(
+      parseMessages(row.messagesData).filter((m) => m.clientId === chatId),
+    ),
+  };
+}
+
+const autoAnswerJobSeq = new Map<string, number>();
+
+function autoAnswerJobKey(slug: string, chatId: string) {
+  return `${slug}::${chatId}`;
+}
+
+async function persistIsolatedDraft(
+  slug: string,
+  chatId: string,
+  draft: AutoAnswerDraft | null,
+) {
+  const updatedAt = await withSpaceLock(slug, async () => {
+    const isolated = await loadIsolatedChat(slug, chatId);
+    if (!isolated) return null;
+    if (
+      draft &&
+      isolated.client.autoAnswerDraft &&
+      isolated.client.autoAnswerDraft.id !== draft.id &&
+      isolated.client.autoAnswerDraft.sourceMessageId !== draft.sourceMessageId
+    ) {
+      // A newer draft for this chat won; do not clobber it.
+      return null;
+    }
+    const client = draft
+      ? { ...isolated.client, autoAnswerDraft: draft }
+      : withoutAutoAnswerDraft(isolated.client);
+    await upsertChatRow(slug, client);
+    const touched = await touchSpace(slug);
+    return touched.toISOString();
+  });
+  if (!updatedAt) return;
+  emitSpaceEvent(slug, {
+    type: "op",
+    op: { type: "setAutoAnswerDraft", clientId: chatId, draft },
+    updatedAt,
+  });
+  void notifySpaceListeners(slug);
+}
+
+async function afterAppendMessage(
+  slug: string,
+  message: Message,
+  chatId: string,
+) {
+  if (message.from !== "client") return;
+  await runAutoAnswerJob(slug, chatId, message.id);
+}
+
+async function runAutoAnswerJob(
+  slug: string,
+  chatId: string,
+  sourceMessageId?: string,
+) {
+  const key = autoAnswerJobKey(slug, chatId);
+  const seq = (autoAnswerJobSeq.get(key) ?? 0) + 1;
+  autoAnswerJobSeq.set(key, seq);
+
+  const spaceRow = await prisma.space.findUnique({ where: { slug } });
+  if (!spaceRow) return;
+  const doc = parseSpaceDoc(spaceRow.data);
+
+  const [isolated, offerings, knowledgeNotes] = await Promise.all([
+    loadIsolatedChat(slug, chatId),
+    loadOfferings(slug),
+    loadKnowledgeNotes(slug),
+  ]);
+  if (!isolated) return;
+
+  const source =
+    (sourceMessageId
+      ? isolated.messages.find((m) => m.id === sourceMessageId && m.clientId === chatId)
+      : undefined) ?? latestAnswerableClientMessage(isolated.messages, chatId);
+  if (!source) return;
+
+  if (
+    !shouldStartAutoAnswer({
+      autoAnswerOn: Boolean(doc.settings.autoAnswer),
+      client: isolated.client,
+      source,
+      thread: isolated.messages,
+    })
+  ) {
+    return;
+  }
+
+  const reuse =
+    isolated.client.autoAnswerDraft?.sourceMessageId === source.id
+      ? isolated.client.autoAnswerDraft
+      : undefined;
+  const working: AutoAnswerDraft = {
+    id: reuse?.id || newAutoAnswerDraftId(),
+    sourceMessageId: source.id,
+    body: reuse?.body ?? "",
+    createdAt: new Date().toISOString(),
+    status: "working",
+  };
+  await persistIsolatedDraft(slug, chatId, working);
+
+  let body = "";
+  let error = "";
+  try {
+    body = await generateAutoAnswerBody({
+      businessName: doc.business.name,
+      trade: doc.business.trade,
+      clientName: isolated.client.name,
+      clientNote: isolated.client.note,
+      messages: isolated.messages,
+      chatId,
+      knowledgeNotes,
+      offerings,
+      assistBehavior: doc.settings.assistBehavior,
+    });
+  } catch (err) {
+    error = err instanceof Error ? err.message : "Couldn’t draft a reply.";
+  }
+
+  if (autoAnswerJobSeq.get(key) !== seq) return;
+
+  const latest = await loadIsolatedChat(slug, chatId);
+  if (!latest) return;
+  const still = latestAnswerableClientMessage(latest.messages, chatId);
+  if (!still || still.id !== source.id) return;
+  if (
+    latest.client.autoAnswerDraft?.id &&
+    latest.client.autoAnswerDraft.id !== working.id &&
+    latest.client.autoAnswerDraft.sourceMessageId !== source.id
+  ) {
+    return;
+  }
+
+  await persistIsolatedDraft(
+    slug,
+    chatId,
+    error
+      ? { ...working, status: "failed", error }
+      : { ...working, status: "ready", body },
+  );
+}
+
 async function findChatMessage(
   slug: string,
   messageId: string,
 ): Promise<{ chatId: string; messages: Message[]; index: number } | null> {
+  // One-message lookup across chats (reactions only — not used for auto-answer).
   const rows = await prisma.chat.findMany({
     where: { spaceSlug: slug, deleted: false },
     select: { id: true, messagesData: true },
@@ -548,7 +965,7 @@ export async function dbAppendMessage(
   emitSpaceEvent(clean, {
     type: "message",
     message: input.message,
-    client: input.client,
+    client: withoutAutoAnswerDraft(input.client),
   });
   return withSpaceLock(clean, async () => {
     const spaceRow = await prisma.space.findUnique({ where: { slug: clean } });
@@ -598,6 +1015,7 @@ export async function dbAppendMessage(
         message: input.message,
         client: nextClient,
         updatedAt: meta?.updatedAt ?? new Date().toISOString(),
+        duplicate: true,
       };
     }
 
@@ -606,16 +1024,38 @@ export async function dbAppendMessage(
       message: input.message,
       client: nextClient,
       updatedAt: updatedAt.toISOString(),
+      duplicate: false,
     };
   }).then(async (result) => {
     emitSpaceEvent(clean, {
       type: "message",
       message: result.message,
-      client: result.client,
+      client: withoutAutoAnswerDraft(result.client),
       updatedAt: result.updatedAt,
     });
+    if (
+      result.message.from === "business" &&
+      result.client.autoAnswerDraft === undefined
+    ) {
+      emitSpaceEvent(clean, {
+        type: "op",
+        op: {
+          type: "setAutoAnswerDraft",
+          clientId: result.client.id,
+          draft: null,
+        },
+        updatedAt: result.updatedAt,
+      });
+    }
     void notifySpaceListeners(clean);
-    return result;
+    if (!result.duplicate) {
+      void afterAppendMessage(clean, result.message, result.client.id);
+    }
+    return {
+      message: result.message,
+      client: withoutAutoAnswerDraft(result.client),
+      updatedAt: result.updatedAt,
+    };
   });
 }
 
@@ -632,6 +1072,17 @@ async function applyOpToDb(slug: string, op: SpaceOp) {
       return;
     }
     case "deleteClient": {
+      const row = await prisma.chat.findUnique({
+        where: { spaceSlug_id: { spaceSlug: slug, id: op.clientId } },
+        select: { customerCaseId: true },
+      });
+      if (row?.customerCaseId) {
+        await prisma.chat.update({
+          where: { spaceSlug_id: { spaceSlug: slug, id: op.clientId } },
+          data: { hiddenFromInbox: true },
+        });
+        return;
+      }
       await prisma.chat.delete({
         where: { spaceSlug_id: { spaceSlug: slug, id: op.clientId } },
       }).catch(() =>
@@ -649,13 +1100,13 @@ async function applyOpToDb(slug: string, op: SpaceOp) {
       });
       if (!row) return;
       const prev = parseClient(row.clientData);
-      const client = {
+      const client = withoutAutoAnswerDraft({
         ...prev,
         chatEndedAt: prev.chatEndedAt || new Date().toISOString(),
         preview: "Chat ended",
         lastActive: "Just now",
         unread: 0,
-      };
+      });
       const messages = parseMessages(row.messagesData);
       if (!messages.some((m) => m.id === op.message.id)) {
         messages.push(op.message);
@@ -685,16 +1136,143 @@ async function applyOpToDb(slug: string, op: SpaceOp) {
       const current = await dbGetSpace(slug);
       if (!current) throw new Error("Space not found");
       const next = applySpaceOpToSpace(current, op);
-      const { clients: _c, messages: _m, deletedClientIds: _d, ...doc } =
+      const { clients: _c, messages: _m, deletedClientIds: _d, cases: _cases, ...doc } =
         normalizeSpace(next);
       await prisma.space.update({
         where: { slug },
-        data: { data: JSON.stringify(doc) },
+        data: { data: serializeSpaceDoc(doc) },
+      });
+      return;
+    }
+    case "setOfferings": {
+      await replaceOfferings(slug, op.offerings);
+      return;
+    }
+    case "setKnowledgeNotes": {
+      await replaceKnowledgeNotes(slug, op.knowledgeNotes);
+      return;
+    }
+    case "createCase": {
+      const [customerCase] = normalizeCustomerCases([op.customerCase]);
+      if (!customerCase) throw new Error("Case id required");
+      await prisma.customerCase.create({
+        data: {
+          id: customerCase.id,
+          spaceSlug: slug,
+          status: customerCase.status,
+          notes: customerCase.notes,
+          identifiers: customerCase.identifiers as unknown as Prisma.InputJsonValue,
+        },
+      });
+      return;
+    }
+    case "updateCaseStatus": {
+      await prisma.customerCase.update({
+        where: { id: op.caseId },
+        data: { status: normalizeCustomerCaseStatus(op.status) },
+      });
+      return;
+    }
+    case "updateCaseNotes": {
+      await prisma.customerCase.update({
+        where: { id: op.caseId },
+        data: { notes: op.notes.trim().slice(0, 4000) },
+      });
+      return;
+    }
+    case "updateCaseIdentifiers": {
+      await prisma.customerCase.update({
+        where: { id: op.caseId },
+        data: {
+          identifiers: normalizeCustomerCaseIdentifiers(
+            op.identifiers,
+          ) as unknown as Prisma.InputJsonValue,
+        },
+      });
+      return;
+    }
+    case "assignChatCase": {
+      const caseId = op.caseId?.trim() || null;
+      if (caseId) {
+        const customerCase = await prisma.customerCase.findFirst({
+          where: { id: caseId, spaceSlug: slug },
+          select: { id: true },
+        });
+        if (!customerCase) throw new Error("Case not found");
+      }
+      await prisma.chat.update({
+        where: { spaceSlug_id: { spaceSlug: slug, id: op.clientId } },
+        data: {
+          customerCaseId: caseId,
+          hiddenFromInbox: caseId ? undefined : false,
+        },
+      });
+      return;
+    }
+    case "hideClient": {
+      await prisma.chat.update({
+        where: { spaceSlug_id: { spaceSlug: slug, id: op.clientId } },
+        data: { hiddenFromInbox: op.hidden ?? true },
       });
       return;
     }
     case "upsertClient": {
       await upsertChatRow(slug, op.client);
+      return;
+    }
+    case "setAutoAnswerDraft": {
+      const row = await prisma.chat.findUnique({
+        where: { spaceSlug_id: { spaceSlug: slug, id: op.clientId } },
+        select: { clientData: true },
+      });
+      if (!row) return;
+      const prev = parseClient(row.clientData);
+      const client = op.draft
+        ? { ...prev, autoAnswerDraft: op.draft }
+        : withoutAutoAnswerDraft(prev);
+      await upsertChatRow(slug, client);
+      return;
+    }
+    case "setAutoAnswerOff": {
+      const row = await prisma.chat.findUnique({
+        where: { spaceSlug_id: { spaceSlug: slug, id: op.clientId } },
+        select: { clientData: true },
+      });
+      if (!row) return;
+      const prev = parseClient(row.clientData);
+      const client = op.off
+        ? { ...prev, autoAnswerOff: true }
+        : { ...prev, autoAnswerOff: undefined };
+      if (!op.off) delete client.autoAnswerOff;
+      await upsertChatRow(slug, client);
+      return;
+    }
+    case "retryAutoAnswer": {
+      const isolated = await loadIsolatedChat(slug, op.clientId);
+      if (!isolated) return;
+      const source =
+        isolated.client.autoAnswerDraft?.sourceMessageId ||
+        latestAnswerableClientMessage(isolated.messages, op.clientId)?.id;
+      if (!source) return;
+      const { error: _error, ...rest } = isolated.client.autoAnswerDraft ?? {
+        id: newAutoAnswerDraftId(),
+        sourceMessageId: source,
+        body: "",
+        createdAt: new Date().toISOString(),
+        status: "working" as const,
+      };
+      const draft: AutoAnswerDraft = {
+        ...rest,
+        sourceMessageId: source,
+        status: "working",
+        body: rest.body ?? "",
+        id: rest.id || newAutoAnswerDraftId(),
+        createdAt: rest.createdAt || new Date().toISOString(),
+      };
+      await upsertChatRow(slug, {
+        ...isolated.client,
+        autoAnswerDraft: draft,
+      });
       return;
     }
   }
@@ -715,22 +1293,27 @@ export async function dbApplySpaceOp(
   }
   emitSpaceEvent(clean, { type: "op", op, updatedAt });
   void notifySpaceListeners(clean);
+  if (op.type === "retryAutoAnswer") {
+    void runAutoAnswerJob(clean, op.clientId);
+  }
 }
 
 export async function dbSaveSpace(space: BusinessSpace): Promise<BusinessSpace> {
   const clean = slugify(space.business.slug);
-  return withSpaceLock(clean, async () => {
+  const pendingAutoAnswer: { chatId: string; messageId: string }[] = [];
+  const newlyStored: { message: Message; client: Client }[] = [];
+  const result = await withSpaceLock(clean, async () => {
     const normalized = ensureWelcomeMessagesForSpace(normalizeSpace(space));
-    const { clients, messages, deletedClientIds: _d, ...doc } = normalized;
+    const { clients, messages, deletedClientIds: _d, cases: _cases, ...doc } = normalized;
 
     await prisma.space.upsert({
       where: { slug: clean },
       create: {
         slug: clean,
-        data: JSON.stringify(doc),
+        data: serializeSpaceDoc(doc),
       },
       update: {
-        data: JSON.stringify(doc),
+        data: serializeSpaceDoc(doc),
       },
     });
 
@@ -762,16 +1345,47 @@ export async function dbSaveSpace(space: BusinessSpace): Promise<BusinessSpace> 
         continue;
       }
       const existing = existingById.get(client.id) ?? [];
+      const existingIds = new Set(existing.map((message) => message.id));
       const byId = new Map(existing.map((message) => [message.id, message]));
-      for (const message of incoming) byId.set(message.id, message);
+      for (const message of incoming) {
+        if (!existingIds.has(message.id)) {
+          newlyStored.push({ message, client });
+          if (message.from === "client" && message.clientId === client.id) {
+            pendingAutoAnswer.push({
+              chatId: client.id,
+              messageId: message.id,
+            });
+          }
+        }
+        byId.set(message.id, message);
+      }
       await upsertChatRow(clean, client, sortMessages([...byId.values()]));
     }
 
     return (await dbGetSpace(clean)) ?? normalized;
-  }).then(async (result) => {
-    void notifySpaceListeners(clean);
-    return result;
   });
+  const meta = await dbGetSpaceMeta(clean);
+  const updatedAt = meta?.updatedAt ?? new Date().toISOString();
+  const liveMessages = sortMessages(newlyStored.map((row) => row.message));
+  for (const message of liveMessages) {
+    const row = newlyStored.find((item) => item.message.id === message.id);
+    if (!row) continue;
+    emitSpaceEvent(clean, {
+      type: "message",
+      message,
+      client: withoutAutoAnswerDraft(row.client),
+      updatedAt,
+    });
+  }
+  void notifySpaceListeners(clean);
+  const latestByChat = new Map<string, string>();
+  for (const item of pendingAutoAnswer) {
+    latestByChat.set(item.chatId, item.messageId);
+  }
+  for (const [chatId, messageId] of latestByChat) {
+    void runAutoAnswerJob(clean, chatId, messageId);
+  }
+  return result;
 }
 
 export async function dbEnsureSpace(
@@ -791,9 +1405,9 @@ export async function dbEnsureSpace(
       createdAt: new Date().toISOString(),
     });
     await prisma.space.create({
-      data: { slug: clean, data: JSON.stringify(doc) },
+      data: { slug: clean, data: serializeSpaceDoc(doc) },
     });
-    return assembleSpace(doc, [], []);
+    return assembleSpace(doc, [], [], []);
   });
 }
 
@@ -840,11 +1454,11 @@ export async function dbCreateBusiness(
   await prisma.space.create({
     data: {
       slug,
-      data: JSON.stringify(doc),
+      data: serializeSpaceDoc(doc),
       ownerId: ownerId || null,
     },
   });
-  return assembleSpace(doc, [], []);
+  return assembleSpace(doc, [], [], []);
 }
 
 export async function dbClaimSpace(slug: string, userId: string) {

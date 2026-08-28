@@ -18,7 +18,8 @@ import {
 } from "./spaceNormalize";
 import { isLatencyEnabled, notePayloadSize } from "./chatLatency";
 import type { SpaceOp } from "./spaceOps";
-import { applySpaceOpToSpace } from "./spaceOps";
+import { applySpaceOpToSpace, isStaffOnlySpaceOp } from "./spaceOps";
+import { withoutAutoAnswerDraft } from "./autoAnswer";
 import type { SpaceLiveEvent } from "./spaceEvents";
 
 export {
@@ -526,6 +527,12 @@ export function subscribeSpace(
 
   function applyLiveEvent(event: SpaceLiveEvent) {
     const activeChatId = options?.getChatId?.();
+    const liveClient =
+      event.type === "message" && event.client
+        ? options?.threadOnly
+          ? withoutAutoAnswerDraft(event.client)
+          : event.client
+        : undefined;
     if (event.type === "message") {
       if (!lastSpace) {
         skipNextContentRefresh = true;
@@ -536,12 +543,12 @@ export function subscribeSpace(
         lastSpace = applyIncomingMessage(
           lastSpace,
           event.message,
-          event.client,
+          liveClient,
         );
-      } else if (event.client) {
+      } else if (liveClient) {
         lastSpace = options?.retainOtherThreadMessages
-          ? applyIncomingMessage(lastSpace, event.message, event.client)
-          : applyIncomingClientOnly(lastSpace, event.message, event.client);
+          ? applyIncomingMessage(lastSpace, event.message, liveClient)
+          : applyIncomingClientOnly(lastSpace, event.message, liveClient);
       }
       skipNextContentRefresh = true;
       if (event.updatedAt) lastUpdatedAt = event.updatedAt;
@@ -565,6 +572,9 @@ export function subscribeSpace(
       return;
     }
     if (event.type === "op") {
+      if (options?.threadOnly && isStaffOnlySpaceOp(event.op)) {
+        return;
+      }
       if (!lastSpace) {
         skipNextContentRefresh = true;
         lastUpdatedAt = event.updatedAt;
@@ -572,9 +582,17 @@ export function subscribeSpace(
         return;
       }
       lastSpace = applySpaceOpToSpace(lastSpace, event.op);
-      skipNextContentRefresh = true;
+      // AI draft ops must not skip the following meta refresh — that's how
+      // the inbox learns a customer just wrote (customer chat uses a full save,
+      // not a live message event).
+      if (!isStaffOnlySpaceOp(event.op)) {
+        skipNextContentRefresh = true;
+      }
       lastUpdatedAt = event.updatedAt;
       if (!cancelled) onChange(lastSpace);
+      if (options?.threadOnly && event.op.type === "endChat") {
+        void fullRefresh();
+      }
       return;
     }
     if (event.type === "presence") {

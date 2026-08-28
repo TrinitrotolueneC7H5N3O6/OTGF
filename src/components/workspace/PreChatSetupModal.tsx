@@ -230,8 +230,8 @@ export function PreChatSetupModal({
       </div>
       <p className="floor-settings-help">
         Call Us stays hidden on the public page until you add a phone number.
-        Email and link buttons also need a value. Logo and banner come from
-        Brand settings.
+        Email and link buttons also need a value. Logo and banner are set in
+        Logo & banner above.
       </p>
     </div>
   );
@@ -249,10 +249,10 @@ export function PreChatSetupModal({
       >
         <header className="floor-settings-head">
           <div>
-            <h2 id="pre-chat-title">Edit pre-chat page</h2>
+            <h2 id="pre-chat-title">Edit public page</h2>
             <p>
-              This Linktree-style page is what people see at your public link
-              before they start a live chat.
+              This is the page people hit from your link — before they start a
+              live chat.
             </p>
           </div>
           <button

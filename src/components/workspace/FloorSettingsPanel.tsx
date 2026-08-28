@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type {
   Artifact,
   BannerTone,
@@ -13,6 +13,8 @@ import type {
 } from "@/lib/types";
 import { readMediaFile } from "@/lib/store";
 import { ChatBannerView } from "@/components/shared/ChatBannerView";
+import { SetupPanel } from "./SetupPanel";
+import { ACCOUNT_TAB_SOLUTION, isSolutionEnabled } from "@/lib/setupSolutions";
 import {
   IconChevronLeft,
   IconChevronRight,
@@ -40,23 +42,34 @@ const TONE_OPTIONS: { id: BannerTone; label: string }[] = [
 ];
 
 export type SettingsTab =
+  | "setup"
   | "brand"
   | "team"
   | "hours"
   | "shortcuts"
   | "shoutouts"
   | "notify"
+  | "billing"
   | "account";
 
 export const ACCOUNT_SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
-  { id: "brand", label: "Brand" },
+  { id: "setup", label: "Setup" },
+  { id: "brand", label: "Logo & banner" },
   { id: "team", label: "Team" },
   { id: "hours", label: "Hours" },
   { id: "shortcuts", label: "Shortcuts" },
-  { id: "shoutouts", label: "Shoutouts" },
-  { id: "notify", label: "Notify" },
-  { id: "account", label: "Account" },
+  { id: "shoutouts", label: "Promo banners" },
+  { id: "notify", label: "Email alerts" },
+  { id: "billing", label: "Billing" },
+  { id: "account", label: "Your account" },
 ];
+
+export function visibleAccountSettingsTabs(settings: FloorSettings) {
+  return ACCOUNT_SETTINGS_TABS.filter((item) => {
+    const required = ACCOUNT_TAB_SOLUTION[item.id];
+    return !required || isSolutionEnabled(settings, required);
+  });
+}
 
 const TABS = ACCOUNT_SETTINGS_TABS;
 
@@ -70,6 +83,8 @@ interface FloorSettingsPanelProps {
   ownerEmail?: string | null;
   loggingOut?: boolean;
   variant?: "modal" | "page";
+  /** Skip the page chrome so this panel can sit inside another page. */
+  embed?: boolean;
   onChangeSettings: (settings: FloorSettings) => void;
   onChangeMembers: (members: FloorMember[]) => void;
   onOpenWidget?: () => void;
@@ -85,18 +100,20 @@ export function FloorSettingsPanel({
   settings,
   members,
   artifacts,
-  initialTab = "brand",
+  initialTab = "setup",
   activeTab,
   ownerEmail: ownerEmailProp,
   loggingOut = false,
   variant = "modal",
+  embed = false,
   onChangeSettings,
   onChangeMembers,
   onOpenWidget,
   onLogOut,
   onClose,
 }: FloorSettingsPanelProps) {
-  const [tab, setTab] = useState<SettingsTab>(activeTab ?? initialTab);
+  const [tabState, setTab] = useState<SettingsTab>(activeTab ?? initialTab);
+  const tab = activeTab ?? tabState;
   const [bannerDraft, setBannerDraft] = useState("");
   const [memberDraft, setMemberDraft] = useState("");
   const [notifyDraft, setNotifyDraft] = useState("");
@@ -112,6 +129,7 @@ export function FloorSettingsPanel({
   const bannerFileRef = useRef<HTMLInputElement>(null);
   const logoFileRef = useRef<HTMLInputElement>(null);
   const seededNotify = useRef(false);
+  const brandFieldId = useId();
 
   useEffect(() => {
     if (activeTab) setTab(activeTab);
@@ -127,6 +145,7 @@ export function FloorSettingsPanel({
   }, [variant, onClose]);
 
   useEffect(() => {
+    if (embed) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -144,9 +163,10 @@ export function FloorSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [embed]);
 
   useEffect(() => {
+    if (embed) return;
     if (seededNotify.current || !ownerEmail) return;
     const current = settings.notifyEmails ?? [];
     if (current.length > 0) {
@@ -374,9 +394,17 @@ export function FloorSettingsPanel({
   }
 
   const pageTitle = TABS.find((t) => t.id === tab)?.label ?? "Settings";
+  const visibleTabs = visibleAccountSettingsTabs(settings);
 
   const panels = (
     <>
+          {tab === "setup" ? (
+            <SetupPanel
+              settings={settings}
+              onChangeSettings={onChangeSettings}
+            />
+          ) : null}
+
           {tab === "brand" ? (
             <section
               className="floor-settings-section"
@@ -385,8 +413,8 @@ export function FloorSettingsPanel({
               aria-labelledby="settings-tab-brand"
             >
               <p className="floor-settings-help">
-                Banner sits at the top of customer chat and fades out. Logo
-                appears as a circle beside your business name.
+                Banner sits at the top of your public page and customer chat.
+                Logo appears as a circle beside your name.
               </p>
 
               <div className="brand-upload-block">
@@ -415,13 +443,13 @@ export function FloorSettingsPanel({
                   type="file"
                   accept="image/*"
                   className="sr-only"
-                  id="settings-brand-banner"
+                  id={`settings-brand-banner-${brandFieldId}`}
                   onChange={(e) =>
                     void onBrandImage("banner", e.target.files?.[0] ?? null)
                   }
                 />
                 <label
-                  htmlFor="settings-brand-banner"
+                  htmlFor={`settings-brand-banner-${brandFieldId}`}
                   className="btn-solid-sm file-label"
                 >
                   {brandBusy === "banner" ? "Uploading…" : "Choose banner"}
@@ -454,13 +482,13 @@ export function FloorSettingsPanel({
                   type="file"
                   accept="image/*"
                   className="sr-only"
-                  id="settings-brand-logo"
+                  id={`settings-brand-logo-${brandFieldId}`}
                   onChange={(e) =>
                     void onBrandImage("logo", e.target.files?.[0] ?? null)
                   }
                 />
                 <label
-                  htmlFor="settings-brand-logo"
+                  htmlFor={`settings-brand-logo-${brandFieldId}`}
                   className="btn-solid-sm file-label"
                 >
                   {brandBusy === "logo" ? "Uploading…" : "Choose logo"}
@@ -534,7 +562,8 @@ export function FloorSettingsPanel({
               aria-labelledby="settings-tab-hours"
             >
               <p className="floor-settings-help">
-                Shown on customer chat so they know when you usually reply.
+                Shown on the public page and in chat so people know when you
+                usually reply.
               </p>
 
               {settings.windows.map((window, index) => (
@@ -1002,6 +1031,23 @@ export function FloorSettingsPanel({
             </section>
           ) : null}
 
+          {tab === "billing" ? (
+            <section
+              className="floor-settings-section"
+              role="tabpanel"
+              id="settings-panel-billing"
+              aria-labelledby="settings-tab-billing"
+            >
+              <p className="floor-settings-help">
+                Plan, invoices, and payment for this space will live here.
+              </p>
+              <p className="floor-settings-empty">
+                Billing isn’t connected yet. You’ll be able to manage your plan
+                from this page.
+              </p>
+            </section>
+          ) : null}
+
           {tab === "account" ? (
             <section
               className="floor-settings-section"
@@ -1010,7 +1056,7 @@ export function FloorSettingsPanel({
               aria-labelledby="settings-tab-account"
             >
               <p className="floor-settings-help">
-                Share tools and sign-out for this space.
+                Signed-in email and sign-out for this space.
               </p>
 
               {ownerEmail ? (
@@ -1048,8 +1094,11 @@ export function FloorSettingsPanel({
   );
 
   if (variant === "page") {
+    if (embed) return panels;
     return (
-      <div className="dashboard-panel-body">
+      <div
+        className={`dashboard-panel-body${tab === "setup" ? " is-setup" : ""}`}
+      >
         <h2 className="dashboard-panel-title">{pageTitle}</h2>
         {panels}
       </div>
@@ -1068,7 +1117,7 @@ export function FloorSettingsPanel({
         <header className="floor-settings-head">
           <div>
             <h2 id="floor-settings-title">Account Settings</h2>
-            <p>Brand, team, hours, shortcuts, shoutouts, and account.</p>
+            <p>Industry setup, brand, team, hours, and account.</p>
           </div>
           <button
             type="button"
@@ -1082,7 +1131,7 @@ export function FloorSettingsPanel({
         </header>
 
         <div className="floor-settings-tabs" role="tablist" aria-label="Account Settings">
-          {TABS.map((item) => {
+          {visibleTabs.map((item) => {
             const incomplete =
               (item.id === "brand" && brandIncomplete) ||
               (item.id === "team" && teamIncomplete);

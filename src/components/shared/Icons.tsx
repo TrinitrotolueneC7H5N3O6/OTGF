@@ -73,6 +73,27 @@ export function IconEye({ size = 16 }: { size?: number }) {
   );
 }
 
+export function IconEyeOff({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 3l18 18" />
+      <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+      <path d="M9.5 5.3A10.7 10.7 0 0 1 12 5c6.5 0 10 7 10 7a17.4 17.4 0 0 1-2.2 3.2" />
+      <path d="M6.1 6.8C3.5 8.7 2 12 2 12s3.5 7 10 7a10.8 10.8 0 0 0 5-1.2" />
+    </svg>
+  );
+}
+
 export function IconTrash({ size = 15 }: { size?: number }) {
   return (
     <svg
@@ -359,6 +380,48 @@ export function IconQr({ size = 16 }: { size?: number }) {
   );
 }
 
+export function IconMaximize({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+      <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+      <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </svg>
+  );
+}
+
+export function IconMinimize({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M8 3v3a2 2 0 0 1-2 2H3" />
+      <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
+      <path d="M3 16h3a2 2 0 0 1 2 2v3" />
+      <path d="M16 21v-3a2 2 0 0 1 2-2h3" />
+    </svg>
+  );
+}
+
 export function IconSliders({ size = 16 }: { size?: number }) {
   return (
     <svg
@@ -381,6 +444,32 @@ export function IconSliders({ size = 16 }: { size?: number }) {
       <path d="M1 14h6" />
       <path d="M9 8h6" />
       <path d="M17 16h6" />
+    </svg>
+  );
+}
+
+export function IconSparkle({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 3v3" />
+      <path d="M12 18v3" />
+      <path d="M3 12h3" />
+      <path d="M18 12h3" />
+      <path d="m6.3 6.3 2.1 2.1" />
+      <path d="m15.6 15.6 2.1 2.1" />
+      <path d="m6.3 17.7 2.1-2.1" />
+      <path d="m15.6 8.4 2.1-2.1" />
+      <path d="M12 8.5 13.2 11l2.8.4-2 2 .5 2.8L12 15.1 9.5 16.2l.5-2.8-2-2 2.8-.4z" />
     </svg>
   );
 }

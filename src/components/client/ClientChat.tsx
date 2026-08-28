@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { Client, DepartmentAttachment, DepartmentContent, FloorSettings, Message, MessageReplyRef } from "@/lib/types";
+import type { BusinessSpace, Client, DepartmentAttachment, DepartmentContent, FloorSettings, Message, MessageReplyRef, Offering } from "@/lib/types";
 import { rememberChat } from "@/lib/chatMemory";
 import {
   beatPresence,
@@ -10,6 +10,7 @@ import {
   getSpace,
   nextGuestName,
   patchSpace,
+  appendMessage,
   readAttachmentFile,
   readMediaFile,
   subscribeSpace,
@@ -46,27 +47,46 @@ import {
   isSpecialtiesMessage,
 } from "@/lib/customerAutoReply";
 import { resolveChatIntroMessages } from "@/lib/chatIntroMessages";
+import { isSolutionEnabled } from "@/lib/setupSolutions";
+import { inquireMessageBody, inquireMessageId } from "@/lib/offerings";
 
 interface ClientChatProps {
   slug: string;
   chatId: string;
   embedded?: boolean;
+  /** Dashboard live preview — no network, no real chat. */
+  preview?: boolean;
+  previewSpace?: BusinessSpace;
+  inquireOfferingId?: string;
 }
 
 function isGuestName(name: string) {
-  return /^Guest(\s+\d+)?$/i.test(name.trim());
+  return /^Guest(?:\s+(?:\d+|[A-Z0-9]{4}))?$/i.test(name.trim());
 }
 
-export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) {
+function externalHref(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+export function ClientChat({
+  slug,
+  chatId,
+  embedded = false,
+  preview = false,
+  previewSpace,
+  inquireOfferingId,
+}: ClientChatProps) {
   const [space, setSpace] = useState<Awaited<
     ReturnType<typeof getSpace>
-  > | null>(null);
+  > | null>(previewSpace ?? null);
   const [displayName, setDisplayName] = useState("");
   const [draft, setDraft] = useState("");
   const [emailDraft, setEmailDraft] = useState("");
   const [emailSaved, setEmailSaved] = useState(false);
   const [recordingSaved, setRecordingSaved] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => Boolean(preview && previewSpace));
   const [attaching, setAttaching] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -81,6 +101,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
   const [copiedReturnLink, setCopiedReturnLink] = useState(false);
   const [linkEmailSent, setLinkEmailSent] = useState(false);
   const [replyTo, setReplyTo] = useState<MessageReplyRef | null>(null);
+  const [contactReason, setContactReason] = useState<string | null>(null);
   const [actionsFor, setActionsFor] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -88,8 +109,17 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
   const departmentDocRef = useRef<HTMLInputElement>(null);
   const numberMenuRef = useRef<HTMLDivElement>(null);
   const specialtiesMenuRef = useRef<HTMLDivElement>(null);
+  const inquireSent = useRef(false);
 
   useEffect(() => {
+    if (preview) {
+      if (previewSpace) {
+        setSpace(previewSpace);
+        setReady(true);
+      }
+      return;
+    }
+
     let cancelled = false;
 
     async function boot() {
@@ -162,7 +192,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       cancelled = true;
       unsubscribe();
     };
-  }, [slug, chatId]);
+  }, [slug, chatId, preview, previewSpace]);
 
   const introMessages = useMemo(
     () => (space ? resolveChatIntroMessages(space.settings) : null),
@@ -172,6 +202,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
   const thread = useMemo(() => {
     if (!space || !introMessages) return [];
     const stored = space.messages.filter((m) => m.clientId === chatId);
+    if (!isSolutionEnabled(space.settings, "intro")) return stored;
     return ensureWelcomeMessages(
       stored,
       chatId,
@@ -208,6 +239,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
 
   // Tell the floor when this customer tab is open / interacting.
   useEffect(() => {
+    if (preview) return;
     let cancelled = false;
     let timer: number | undefined;
 
@@ -241,12 +273,108 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", schedule);
     };
-  }, [slug, chatId]);
+  }, [slug, chatId, preview]);
 
   const guestLabel = client?.name ?? "Guest";
 
+  async function sendInquiry(offering: Offering) {
+    if (preview) return;
+    const body = inquireMessageBody(offering);
+    const msgId = inquireMessageId(chatId, offering.id);
+    const presentAt = new Date().toISOString();
+    const existing = space?.clients.find((c) => c.id === chatId);
+    const nextClient: Client = existing
+      ? {
+          ...existing,
+          preview: body,
+          lastActive: "Just now",
+          unread: existing.unread + 1,
+          presentAt,
+        }
+      : {
+          id: chatId,
+          name: nextGuestName(space?.clients ?? []),
+          status: "unknown",
+          channel: "web",
+          preview: body,
+          unread: 1,
+          trade: space?.business.trade ?? "salon",
+          lastActive: "Just now",
+          note: `Asked about ${offering.title}`,
+          presentAt,
+        };
+
+    const message: Message = {
+      id: msgId,
+      clientId: chatId,
+      from: "client",
+      kind: "item",
+      body,
+      offeringId: offering.id,
+      ...(offering.imageUrl ? { imageUrl: offering.imageUrl } : {}),
+      ...messageTimeStamp(),
+    };
+
+    setSpace((current) => {
+      if (!current) return current;
+      const already = current.messages.some((m) => m.id === msgId);
+      if (already) return current;
+      const latestExisting = current.clients.find((c) => c.id === chatId);
+      return {
+        ...current,
+        deletedClientIds: (current.deletedClientIds ?? []).filter(
+          (id) => id !== chatId,
+        ),
+        clients: latestExisting
+          ? [nextClient, ...current.clients.filter((c) => c.id !== chatId)]
+          : [nextClient, ...current.clients],
+        messages: [...current.messages, message],
+      };
+    });
+
+    try {
+      await appendMessage(slug, { message, client: nextClient });
+      window.history.replaceState(null, "", `/${slug}/c/${chatId}`);
+    } catch (err) {
+      setSpace((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          messages: current.messages.filter((m) => m.id !== msgId),
+        };
+      });
+      setSendError(
+        err instanceof Error ? err.message : "Could not send. Try again.",
+      );
+    }
+  }
+
+  useEffect(() => {
+    if (preview || inquireSent.current) return;
+    if (!ready || !space || !inquireOfferingId) return;
+    const offering = (space.offerings ?? []).find(
+      (item) => item.id === inquireOfferingId,
+    );
+    if (!offering) {
+      inquireSent.current = true;
+      setSendError("This product or service isn’t listed anymore.");
+      window.history.replaceState(null, "", `/${slug}/c/${chatId}`);
+      return;
+    }
+    const msgId = inquireMessageId(chatId, offering.id);
+    if (space.messages.some((m) => m.id === msgId)) {
+      inquireSent.current = true;
+      window.history.replaceState(null, "", `/${slug}/c/${chatId}`);
+      return;
+    }
+    inquireSent.current = true;
+    void sendInquiry(offering);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, space, inquireOfferingId, chatId, preview]);
+
   async function send(e: FormEvent) {
     e.preventDefault();
+    if (preview) return;
     if (sending) return;
     if (!draft.trim()) return;
     if (client?.chatEndedAt) return;
@@ -255,6 +383,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
     const body = draft.trim();
     const name = displayName.trim();
     const presentAt = new Date().toISOString();
+    const selectedReason = contactReason?.trim() || "";
     setSendError(null);
     setSending(true);
 
@@ -264,7 +393,18 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       from: "client",
       kind: "text",
       body,
-      ...(replyTo ? { replyTo } : {}),
+      ...(replyTo
+        ? { replyTo }
+        : selectedReason
+          ? {
+              replyTo: {
+                id: `contact-reason-${chatId}`,
+                from: "client",
+                kind: "text",
+                preview: `Contact reason: ${selectedReason}`,
+              },
+            }
+          : {}),
       ...messageTimeStamp(),
     };
 
@@ -312,6 +452,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
     });
     setDraft("");
     setReplyTo(null);
+    setContactReason(null);
 
     try {
       const next = await patchSpace(slug, (latest) => {
@@ -370,6 +511,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       const caption = draft.trim();
       const name = displayName.trim();
       const presentAt = new Date().toISOString();
+      const selectedReason = contactReason?.trim() || "";
       setSending(true);
 
       const message: Message = {
@@ -379,7 +521,18 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
         kind: "image",
         body: caption,
         imageUrl: media.url,
-        ...(replyTo ? { replyTo } : {}),
+        ...(replyTo
+          ? { replyTo }
+          : selectedReason
+            ? {
+                replyTo: {
+                  id: `contact-reason-${chatId}`,
+                  from: "client",
+                  kind: "text",
+                  preview: `Contact reason: ${selectedReason}`,
+                },
+              }
+            : {}),
         ...messageTimeStamp(),
       };
 
@@ -431,6 +584,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       setSpace(next);
       setDraft("");
       setReplyTo(null);
+      setContactReason(null);
     } catch (err) {
       setSendError(
         err instanceof Error ? err.message : "Could not send photo.",
@@ -521,13 +675,6 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       };
     });
     setSpace(next);
-  }
-
-  async function requestConsultation() {
-    await sendQuickRequest(
-      "I'd like to book an in-person consultation.",
-      "Consultation request",
-    );
   }
 
   async function requestPromo() {
@@ -644,12 +791,21 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
 
   function pickDepartment(n: number, closeMenu: () => void) {
     const department = currentDepartments(space?.settings)[n - 1];
+    const selectedReason =
+      introMessages?.contactReasonOptions[n - 1]?.trim() || `Option ${n}`;
     setSelectedNumber(n);
+    setContactReason(selectedReason);
     setDepartmentDraft(department.message);
     setDepartmentDraftAttachments(department.attachments);
+    if (!draft.trim()) {
+      setDraft("Here are a few more details: ");
+    }
+    if (sendError) setSendError(null);
     closeMenu();
     if (departmentHasContent(department)) {
-      void sendDepartmentContent(n, department);
+      void sendDepartmentContent(n, department, selectedReason, {
+        includeReason: false,
+      });
     }
   }
 
@@ -726,10 +882,15 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
   async function sendDepartmentContent(
     departmentNumber: number,
     content: DepartmentContent,
+    reasonLabel?: string,
+    options: { includeReason?: boolean } = {},
   ) {
     if (client?.chatEndedAt || sending) return;
+    const contactReason =
+      reasonLabel?.trim() || `Option ${departmentNumber}`;
     const text = content.message.trim();
-    if (!text && content.attachments.length === 0) return;
+    const includeReason = options.includeReason ?? true;
+    if (!includeReason && !text && content.attachments.length === 0) return;
 
     setSending(true);
     setSendError(null);
@@ -737,6 +898,16 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       const next = await patchSpace(slug, (latest) => {
         const stamp = messageTimeStamp();
         const outgoing: Message[] = [];
+        if (includeReason) {
+          outgoing.push({
+            id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            clientId: chatId,
+            from: "client",
+            kind: "text",
+            body: `I’m reaching out for: ${contactReason}`,
+            ...stamp,
+          });
+        }
         if (text) {
           outgoing.push({
             id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -774,7 +945,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
         const preview =
           text ||
           content.attachments[0]?.name ||
-          `Department ${departmentNumber}`;
+          contactReason;
         const existing = latest.clients.find((c) => c.id === chatId);
         const nextClient: Client = existing
           ? {
@@ -783,9 +954,9 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
               preview,
               lastActive: "Just now",
               unread: existing.unread + outgoing.length,
-              note: existing.note?.includes(`Department ${departmentNumber}`)
+              note: existing.note?.includes(contactReason)
                 ? existing.note
-                : `Department ${departmentNumber}`,
+                : contactReason,
               presentAt: new Date().toISOString(),
             }
           : {
@@ -797,7 +968,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
               unread: outgoing.length,
               trade: latest.business.trade,
               lastActive: "Just now",
-              note: `Department ${departmentNumber}`,
+              note: contactReason,
               presentAt: new Date().toISOString(),
             };
 
@@ -975,30 +1146,33 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
     setEmailSaved(true);
   }
 
-  async function saveRecordingEmail(e: FormEvent) {
+  async function saveEndScreenContact(e: FormEvent) {
     e.preventDefault();
-    const email = emailDraft.trim();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+    const contact = emailDraft.trim();
+    if (!contact) return;
+    const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)
+      ? contact
+      : "";
 
     const next = await patchSpace(slug, (latest) => {
       const existing = latest.clients.find((c) => c.id === chatId);
-      const body = `Recording email: ${email}`;
+      const body = `End screen contact: ${contact}`;
       const alreadyNoted = latest.messages.some(
         (m) =>
           m.clientId === chatId &&
           m.from === "client" &&
-          m.body.startsWith("Recording email:"),
+          m.body.startsWith("End screen contact:"),
       );
 
-      const noteBase = existing?.note?.toLowerCase().includes("recording")
+      const noteBase = existing?.note?.toLowerCase().includes("end screen contact")
         ? existing.note
-        : [existing?.note, "Wants recording"].filter(Boolean).join(" · ");
+        : [existing?.note, "End screen contact"].filter(Boolean).join(" · ");
 
       const nextClient: Client = existing
         ? {
             ...existing,
-            email,
-            note: noteBase || "Wants recording",
+            ...(email ? { email } : {}),
+            note: noteBase || "End screen contact",
             preview: body,
             lastActive: "Just now",
             unread: alreadyNoted ? existing.unread : existing.unread + 1,
@@ -1012,8 +1186,8 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
             unread: 1,
             trade: latest.business.trade,
             lastActive: "Just now",
-            note: "Wants recording",
-            email,
+            note: "End screen contact",
+            ...(email ? { email } : {}),
             chatEndedAt: new Date().toISOString(),
           };
 
@@ -1029,7 +1203,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
           ? latest.messages.map((m) =>
               m.clientId === chatId &&
               m.from === "client" &&
-              m.body.startsWith("Recording email:")
+              m.body.startsWith("End screen contact:")
                 ? { ...m, body, ...messageTimeStamp() }
                 : m,
             )
@@ -1049,7 +1223,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
 
     setSpace(next);
     setRecordingSaved(true);
-    setEmailSaved(true);
+    if (email) setEmailSaved(true);
   }
 
   if (!ready) {
@@ -1068,17 +1242,34 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
   }
 
   const settings = space.settings;
-  const banners = settings.banners.filter((b) => b.enabled && b.text.trim());
-  const hoursLabel = formatResponseWindows(settings.windows);
-  const chatEndImages = (settings.chatEndImages ?? []).slice(0, 6);
+  const banners = isSolutionEnabled(settings, "shoutouts")
+    ? settings.banners.filter((b) => b.enabled && b.text.trim())
+    : [];
+  const hoursLabel = isSolutionEnabled(settings, "hours")
+    ? formatResponseWindows(settings.windows)
+    : "";
+  const hoursNote = isSolutionEnabled(settings, "hours")
+    ? settings.responseNote
+    : "";
+  const chatEndImages = isSolutionEnabled(settings, "chatInterface")
+    ? (settings.chatEndImages ?? []).slice(0, 6)
+    : [];
+  const endScreen = settings.endScreenBehavior;
+  const introText = isSolutionEnabled(settings, "intro")
+    ? (settings.intro ?? "").trim()
+    : "";
+  const profileLinks = (settings.profileLinks ?? []).filter(
+    (link) => link.label.trim() && link.url.trim(),
+  );
+  const showSpecialties = isSolutionEnabled(settings, "specialties");
+  const showPromos = isSolutionEnabled(settings, "promos");
   const chatEnded = Boolean(client?.chatEndedAt);
   const isAway = !settings.live && !chatEnded;
   const awayCopy =
     settings.awayMessage?.trim() ||
     "We're not available right now. Leave your email and we'll reply to your question.";
-  const recordingCopy =
-    "If you would like a recording of this, please enter your email and one will be emailed to you.";
   const savedEmail = client?.email ?? (emailSaved || recordingSaved ? emailDraft.trim() : "");
+  const endScreenCtaHref = externalHref(endScreen.ctaUrl);
   const members = space.members ?? [];
   const soleMember = members.length === 1 ? members[0] : undefined;
   const chatOwner = client?.ownerMemberId
@@ -1109,19 +1300,19 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
           ) : null}
           <h1>{space.business.name}</h1>
         </div>
-        {chattingWith || hoursLabel || settings.responseNote ? (
+        {chattingWith || hoursLabel || hoursNote ? (
           <p className="client-chat-sub">
             {chattingWith ? (
               <>
                 With <strong>{chattingWith}</strong>
               </>
             ) : null}
-            {chattingWith && (hoursLabel || settings.responseNote)
+            {chattingWith && (hoursLabel || hoursNote)
               ? " · "
               : null}
             {hoursLabel || null}
-            {settings.responseNote
-              ? `${hoursLabel ? " · " : ""}${settings.responseNote}`
+            {hoursNote
+              ? `${hoursLabel ? " · " : ""}${hoursNote}`
               : null}
           </p>
         ) : null}
@@ -1143,17 +1334,10 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
     </header>
   );
 
-  const quickActions = !chatEnded ? (
+  const quickActions = !chatEnded && (showSpecialties || showPromos) ? (
     <div className="client-quick-actions">
       <div className="client-away-actions">
-        <button
-          type="button"
-          className="client-book-consult-btn"
-          onClick={() => void requestConsultation()}
-          disabled={sending}
-        >
-          Book in-person consultation
-        </button>
+        {showSpecialties ? (
         <div className="client-number-dropdown" ref={numberMenuRef}>
           <button
             type="button"
@@ -1195,7 +1379,7 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                     >
                       {n}
                     </button>
-                    {n === 1 ? (
+                    {n === 1 && showPromos ? (
                       <button
                         type="button"
                         className="client-promo-btn"
@@ -1211,8 +1395,19 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
             </ul>
           ) : null}
         </div>
+        ) : null}
+        {showPromos && !showSpecialties ? (
+          <button
+            type="button"
+            className="client-book-consult-btn"
+            onClick={() => void requestPromo()}
+            disabled={sending}
+          >
+            Today&apos;s promotions
+          </button>
+        ) : null}
       </div>
-      {selectedNumber != null ? (
+      {showSpecialties && selectedNumber != null ? (
         <form
           className="client-department-attach"
           onSubmit={(e) => {
@@ -1303,7 +1498,11 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
   ) : null;
 
   return (
-    <div className={`client-chat${embedded ? " is-embedded" : ""}`}>
+    <div
+      className={`client-chat${embedded || preview ? " is-embedded" : ""}${
+        preview ? " is-preview" : ""
+      }`}
+    >
       <div
         className={`client-chat-top ${settings.brandBannerUrl ? "has-brand-banner" : ""}`}
       >
@@ -1319,42 +1518,92 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
           head
         )}
 
-        {chatEnded ? (
+        {introText || profileLinks.length > 0 ? (
+          <div className="client-profile-block">
+            {introText ? (
+              <p className="client-chat-intro">{introText}</p>
+            ) : null}
+            {profileLinks.length > 0 ? (
+              <nav className="client-profile-links" aria-label="Links">
+                {profileLinks.map((link) =>
+                  preview ? (
+                    <span key={link.id} className="client-profile-link">
+                      {link.label}
+                    </span>
+                  ) : (
+                    <a
+                      key={link.id}
+                      className="client-profile-link"
+                      href={link.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {link.label}
+                    </a>
+                  ),
+                )}
+              </nav>
+            ) : null}
+          </div>
+        ) : null}
+
+        {chatEnded && endScreen.kind !== "none" ? (
           <div className="client-away-panel client-ended-panel" role="status">
-            <p className="client-away-copy">{recordingCopy}</p>
-            {recordingSaved && savedEmail ? (
-              <p className="client-away-saved">
-                Got it — we&apos;ll email a recording to{" "}
-                <strong>{savedEmail}</strong>
-                <button
-                  type="button"
-                  className="client-away-edit"
-                  onClick={() => setRecordingSaved(false)}
+            <p className="client-away-title">{endScreen.title}</p>
+            <p className="client-away-copy">{endScreen.body}</p>
+            {endScreen.kind === "record_contact" ? (
+              recordingSaved && savedEmail ? (
+                <p className="client-away-saved">
+                  Got it — we saved <strong>{savedEmail}</strong>
+                  <button
+                    type="button"
+                    className="client-away-edit"
+                    onClick={() => setRecordingSaved(false)}
+                  >
+                    Change
+                  </button>
+                </p>
+              ) : (
+                <form
+                  className="client-away-form"
+                  onSubmit={(e) => void saveEndScreenContact(e)}
                 >
-                  Change
-                </button>
-              </p>
-            ) : (
-              <form
-                className="client-away-form"
-                onSubmit={(e) => void saveRecordingEmail(e)}
+                  <label className="composer-field">
+                    <span className="sr-only">{endScreen.collectLabel}</span>
+                    <input
+                      type="text"
+                      value={emailDraft ?? ""}
+                      onChange={(e) => setEmailDraft(e.target.value)}
+                      placeholder={endScreen.collectPlaceholder}
+                      required
+                      autoComplete="email"
+                    />
+                  </label>
+                  <button type="submit" className="btn-solid client-away-submit">
+                    {endScreen.submitLabel}
+                  </button>
+                </form>
+              )
+            ) : null}
+            {endScreen.kind === "offer" && endScreen.offerCode ? (
+              <div className="client-end-offer-code">
+                <span>Code</span>
+                <strong>{endScreen.offerCode}</strong>
+              </div>
+            ) : null}
+            {(endScreen.kind === "offer" ||
+              endScreen.kind === "book_follow_up" ||
+              endScreen.kind === "review") &&
+            endScreenCtaHref ? (
+              <a
+                className="btn-solid client-end-cta"
+                href={endScreenCtaHref}
+                target="_blank"
+                rel="noreferrer"
               >
-                <label className="composer-field">
-                  <span className="sr-only">Email</span>
-                  <input
-                    type="email"
-                    value={emailDraft ?? ""}
-                    onChange={(e) => setEmailDraft(e.target.value)}
-                    placeholder="you@email.com"
-                    required
-                    autoComplete="email"
-                  />
-                </label>
-                <button type="submit" className="btn-solid client-away-submit">
-                  Email recording
-                </button>
-              </form>
-            )}
+                {endScreen.ctaLabel}
+              </a>
+            ) : null}
           </div>
         ) : isAway ? (
           <div className="client-away-panel" role="status">
@@ -1469,27 +1718,40 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                   ) : null}
                   {specialties ? (
                     <div
-                      className="client-number-dropdown client-specialties-dropdown"
+                      className={`client-number-dropdown client-specialties-dropdown ${
+                        introMessages?.contactReasonDisplay === "list"
+                          ? "is-list"
+                          : ""
+                      }`}
                       ref={specialtiesMenuRef}
                     >
-                      <button
-                        type="button"
-                        className="client-book-consult-btn client-number-dropdown-trigger"
-                        aria-haspopup="listbox"
-                        aria-expanded={specialtiesMenuOpen}
-                        onClick={() =>
-                          setSpecialtiesMenuOpen((open) => !open)
-                        }
-                      >
-                        {message.body}
-                      </button>
-                      {specialtiesMenuOpen ? (
+                      {introMessages?.specialtiesPrompt ? (
+                        <p className="client-specialties-prompt">
+                          {introMessages.specialtiesPrompt}
+                        </p>
+                      ) : null}
+                      {introMessages?.contactReasonDisplay === "list" ? null : (
+                        <button
+                          type="button"
+                          className="client-book-consult-btn client-number-dropdown-trigger"
+                          aria-haspopup="listbox"
+                          aria-expanded={specialtiesMenuOpen}
+                          onClick={() =>
+                            setSpecialtiesMenuOpen((open) => !open)
+                          }
+                        >
+                          {message.body}
+                        </button>
+                      )}
+                      {specialtiesMenuOpen ||
+                      introMessages?.contactReasonDisplay === "list" ? (
                         <ul
                           className="client-number-dropdown-list"
                           role="listbox"
                         >
-                          {Array.from({ length: 20 }, (_, i) => i + 1).map(
-                            (n) => {
+                          {(introMessages?.contactReasonOptions ?? []).map(
+                            (optionLabel, index) => {
+                              const n = index + 1;
                               const department =
                                 currentDepartments(settings)[n - 1];
                               const attached =
@@ -1522,18 +1784,8 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                                       )
                                     }
                                   >
-                                    {n}
+                                    {optionLabel}
                                   </button>
-                                  {n === 1 ? (
-                                    <button
-                                      type="button"
-                                      className="client-promo-btn"
-                                      onClick={() => void requestPromo()}
-                                      disabled={sending}
-                                    >
-                                      Promo
-                                    </button>
-                                  ) : null}
                                 </li>
                               );
                             },
@@ -1628,7 +1880,9 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
       </SwipeTimeStream>
 
       <div className="client-chat-end-wrap">
-        <ChatMarketingCarousel images={chatEndImages} />
+        {chatEndImages.length > 0 ? (
+          <ChatMarketingCarousel images={chatEndImages} />
+        ) : null}
         {chatEnded ? (
           <div className="client-composer client-composer-ended" role="status">
             <p>Chat ended</p>
@@ -1646,6 +1900,22 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                   className="btn-text icon-btn"
                   onClick={() => setReplyTo(null)}
                   aria-label="Cancel reply"
+                >
+                  <IconX size={14} />
+                </button>
+              </div>
+            ) : null}
+            {!replyTo && contactReason ? (
+              <div className="composer-reply composer-reason" role="status">
+                <div className="composer-reply-body">
+                  <span className="composer-reply-label">Contact reason</span>
+                  <span className="composer-reply-text">{contactReason}</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn-text icon-btn"
+                  onClick={() => setContactReason(null)}
+                  aria-label="Clear contact reason"
                 >
                   <IconX size={14} />
                 </button>
@@ -1694,16 +1964,22 @@ export function ClientChat({ slug, chatId, embedded = false }: ClientChatProps) 
                     setDraft(e.target.value);
                     if (sendError) setSendError(null);
                   }}
-                  placeholder={replyTo ? "Write a reply…" : "Message…"}
-                  autoFocus
-                  disabled={sending}
+                  placeholder={
+                    replyTo
+                      ? "Write a reply…"
+                      : contactReason
+                        ? "Add details so the team can understand your situation…"
+                        : "Message…"
+                  }
+                  autoFocus={!preview}
+                  disabled={sending || preview}
                 />
               </label>
               <button
                 type="submit"
                 className="composer-send"
                 aria-label="Send"
-                disabled={sending || !draft.trim()}
+                disabled={sending || preview || !draft.trim()}
               >
                 <IconArrowSend />
               </button>

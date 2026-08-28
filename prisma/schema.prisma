@@ -32,13 +32,51 @@ model Session {
 
 /// Business shell — settings, library, team. No chat messages here.
 model Space {
-  slug      String   @id
+  slug      String     @id
   data      String
   ownerId   String?
-  owner     User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  chats     Chat[]
+  owner     User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  chats           Chat[]
+  offerings       Offering[]
+  knowledgeNotes  KnowledgeNote[]
+  cases           CustomerCase[]
+}
+
+/// Product or service a customer can inquire about in chat.
+model Offering {
+  id          String   @id
+  spaceSlug   String
+  space       Space    @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)
+  title       String
+  description String   @default("")
+  price       String   @default("")
+  kind        String   @default("service")
+  imageUrl    String   @default("")
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([spaceSlug, sortOrder])
+}
+
+/// Plain-language facts the AI can use to answer customers.
+model KnowledgeNote {
+  id          String    @id
+  spaceSlug   String
+  space       Space     @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)
+  /// "long" (always true) or "short" (true right now)
+  horizon     String
+  title       String
+  body        String    @default("")
+  /// Short-term only. Null means keep until the business removes it.
+  expiresAt   DateTime?
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([spaceSlug, horizon, sortOrder])
 }
 
 /// One row per customer conversation.
@@ -46,12 +84,32 @@ model Chat {
   id           String
   spaceSlug    String
   space        Space    @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)
+  customerCaseId String?
+  customerCase   CustomerCase? @relation(fields: [customerCaseId], references: [id], onDelete: SetNull)
   clientData   String
   messagesData String   @default("[]")
   deleted      Boolean  @default(false)
+  hiddenFromInbox Boolean @default(false)
   updatedAt    DateTime @updatedAt
 
   @@id([spaceSlug, id])
+  @@index([spaceSlug, customerCaseId])
+  @@index([spaceSlug, updatedAt])
+}
+
+/// A case groups one or more customer chats plus staff notes.
+model CustomerCase {
+  id        String   @id
+  spaceSlug String
+  space     Space    @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)
+  status    String   @default("open")
+  notes     String   @default("")
+  identifiers Json   @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  chats     Chat[]
+
+  @@index([spaceSlug, status])
   @@index([spaceSlug, updatedAt])
 }
 
