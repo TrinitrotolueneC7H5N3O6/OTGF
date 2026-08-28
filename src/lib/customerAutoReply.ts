@@ -43,7 +43,50 @@ export function isSpecialtiesMessage(message: Message) {
 }
 
 export function isReconnectMessage(message: Message) {
-  return message.id.startsWith("m-auto-reconnect-");
+  return (
+    message.id.startsWith("m-auto-reconnect-") ||
+    message.id.startsWith("m-chat-link-")
+  );
+}
+
+export const CHAT_LINK_COPY =
+  "Your unique chat link — open it anytime to continue with the full history:";
+
+export function formatChatHistory(
+  messages: Message[],
+  clientId: string,
+  clientName: string,
+  staffFallback = "Us",
+): string {
+  const lines: string[] = [];
+  for (const message of messages) {
+    if (message.clientId !== clientId) continue;
+    if (message.kind === "system") continue;
+    if (message.id.startsWith("m-auto-")) continue;
+    if (message.id.startsWith("m-chat-link-")) continue;
+    const who =
+      message.from === "client"
+        ? clientName.trim() || "You"
+        : message.fromName?.trim() || staffFallback;
+    if (message.kind === "image") {
+      lines.push(`${who}: [photo]`);
+      continue;
+    }
+    if (message.kind === "video") {
+      lines.push(`${who}: [video]`);
+      continue;
+    }
+    if (message.kind === "receipt") {
+      lines.push(
+        `${who}: [receipt] ${message.receipt?.productTitle || message.body}`.trim(),
+      );
+      continue;
+    }
+    const text = message.body.trim();
+    if (!text) continue;
+    lines.push(`${who}: ${text}`);
+  }
+  return lines.join("\n");
 }
 
 function isIntroMessage(message: Message, clientId: string) {
@@ -121,22 +164,13 @@ function buildIntroBlock(
       fromName: businessName,
     },
     {
-      id: specialtiesId(clientId),
-      clientId,
-      from: "business",
-      kind: "specialties",
-      body: intro.specialtiesLabel,
-      ...messageStampAt(baseMs + 2),
-      fromName: businessName,
-    },
-    {
       id: reconnectId(clientId),
       clientId,
       from: "business",
       kind: "text",
       body: intro.reconnectCopy,
       linkUrl: reconnectChatPath(slug, clientId),
-      ...messageStampAt(baseMs + 3),
+      ...messageStampAt(baseMs + 2),
       fromName: businessName,
     },
   ];
@@ -150,16 +184,11 @@ function welcomeMessagesMatch(
 ): boolean {
   const auto = messages.find((m) => m.id === autoReplyId(clientId));
   const promo = messages.find((m) => m.id === promoFollowUpId(clientId));
-  const specialties = messages.find((m) => m.id === specialtiesId(clientId));
   const reconnect = messages.find((m) => m.id === reconnectId(clientId));
   return (
     auto?.body === intro.welcome &&
     promo?.body === intro.promoFollowUp &&
-    Boolean(
-      specialties &&
-        isSpecialtiesMessage(specialties) &&
-        specialties.body === intro.specialtiesLabel,
-    ) &&
+    !messages.some((m) => isSpecialtiesMessage(m) && m.clientId === clientId) &&
     reconnect?.kind === "text" &&
     reconnect.body === intro.reconnectCopy &&
     reconnect.linkUrl === reconnectChatPath(slug, clientId)

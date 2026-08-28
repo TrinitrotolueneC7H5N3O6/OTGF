@@ -223,8 +223,6 @@ export interface ChatIntroMessages {
   welcome: string;
   /** Shown after the greeting */
   promoFollowUp: string;
-  /** Label on the specialties picker button */
-  specialtiesLabel: string;
   /** Copy above the unique chat return link */
   reconnectCopy: string;
 }

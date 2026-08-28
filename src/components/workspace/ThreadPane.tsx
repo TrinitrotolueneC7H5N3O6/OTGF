@@ -68,6 +68,7 @@ interface ThreadPaneProps {
   onCopyForwardLink?: () => void;
   forwardCopied?: boolean;
   onOpenTool: (tab: RightTab) => void;
+  onSendChatLink?: () => void;
   onStageArtifact: (item: Artifact) => void;
   onEditShortcuts: () => void;
   onReplyTo: (message: Message) => void;
@@ -111,6 +112,7 @@ export function ThreadPane({
   onCopyForwardLink,
   forwardCopied = false,
   onOpenTool,
+  onSendChatLink,
   onStageArtifact,
   onEditShortcuts,
   onReplyTo,
@@ -546,15 +548,24 @@ export function ThreadPane({
               className="composer-chip"
               onClick={() => onOpenTool("artifacts")}
             >
-              Artifacts
+              Tool Kit
             </button>
             <button
               type="button"
               className="composer-chip"
               onClick={() => onOpenTool("receipts")}
             >
-              Receipt
+              Billing
             </button>
+            {onSendChatLink ? (
+              <button
+                type="button"
+                className="composer-chip"
+                onClick={onSendChatLink}
+              >
+                Chat link
+              </button>
+            ) : null}
 
             {shortcuts.map((sc) => {
               if (sc.kind === "hours") {

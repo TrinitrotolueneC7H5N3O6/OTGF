@@ -59,8 +59,11 @@ export function UserPreferencesPanel({
     newChatSound: "chime",
     activeChatSound: "soft",
   }));
-  const [linkLabel, setLinkLabel] = useState("");
-  const [linkUrl, setLinkUrl] = useState("");
+  const [linkDrafts, setLinkDrafts] = useState(() => [
+    { label: "", url: "" },
+    { label: "", url: "" },
+    { label: "", url: "" },
+  ]);
   const [linkError, setLinkError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,7 +96,6 @@ export function UserPreferencesPanel({
         ...(settings.chatIntroMessages ?? {
           welcome: "",
           promoFollowUp: "",
-          specialtiesLabel: "Specialties",
           reconnectCopy: "",
         }),
         ...partial,
@@ -101,10 +103,12 @@ export function UserPreferencesPanel({
     });
   }
 
-  function addLink() {
+  function addLinkAt(index: number) {
     setLinkError(null);
-    const label = linkLabel.trim();
-    let url = linkUrl.trim();
+    const draft = linkDrafts[index];
+    if (!draft) return;
+    const label = draft.label.trim();
+    let url = draft.url.trim();
     if (!label || !url) {
       setLinkError("Add a label and URL.");
       return;
@@ -127,8 +131,9 @@ export function UserPreferencesPanel({
       url,
     };
     patch({ profileLinks: [...links, next] });
-    setLinkLabel("");
-    setLinkUrl("");
+    setLinkDrafts((rows) =>
+      rows.map((row, i) => (i === index ? { label: "", url: "" } : row)),
+    );
   }
 
   function updateLink(id: string, partial: Partial<ProfileLink>) {
@@ -160,8 +165,8 @@ export function UserPreferencesPanel({
             until you interact once.
           </p>
 
-          <label className="floor-settings-note">
-            <span>New chat comes in</span>
+          <label className="floor-settings-note prefs-sound-block">
+            <span>New Chat</span>
             <div className="prefs-sound-row">
               <select
                 value={prefs.newChatSound}
@@ -179,17 +184,16 @@ export function UserPreferencesPanel({
               </select>
               <button
                 type="button"
-                className="btn-ghost"
+                className="btn-ghost prefs-sound-preview prefs-action-btn"
                 onClick={() => playNewChatSound(prefs.newChatSound)}
-                disabled={prefs.newChatSound === "off"}
               >
                 Preview
               </button>
             </div>
           </label>
 
-          <label className="floor-settings-note">
-            <span>Current chat sends a new message</span>
+          <label className="floor-settings-note prefs-sound-block">
+            <span>Continuing Chats</span>
             <div className="prefs-sound-row">
               <select
                 value={prefs.activeChatSound}
@@ -207,9 +211,8 @@ export function UserPreferencesPanel({
               </select>
               <button
                 type="button"
-                className="btn-ghost"
+                className="btn-ghost prefs-sound-preview prefs-action-btn"
                 onClick={() => playActiveChatSound(prefs.activeChatSound)}
-                disabled={prefs.activeChatSound === "off"}
               >
                 Preview
               </button>
@@ -221,7 +224,7 @@ export function UserPreferencesPanel({
       {show("intro") ? (
         <section className="floor-settings-section">
           {variant === "page" ? <h2 className="dashboard-panel-title">Intro</h2> : <h3>Intro</h3>}
-          <p className="floor-settings-help">
+          <p className="floor-settings-help prefs-intro-bio-help">
             Short bio under your name on the customer chat — like a YouTube
             channel about section.
           </p>
@@ -229,24 +232,27 @@ export function UserPreferencesPanel({
             <span className="sr-only">Intro</span>
             <textarea
               rows={4}
+              className="prefs-intro-box"
               value={settings.intro ?? ""}
               onChange={(e) => patch({ intro: e.target.value.slice(0, 500) })}
               placeholder="Who you are, what you offer, how to book…"
               maxLength={500}
             />
           </label>
-          <p className="editor-hint">{(settings.intro ?? "").length}/500</p>
-
-          <h3 className="prefs-subhead">Chat intro messages</h3>
-          <p className="floor-settings-help">
-            These are the first messages customers see when they open chat —
-            before they type anything.
+          <p className="editor-hint prefs-intro-count">
+            {(settings.intro ?? "").length}/500
           </p>
 
+          <h3 className="prefs-subhead">Chat intro messages</h3>
+
           <label className="floor-settings-note">
-            <span>Welcome message</span>
+            <span>
+              Welcome Message - These are automated chats prior to any customer
+              interaction
+            </span>
             <textarea
               rows={5}
+              className="prefs-intro-copy prefs-intro-box"
               value={chatIntro.welcome}
               onChange={(e) =>
                 patchIntroMessages({ welcome: e.target.value.slice(0, 2000) })
@@ -255,12 +261,15 @@ export function UserPreferencesPanel({
               maxLength={2000}
             />
           </label>
-          <p className="editor-hint">{chatIntro.welcome.length}/2000</p>
+          <p className="editor-hint prefs-intro-count">
+            {chatIntro.welcome.length}/2000
+          </p>
 
           <label className="floor-settings-note">
-            <span>Promo follow-up</span>
+            <span>Promo Follow-up</span>
             <textarea
               rows={2}
+              className="prefs-intro-copy prefs-intro-box"
               value={chatIntro.promoFollowUp}
               onChange={(e) =>
                 patchIntroMessages({
@@ -271,27 +280,15 @@ export function UserPreferencesPanel({
               maxLength={500}
             />
           </label>
-          <p className="editor-hint">{chatIntro.promoFollowUp.length}/500</p>
+          <p className="editor-hint prefs-intro-count">
+            {chatIntro.promoFollowUp.length}/500
+          </p>
 
           <label className="floor-settings-note">
-            <span>Specialties button label</span>
-            <input
-              type="text"
-              value={chatIntro.specialtiesLabel}
-              onChange={(e) =>
-                patchIntroMessages({
-                  specialtiesLabel: e.target.value.slice(0, 40),
-                })
-              }
-              placeholder="Specialties"
-              maxLength={40}
-            />
-          </label>
-
-          <label className="floor-settings-note">
-            <span>Reconnect message</span>
+            <span>Reconnect Message</span>
             <textarea
               rows={2}
+              className="prefs-intro-copy prefs-intro-box"
               value={chatIntro.reconnectCopy}
               onChange={(e) =>
                 patchIntroMessages({
@@ -302,7 +299,9 @@ export function UserPreferencesPanel({
               maxLength={300}
             />
           </label>
-          <p className="editor-hint">{chatIntro.reconnectCopy.length}/300</p>
+          <p className="editor-hint prefs-intro-count">
+            {chatIntro.reconnectCopy.length}/300
+          </p>
         </section>
       ) : null}
 
@@ -348,31 +347,53 @@ export function UserPreferencesPanel({
           </ul>
 
           {links.length < 8 ? (
-            <div className="prefs-link-add">
-              <input
-                value={linkLabel}
-                onChange={(e) => setLinkLabel(e.target.value)}
-                placeholder="Label"
-                aria-label="New link label"
-              />
-              <input
-                value={linkUrl}
-                onChange={(e) => {
-                  setLinkUrl(e.target.value);
-                  setLinkError(null);
-                }}
-                placeholder="https://…"
-                aria-label="New link URL"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addLink();
-                  }
-                }}
-              />
-              <button type="button" className="btn-solid" onClick={addLink}>
-                Add
-              </button>
+            <div className="prefs-link-add-list">
+              {linkDrafts
+                .slice(0, Math.max(0, 8 - links.length))
+                .map((draft, index) => (
+                  <div key={index} className="prefs-link-add">
+                    <input
+                      value={draft.label}
+                      onChange={(e) =>
+                        setLinkDrafts((rows) =>
+                          rows.map((row, i) =>
+                            i === index
+                              ? { ...row, label: e.target.value }
+                              : row,
+                          ),
+                        )
+                      }
+                      placeholder="Label"
+                      aria-label="New link label"
+                    />
+                    <input
+                      value={draft.url}
+                      onChange={(e) => {
+                        setLinkError(null);
+                        setLinkDrafts((rows) =>
+                          rows.map((row, i) =>
+                            i === index ? { ...row, url: e.target.value } : row,
+                          ),
+                        );
+                      }}
+                      placeholder="https://…"
+                      aria-label="New link URL"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addLinkAt(index);
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn-solid prefs-action-btn"
+                      onClick={() => addLinkAt(index)}
+                    >
+                      Add
+                    </button>
+                  </div>
+                ))}
             </div>
           ) : null}
           {linkError ? <p className="editor-error">{linkError}</p> : null}

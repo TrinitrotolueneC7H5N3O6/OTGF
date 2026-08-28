@@ -252,7 +252,7 @@ export function ReceiptsPane({
       <div className="receipts-head">
         <div className="receipts-head-row">
           <div>
-            <h2>Receipts</h2>
+            <h2>Billing</h2>
             <p>
               {client
                 ? `Send an official receipt to ${client.name}`

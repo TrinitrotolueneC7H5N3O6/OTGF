@@ -52,7 +52,11 @@ export function WorkspaceTopBar({
       className={`workspace-brand ${view === "floor" ? "is-floor-focus" : ""}`}
     >
       <div className="brand-lockup">
-        <span className="brand-mark" aria-hidden />
+        <span className="brand-mark" aria-hidden>
+          <span />
+          <span />
+          <span />
+        </span>
         <div>
           <p className="brand-name">OTGF</p>
           <p className="brand-sub">{businessName}</p>

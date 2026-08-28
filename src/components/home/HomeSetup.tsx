@@ -142,7 +142,11 @@ export function HomeSetup() {
     <div className={`home${howStarted ? " is-howing" : ""}`}>
       <header className="home-top">
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden />
+          <span className="brand-mark" aria-hidden>
+            <span />
+            <span />
+            <span />
+          </span>
           <p className="brand-name">OTGF</p>
         </div>
       </header>
@@ -170,7 +174,7 @@ export function HomeSetup() {
           {step === "form" ? (
             <form className="setup-form" onSubmit={(e) => void onSubmit(e)}>
               <label>
-                <span>Business name</span>
+                <span>Business Name</span>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}

@@ -77,15 +77,6 @@ export function RightPane({
         <button
           type="button"
           role="tab"
-          aria-selected={tab === "artifacts"}
-          className={tab === "artifacts" ? "is-active" : undefined}
-          onClick={() => onTabChange("artifacts")}
-        >
-          Artifacts
-        </button>
-        <button
-          type="button"
-          role="tab"
           aria-selected={tab === "assist"}
           className={tab === "assist" ? "is-active" : undefined}
           onClick={() => onTabChange("assist")}
@@ -95,11 +86,20 @@ export function RightPane({
         <button
           type="button"
           role="tab"
+          aria-selected={tab === "artifacts"}
+          className={tab === "artifacts" ? "is-active" : undefined}
+          onClick={() => onTabChange("artifacts")}
+        >
+          Tool Kit
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={tab === "receipts"}
           className={tab === "receipts" ? "is-active" : undefined}
           onClick={() => onTabChange("receipts")}
         >
-          Receipts
+          Billing
         </button>
       </div>
 

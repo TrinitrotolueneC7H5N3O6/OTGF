@@ -93,12 +93,12 @@ export function PreChatSetupModal({
 
   const body = (
     <div className="floor-settings-body pre-chat-editor">
-      <label className="floor-settings-note">
+      <label className="floor-settings-note pre-chat-headline">
         <span>Headline</span>
         <input
           value={headline}
           onChange={(e) => persist({ headline: e.target.value })}
-          placeholder="Business name"
+          placeholder="Business Name"
         />
       </label>
       <label className="floor-settings-note">
@@ -144,7 +144,7 @@ export function PreChatSetupModal({
       <div className="pre-chat-editor-links">
         <div className="pre-chat-editor-links-head">
           <h3>Buttons</h3>
-          <button type="button" className="btn-ghost" onClick={addLink}>
+          <button type="button" className="btn-ghost prefs-action-btn" onClick={addLink}>
             Add button
           </button>
         </div>

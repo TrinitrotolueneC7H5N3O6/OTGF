@@ -519,7 +519,7 @@ export function FloorSettingsPanel({
                     }
                   }}
                 />
-                <button type="button" className="btn-solid" onClick={addMember}>
+                <button type="button" className="btn-solid prefs-action-btn" onClick={addMember}>
                   Add
                 </button>
               </div>
@@ -603,9 +603,9 @@ export function FloorSettingsPanel({
               aria-labelledby="settings-tab-shortcuts"
             >
               <p className="floor-settings-help">
-                Pin photos, phrases, and links from Artifacts onto the chat
-                shortcut bar for one-tap send. Assist / Artifacts / Receipt stay
-                fixed.
+                Pin photos, phrases, and links from Tool Kit onto the chat
+                shortcut bar for one-tap send. Assist / Tool Kit / Billing /
+                Chat link stay fixed.
               </p>
 
               {shortcuts.length === 0 ? (
@@ -676,7 +676,7 @@ export function FloorSettingsPanel({
                 {availableArtifacts.length === 0 ? (
                   <p className="floor-settings-help">
                     {artifacts.length === 0
-                      ? "Add photos, links, or phrases in Artifacts first."
+                      ? "Add photos, links, or phrases in Tool Kit first."
                       : "Every artifact is already on the bar."}
                   </p>
                 ) : (
@@ -695,7 +695,7 @@ export function FloorSettingsPanel({
                     </select>
                     <button
                       type="button"
-                      className="btn-solid"
+                      className="btn-solid prefs-action-btn"
                       disabled={!artifactPick}
                       onClick={() => addArtifactShortcut(artifactPick)}
                     >
@@ -726,7 +726,7 @@ export function FloorSettingsPanel({
                 </label>
                 <button
                   type="button"
-                  className="btn-solid"
+                  className="btn-solid prefs-action-btn"
                   onClick={addTextShortcut}
                   disabled={!phraseText.trim()}
                 >
@@ -744,7 +744,7 @@ export function FloorSettingsPanel({
                 ) : (
                   <button
                     type="button"
-                    className="btn-solid"
+                    className="btn-solid prefs-action-btn"
                     onClick={addHoursShortcut}
                   >
                     Add Hours
@@ -928,7 +928,7 @@ export function FloorSettingsPanel({
                     }
                   }}
                 />
-                <button type="button" className="btn-solid" onClick={addBanner}>
+                <button type="button" className="btn-solid prefs-action-btn" onClick={addBanner}>
                   Add
                 </button>
               </div>
@@ -992,7 +992,7 @@ export function FloorSettingsPanel({
                 />
                 <button
                   type="button"
-                  className="btn-solid"
+                  className="btn-solid prefs-action-btn"
                   onClick={addNotifyEmail}
                 >
                   Add
@@ -1024,7 +1024,7 @@ export function FloorSettingsPanel({
                 {onOpenWidget ? (
                   <button
                     type="button"
-                    className="btn-solid"
+                    className="btn-solid prefs-action-btn"
                     onClick={() => {
                       onClose?.();
                       onOpenWidget();

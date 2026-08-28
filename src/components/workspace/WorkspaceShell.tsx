@@ -45,7 +45,12 @@ import {
   noteIncomingMessages,
 } from "@/lib/chatLatency";
 import { parseSoloUrl } from "@/lib/messageLinks";
-import { ensureWelcomeMessages } from "@/lib/customerAutoReply";
+import {
+  CHAT_LINK_COPY,
+  ensureWelcomeMessages,
+  formatChatHistory,
+  reconnectChatPath,
+} from "@/lib/customerAutoReply";
 import { resolveChatIntroMessages } from "@/lib/chatIntroMessages";
 import { ClientRail } from "./ClientRail";
 import { WorkspaceTopBar } from "./WorkspaceTopBar";
@@ -81,7 +86,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const [clientUrl, setClientUrl] = useState("");
   const [floorMemberId, setFloorMemberId] = useState<string>("all");
   const [openAtBottom, setOpenAtBottom] = useState(false);
-  const [rightTab, setRightTab] = useState<RightTab>("artifacts");
+  const [rightTab, setRightTab] = useState<RightTab>("assist");
   const [replyTo, setReplyTo] = useState<MessageReplyRef | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set());
@@ -984,6 +989,51 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     bumpScrollToBottom();
   }
 
+  function sendChatLink() {
+    if (!active || active.chatEndedAt || !space) return;
+    const clientId = active.id;
+    const speaker = speakerStamp(active, members);
+    const path = reconnectChatPath(slug, clientId);
+    const history = formatChatHistory(
+      space.messages,
+      clientId,
+      active.name,
+      speaker.fromName,
+    );
+    const body = history
+      ? `${CHAT_LINK_COPY}\n\n${history}`
+      : CHAT_LINK_COPY;
+    const nextMsg: Message = {
+      id: `m-chat-link-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      clientId,
+      from: "business",
+      kind: "text",
+      body,
+      linkUrl: path,
+      ...messageTimeStamp(),
+      ...speaker,
+    };
+    const nextClients = claimChatOwner(space.clients, clientId).map((c) =>
+      c.id === clientId
+        ? { ...c, preview: body, lastActive: "Just now", unread: 0 }
+        : c,
+    );
+    const nextClient = nextClients.find((c) => c.id === clientId) ?? active;
+    setSpace({
+      ...space,
+      clients: nextClients,
+      messages: [...space.messages, nextMsg],
+    });
+    void appendMessage(slug, {
+      message: nextMsg,
+      client: nextClient,
+      upsertClient: true,
+      bumpClient: true,
+    }).catch((err) => console.warn("Chat link send failed:", err));
+    setMobilePane("thread");
+    bumpScrollToBottom();
+  }
+
   function updateSettings(settings: FloorSettings) {
     runOp({ type: "setSettings", settings });
   }
@@ -1069,6 +1119,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
               onCopyForwardLink={() => void copyForwardLink()}
               forwardCopied={forwardCopied}
               onOpenTool={openTool}
+              onSendChatLink={sendChatLink}
               onStageArtifact={stageArtifact}
               onEditShortcuts={openShortcutSettings}
               onReplyTo={startReply}

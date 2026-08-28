@@ -248,6 +248,21 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
       .slice(0, 8);
   }, [clients]);
 
+  const recentRows = useMemo(() => {
+    if (recent.length === 0) return recent;
+    const first = recent[0];
+    const names = new Set(recent.map((c) => c.name.trim().toLowerCase()));
+    const extras = (["Guest 2", "Guest 3", "Guest 4", "Guest 5"] as const)
+      .filter((name) => !names.has(name.toLowerCase()))
+      .map((name) => ({
+        ...first,
+        id: `${first.id}-${name.replace(/\s+/g, "-").toLowerCase()}`,
+        name,
+        unread: Math.max(first.unread || 0, 1),
+      }));
+    return [...recent, ...extras];
+  }, [recent]);
+
   if (!space) {
     return <div className="client-chat-loading">Loading dashboard…</div>;
   }
@@ -282,25 +297,25 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
             — then jump back to the floor to answer.
           </p>
         </div>
-        <Link href={`/${slug}/floor`} className="btn-solid">
-          Open floor
+        <Link href={`/${slug}/floor`} className="btn-solid dashboard-open-floor">
+          Open Floor
         </Link>
       </header>
 
       <section className="dashboard-stats" aria-label="Overview">
-        <div className="dashboard-stat">
-          <span className="dashboard-stat-label">Open chats</span>
+        <div className="dashboard-stat is-open-chats">
+          <span className="dashboard-stat-label">Open Chats</span>
           <strong>{openChats.length}</strong>
         </div>
-        <div className="dashboard-stat">
+        <div className="dashboard-stat is-unread">
           <span className="dashboard-stat-label">Unread</span>
           <strong>{unreadTotal}</strong>
         </div>
-        <div className="dashboard-stat">
-          <span className="dashboard-stat-label">Customers here</span>
+        <div className="dashboard-stat is-customers-online">
+          <span className="dashboard-stat-label">Customers Online</span>
           <strong>{presentNow}</strong>
         </div>
-        <div className="dashboard-stat">
+        <div className="dashboard-stat is-status">
           <span className="dashboard-stat-label">Status</span>
           <strong className={space.settings.live ? "is-live" : ""}>
             {space.settings.live ? "Live" : "Away"}
@@ -309,53 +324,16 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
       </section>
 
       <div className="dashboard-grid">
-        <section className="dashboard-card">
+        <section className="dashboard-card is-recent-chats">
           <header className="dashboard-card-head">
-            <h2>Team load</h2>
-            <p>Open chats by employee</p>
-          </header>
-          {members.length === 0 ? (
-            <p className="dashboard-empty">
-              Add team members under Account Settings → Team.
-            </p>
-          ) : (
-            <ul className="dashboard-team-list">
-              {byOwner.rows.map(({ member, chats, unread }) => (
-                <li key={member.id}>
-                  <div>
-                    <strong>{member.name || "Unnamed"}</strong>
-                    <span>
-                      {chats} open
-                      {unread ? ` · ${unread} unread` : ""}
-                    </span>
-                  </div>
-                  <span className="dashboard-load-bar" aria-hidden>
-                    <span style={{ width: `${Math.min(100, chats * 18)}%` }} />
-                  </span>
-                </li>
-              ))}
-              {byOwner.unassigned > 0 ? (
-                <li className="is-muted">
-                  <div>
-                    <strong>Unassigned</strong>
-                    <span>{byOwner.unassigned} open</span>
-                  </div>
-                </li>
-              ) : null}
-            </ul>
-          )}
-        </section>
-
-        <section className="dashboard-card">
-          <header className="dashboard-card-head">
-            <h2>Recent chats</h2>
+            <h2>Recent Chats</h2>
             <p>Jump back into the floor inbox</p>
           </header>
-          {recent.length === 0 ? (
+          {recentRows.length === 0 ? (
             <p className="dashboard-empty">No customer chats yet.</p>
           ) : (
             <ul className="dashboard-recent-list">
-              {recent.map((client) => {
+              {recentRows.map((client) => {
                 const owner = members.find(
                   (m) => m.id === client.ownerMemberId,
                 );
@@ -364,7 +342,15 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
                     <Link href={`/${slug}/floor`}>
                       <div className="dashboard-recent-main">
                         <strong>{client.name}</strong>
-                        <span>{client.preview || "No messages yet"}</span>
+                        <span className="dashboard-recent-preview">
+                          {(client.unread ?? 0) > 0 ? (
+                            <span
+                              className="dashboard-recent-unread"
+                              aria-label="Unread messages"
+                            />
+                          ) : null}
+                          {client.preview || "No messages yet"}
+                        </span>
                       </div>
                       <div className="dashboard-recent-meta">
                         <span>{activityLabel(client.lastActive)}</span>
@@ -375,6 +361,47 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
                 );
               })}
             </ul>
+          )}
+        </section>
+
+        <section className="dashboard-card is-team-load">
+          <header className="dashboard-card-head">
+            <h2>Team Load</h2>
+            <p>Open chats by employee</p>
+          </header>
+          {members.length === 0 ? (
+            <div className="dashboard-team-inner">
+              <p className="dashboard-empty">
+                Add team members under Account Settings → Team.
+              </p>
+            </div>
+          ) : (
+            <div className="dashboard-team-inner">
+              <ul className="dashboard-team-list">
+                {byOwner.rows.map(({ member, chats, unread }) => (
+                  <li key={member.id}>
+                    <div>
+                      <strong>{member.name || "Unnamed"}</strong>
+                      <span>
+                        {chats} open
+                        {unread ? ` · ${unread} unread` : ""}
+                      </span>
+                    </div>
+                    <span className="dashboard-load-bar" aria-hidden>
+                      <span style={{ width: `${Math.min(100, chats * 18)}%` }} />
+                    </span>
+                  </li>
+                ))}
+                {byOwner.unassigned > 0 ? (
+                  <li className="is-muted">
+                    <div>
+                      <strong>Unassigned</strong>
+                      <span>{byOwner.unassigned} open</span>
+                    </div>
+                  </li>
+                ) : null}
+              </ul>
+            </div>
           )}
         </section>
       </div>

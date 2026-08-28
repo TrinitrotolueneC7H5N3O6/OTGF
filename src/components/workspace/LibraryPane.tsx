@@ -504,7 +504,7 @@ export function LibraryPane({
       <div className="library-head">
         <div className="library-head-row">
           <div className="library-head-copy">
-            <h2>Artifacts</h2>
+            <h2>Tool Kit</h2>
             <p>
               {activeClientName
                 ? `Send to ${activeClientName}`
