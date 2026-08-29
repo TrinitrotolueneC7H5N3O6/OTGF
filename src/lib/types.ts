@@ -71,6 +71,10 @@ export interface Client {
   ownerMemberId?: string;
   /** Email left when team is away — for follow-up replies */
   email?: string;
+  /** Structured contact info collected after chat ends. */
+  contactInfo?: CollectedContactInfo;
+  /** Guided intake captured while staff is unavailable. */
+  staffOutIntake?: StaffOutIntakeSubmission;
   /** ISO time of last customer-tab presence heartbeat */
   presentAt?: string;
   /** ISO time when the floor ended this chat */
@@ -91,6 +95,54 @@ export interface Client {
   caseId?: string;
   /** Hidden from the live floor inbox, while still kept in Cases/history. */
   hiddenFromInbox?: boolean;
+}
+
+export interface CollectedContactInfo {
+  name: string;
+  email?: string;
+  phone?: string;
+  source: "end_screen" | "staff_out";
+  collectedAt: string;
+}
+
+export interface CollectedContact {
+  id: string;
+  chatId: string;
+  chatName: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  source: "end_screen" | "staff_out";
+  caseId?: string;
+  collectedAt: string;
+}
+
+export interface StaffOutIntake {
+  enabled: boolean;
+  title: string;
+  reassurance: string;
+  responseTime: string;
+  emergencyNote: string;
+  askUrgency: boolean;
+  askReason: boolean;
+  askPreferredContact: boolean;
+  askDetails: boolean;
+  askConsent: boolean;
+  nextStepLabel: string;
+  nextStepUrl: string;
+}
+
+export interface StaffOutIntakeSubmission {
+  name: string;
+  email?: string;
+  phone?: string;
+  reason?: string;
+  urgency?: "low" | "normal" | "high";
+  preferredContact?: "email" | "phone" | "chat";
+  details?: string;
+  consent: boolean;
+  source: "staff_out";
+  collectedAt: string;
 }
 
 export type AutoAnswerDraftStatus = "working" | "ready" | "failed";
@@ -349,6 +401,8 @@ export interface FloorSettings {
    * Shown on customer chat when not live — ask them to leave email, etc.
    */
   awayMessage: string;
+  /** Guided intake shown when staff is out. */
+  staffOutIntake: StaffOutIntake;
   /** Shown at the top of customer chats when enabled */
   banners: ChatBanner[];
   /** Full-bleed photo at the top of customer chat (fades out at bottom) */
@@ -370,6 +424,8 @@ export interface FloorSettings {
   endScreenBehavior: ChatEndScreenBehavior;
   /** Emails that receive floor notifications */
   notifyEmails: string[];
+  /** Which transactional emails to send to staff vs customers */
+  emailAlerts: EmailAlerts;
   /** Custom instructions for AI Assist tone / behavior */
   assistBehavior?: string;
   /**
@@ -394,6 +450,22 @@ export interface FloorSettings {
   enabledSolutions?: SolutionId[];
 }
 
+export const EMAIL_ALERT_KINDS = [
+  "ownerNewChat",
+  "ownerAwayMessage",
+  "ownerEveryMessage",
+  "ownerStaffOutIntake",
+  "ownerContactCaptured",
+  "customerChatLink",
+  "customerIntakeReceived",
+  "customerConversationCopy",
+  "customerReceipt",
+] as const;
+
+export type EmailAlertKind = (typeof EMAIL_ALERT_KINDS)[number];
+
+export type EmailAlerts = Record<EmailAlertKind, boolean>;
+
 export type ChatEndScreenKind =
   | "record_contact"
   | "offer"
@@ -407,6 +479,9 @@ export interface ChatEndScreenBehavior {
   body: string;
   collectLabel: string;
   collectPlaceholder: string;
+  collectName: boolean;
+  collectEmail: boolean;
+  collectPhone: boolean;
   submitLabel: string;
   offerCode: string;
   ctaLabel: string;
@@ -482,6 +557,8 @@ export interface BusinessSpace {
   knowledgeNotes: KnowledgeNote[];
   /** Customer cases with notes and assigned chats. */
   cases: CustomerCase[];
+  /** Durable contact records captured from chats, independent from chat deletion. */
+  collectedContacts?: CollectedContact[];
   /** Clients removed on the floor — kept so merges don't resurrect them */
   deletedClientIds?: string[];
   /** legacy — removed after normalize */

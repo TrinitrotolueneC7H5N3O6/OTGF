@@ -6,11 +6,13 @@ import type {
   BannerTone,
   ChatBanner,
   ComposerShortcut,
+  EmailAlertKind,
   FloorMember,
   FloorSettings,
   ResponseWindow,
   Weekday,
 } from "@/lib/types";
+import { EMAIL_ALERT_OPTIONS, EMAIL_ALERT_DEFAULTS } from "@/lib/emailAlertOptions";
 import { readMediaFile } from "@/lib/store";
 import { ChatBannerView } from "@/components/shared/ChatBannerView";
 import { SetupPanel } from "./SetupPanel";
@@ -359,6 +361,16 @@ export function FloorSettingsPanel({
     if (ownerEmail && email === ownerEmail) return;
     patch({
       notifyEmails: (settings.notifyEmails ?? []).filter((e) => e !== email),
+    });
+  }
+
+  function toggleEmailAlert(kind: EmailAlertKind, on: boolean) {
+    patch({
+      emailAlerts: {
+        ...EMAIL_ALERT_DEFAULTS,
+        ...settings.emailAlerts,
+        [kind]: on,
+      },
     });
   }
 
@@ -972,8 +984,69 @@ export function FloorSettingsPanel({
               aria-labelledby="settings-tab-notify"
             >
               <p className="floor-settings-help">
-                These emails get notified about new customer chats and messages.
-                Your account email is included by default.
+                Pick which emails go out, then who on your team receives the
+                staff alerts. Customers only get a message when they ask for a
+                link or leave contact details.
+              </p>
+
+              <div className="email-alert-groups">
+                <div className="email-alert-group">
+                  <h3>Emails to your team</h3>
+                  <div className="email-alert-grid">
+                    {EMAIL_ALERT_OPTIONS.filter(
+                      (item) => item.audience === "owner",
+                    ).map((item) => (
+                      <label key={item.id} className="staff-out-toggle-card">
+                        <input
+                          type="checkbox"
+                          checked={
+                            settings.emailAlerts?.[item.id] ??
+                            EMAIL_ALERT_DEFAULTS[item.id]
+                          }
+                          onChange={(event) =>
+                            toggleEmailAlert(item.id, event.target.checked)
+                          }
+                        />
+                        <span>
+                          <strong>{item.label}</strong>
+                          <small>{item.help}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="email-alert-group">
+                  <h3>Emails to customers</h3>
+                  <div className="email-alert-grid">
+                    {EMAIL_ALERT_OPTIONS.filter(
+                      (item) => item.audience === "customer",
+                    ).map((item) => (
+                      <label key={item.id} className="staff-out-toggle-card">
+                        <input
+                          type="checkbox"
+                          checked={
+                            settings.emailAlerts?.[item.id] ??
+                            EMAIL_ALERT_DEFAULTS[item.id]
+                          }
+                          onChange={(event) =>
+                            toggleEmailAlert(item.id, event.target.checked)
+                          }
+                        />
+                        <span>
+                          <strong>{item.label}</strong>
+                          <small>{item.help}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <h3>Staff alert recipients</h3>
+              <p className="floor-settings-help">
+                These addresses get the team emails above. Your account email
+                is included by default.
               </p>
 
               <ul className="floor-member-list floor-notify-list">

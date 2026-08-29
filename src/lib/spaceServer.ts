@@ -33,6 +33,10 @@ import {
   shouldStartAutoAnswer,
   withoutAutoAnswerDraft,
 } from "./autoAnswer";
+import {
+  dispatchAlertForMessage,
+  dispatchAlertsForNewMessages,
+} from "./emailAlerts";
 
 const writeChains = new Map<string, Promise<unknown>>();
 const EMPTY_MESSAGES = "[]";
@@ -789,8 +793,33 @@ async function afterAppendMessage(
   message: Message,
   chatId: string,
 ) {
+  void dispatchAfterStoredMessage(slug, message, chatId);
   if (message.from !== "client") return;
   await runAutoAnswerJob(slug, chatId, message.id);
+}
+
+async function dispatchAfterStoredMessage(
+  slug: string,
+  message: Message,
+  chatId: string,
+) {
+  try {
+    const spaceRow = await prisma.space.findUnique({ where: { slug } });
+    if (!spaceRow) return;
+    const doc = parseSpaceDoc(spaceRow.data);
+    const isolated = await loadIsolatedChat(slug, chatId);
+    if (!isolated) return;
+    await dispatchAlertForMessage({
+      slug,
+      businessName: doc.business.name,
+      settings: doc.settings,
+      client: isolated.client,
+      message,
+      thread: isolated.messages,
+    });
+  } catch (err) {
+    console.error("[email] after-append failed:", err);
+  }
 }
 
 async function runAutoAnswerJob(
@@ -1384,6 +1413,26 @@ export async function dbSaveSpace(space: BusinessSpace): Promise<BusinessSpace> 
   }
   for (const [chatId, messageId] of latestByChat) {
     void runAutoAnswerJob(clean, chatId, messageId);
+  }
+  if (newlyStored.length) {
+    const threadByChat = new Map<string, Message[]>();
+    for (const message of result.messages) {
+      const list = threadByChat.get(message.clientId) ?? [];
+      list.push(message);
+      threadByChat.set(message.clientId, list);
+    }
+    void dispatchAlertsForNewMessages({
+      slug: clean,
+      businessName: result.business.name,
+      settings: result.settings,
+      items: newlyStored.map((item) => ({
+        message: item.message,
+        client:
+          result.clients.find((client) => client.id === item.client.id) ??
+          item.client,
+      })),
+      threadByChat,
+    });
   }
   return result;
 }
