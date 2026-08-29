@@ -68,9 +68,10 @@ type DashNav =
   | "site:bubble"
   | "offerings"
   | "cases"
+  | "cases:contacts"
   | "ai";
 
-type DashGroupId = "business" | "account";
+type DashGroupId = "cases" | "business" | "account";
 
 type DashNavEntry =
   | { kind: "pref"; id: PrefSection; label: string }
@@ -78,7 +79,7 @@ type DashNavEntry =
   | { kind: "client"; id: "page" | "chat"; label: string }
   | { kind: "site"; id: "contact" | "bubble"; label: string }
   | { kind: "offerings"; label: string }
-  | { kind: "cases"; label: string }
+  | { kind: "cases"; id: "overview" | "contacts"; label: string }
   | { kind: "ai"; label: string };
 
 interface DashNavNested {
@@ -164,7 +165,9 @@ function dashNavId(item: DashNavEntry): DashNav {
   if (item.kind === "client") return `client:${item.id}`;
   if (item.kind === "site") return `site:${item.id}`;
   if (item.kind === "offerings") return "offerings";
-  if (item.kind === "cases") return "cases";
+  if (item.kind === "cases") {
+    return item.id === "contacts" ? "cases:contacts" : "cases";
+  }
   if (item.kind === "ai") return "ai";
   return `account:${item.id}`;
 }
@@ -207,6 +210,7 @@ function flattenNavEntries(nodes: DashNavNode[]): DashNavEntry[] {
 
 function groupIdForNav(nav: DashNav): DashGroupId | null {
   if (nav === "home") return null;
+  if (nav === "cases" || nav === "cases:contacts") return "cases";
   for (const group of DASH_NAV_GROUPS) {
     if (flattenNavEntries(group.items).some((item) => dashNavId(item) === nav)) {
       return group.id;
@@ -217,6 +221,7 @@ function groupIdForNav(nav: DashNav): DashGroupId | null {
 
 function nestedIdForNav(nav: DashNav): string | null {
   if (nav === "home") return null;
+  if (nav === "cases" || nav === "cases:contacts") return "cases-menu";
   for (const group of DASH_NAV_GROUPS) {
     for (const node of group.items) {
       if (
@@ -256,6 +261,8 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [nav, setNav] = useState<DashNav>("home");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    cases: true,
+    "cases-menu": true,
     business: true,
     account: true,
     "client-experience": true,
@@ -982,12 +989,14 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         onChangeOfferings={updateOfferings}
       />
     );
-  } else if (nav === "cases") {
+  } else if (nav === "cases" || nav === "cases:contacts") {
     main = (
       <CasesPanel
         slug={slug}
         cases={space.cases ?? []}
         clients={space.clients ?? []}
+        contacts={space.collectedContacts ?? []}
+        section={nav === "cases:contacts" ? "contacts" : "cases"}
         onCreateCase={createCase}
         onUpdateStatus={updateCaseStatus}
         onUpdateNotes={updateCaseNotes}
@@ -1074,13 +1083,39 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
           >
             Dashboard
           </button>
-          <button
-            type="button"
-            className={`dashboard-nav-item ${nav === "cases" ? "is-active" : ""}`}
-            onClick={() => setNav("cases")}
-          >
-            Cases
-          </button>
+          <div className="dashboard-nav-group">
+            <button
+              type="button"
+              className="dashboard-nav-group-toggle"
+              aria-expanded={openGroups["cases-menu"]}
+              onClick={() =>
+                setOpenGroups((current) => ({
+                  ...current,
+                  "cases-menu": !current["cases-menu"],
+                }))
+              }
+            >
+              <span className="dashboard-nav-group-label">Business data</span>
+              <IconChevronDown
+                size={14}
+                className={openGroups["cases-menu"] ? "is-open" : ""}
+              />
+            </button>
+            {openGroups["cases-menu"] ? (
+              <div className="dashboard-nav-children">
+                {renderNavLeaf({
+                  kind: "cases",
+                  id: "overview",
+                  label: "Case records",
+                })}
+                {renderNavLeaf({
+                  kind: "cases",
+                  id: "contacts",
+                  label: "Collected contacts",
+                })}
+              </div>
+            ) : null}
+          </div>
 
           {DASH_NAV_GROUPS.map((group) => {
             const items = visibleNavNodes(settingsPayload, group.items);

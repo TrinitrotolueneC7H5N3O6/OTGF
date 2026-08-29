@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { getSpace } from "@/lib/store";
 import type {
   Client,
+  CollectedContact,
   CustomerCase,
   CustomerCaseIdentifier,
   CustomerCaseStatus,
@@ -19,6 +20,8 @@ interface CasesPanelProps {
   slug: string;
   cases: CustomerCase[];
   clients: Client[];
+  contacts?: CollectedContact[];
+  section?: "cases" | "contacts";
   onCreateCase: (customerCase: CustomerCase) => void;
   onUpdateStatus: (caseId: string, status: CustomerCaseStatus) => void;
   onUpdateNotes: (caseId: string, notes: string) => void;
@@ -54,10 +57,62 @@ function statusLabel(value: CustomerCaseStatus) {
   return CASE_STATUSES.find((status) => status.value === value)?.label ?? "Open";
 }
 
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function downloadBlob(filename: string, type: string, content: BlobPart) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function pdfEscape(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function buildContactsPdf(lines: string[]) {
+  const content = [
+    "BT",
+    "/F1 16 Tf",
+    "50 760 Td",
+    "(Collected Contacts) Tj",
+    "/F1 10 Tf",
+    ...lines.flatMap((line) => ["0 -18 Td", `(${pdfEscape(line)}) Tj`]),
+    "ET",
+  ].join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let index = 1; index < offsets.length; index++) {
+    pdf += `${offsets[index].toString().padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return pdf;
+}
+
 export function CasesPanel({
   slug,
   cases,
   clients,
+  contacts = [],
+  section = "cases",
   onCreateCase,
   onUpdateStatus,
   onUpdateNotes,
@@ -92,6 +147,78 @@ export function CasesPanel({
     [activeClients],
   );
   const unassignedClients = activeClients.filter((client) => !assignedIds.has(client.id));
+  const collectedContacts = useMemo(
+    () => {
+      const byId = new Map<string, CollectedContact>();
+      for (const contact of contacts) {
+        byId.set(contact.id, contact);
+      }
+      for (const client of clients) {
+        const contact = client.contactInfo;
+        const intake = client.staffOutIntake;
+        const captured = contact ?? intake;
+        if (!captured) continue;
+        const source = contact?.source ?? "staff_out";
+        const id = `${source}:${client.id}`;
+        if (byId.has(id)) continue;
+        byId.set(id, {
+          id,
+          chatId: client.id,
+          chatName: client.name,
+          name: contact?.name ?? intake?.name ?? "",
+          email: contact?.email ?? intake?.email ?? "",
+          phone: contact?.phone ?? intake?.phone ?? "",
+          source,
+          ...(client.caseId ? { caseId: client.caseId } : {}),
+          collectedAt: contact?.collectedAt ?? intake?.collectedAt ?? "",
+        });
+      }
+      return Array.from(byId.values()).sort(
+        (a, b) => Date.parse(b.collectedAt) - Date.parse(a.collectedAt),
+      );
+    },
+    [clients, contacts],
+  );
+
+  function exportContactsCsv() {
+    const header = [
+      "Name",
+      "Email",
+      "Phone",
+      "Chat",
+      "Case ID",
+      "Collected At",
+    ];
+    const rows = collectedContacts.map((contact) => [
+      contact.name,
+      contact.email ?? "",
+      contact.phone ?? "",
+      contact.chatName,
+      contact.caseId ?? "",
+      contact.collectedAt,
+    ]);
+    downloadBlob(
+      "collected-contacts.csv",
+      "text/csv;charset=utf-8",
+      [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n"),
+    );
+  }
+
+  function exportContactsPdf() {
+    const lines = collectedContacts.length
+      ? collectedContacts.flatMap((contact) => [
+          `${contact.name || "No name"}${contact.caseId ? ` · ${contact.caseId}` : ""}`,
+          `Email: ${contact.email || "-"} · Phone: ${contact.phone || "-"} · Chat: ${contact.chatName}`,
+          `Collected: ${contact.collectedAt || "-"}`,
+          "",
+        ])
+      : ["No collected contacts yet."];
+    downloadBlob(
+      "collected-contacts.pdf",
+      "application/pdf",
+      buildContactsPdf(lines.slice(0, 36)),
+    );
+  }
 
   function createCase() {
     const id = caseId.trim().slice(0, 48).toUpperCase();
@@ -114,6 +241,71 @@ export function CasesPanel({
     setCaseId(newCaseId());
     setNotes("");
     setError(null);
+  }
+
+  const contactsSection = (
+    <section className="dashboard-card collected-contacts-card">
+      <div className="case-section-head">
+        <div>
+          <h3>Collected contacts</h3>
+          <p>Name plus email and/or phone submitted from chat end screens.</p>
+        </div>
+        <span>{collectedContacts.length}</span>
+      </div>
+      <div className="collected-contacts-actions">
+        <button
+          type="button"
+          className="btn-ghost cases-action"
+          onClick={exportContactsCsv}
+          disabled={collectedContacts.length === 0}
+        >
+          Export CSV
+        </button>
+        <button
+          type="button"
+          className="btn-ghost cases-action"
+          onClick={exportContactsPdf}
+          disabled={collectedContacts.length === 0}
+        >
+          Export PDF
+        </button>
+      </div>
+      {collectedContacts.length === 0 ? (
+        <p className="dashboard-empty">No contacts collected yet.</p>
+      ) : (
+        <div className="collected-contacts-table">
+          <div className="collected-contacts-row is-head">
+            <span>Name</span>
+            <span>Email</span>
+            <span>Phone</span>
+          </div>
+          {collectedContacts.map((contact) => (
+            <div key={contact.chatId} className="collected-contacts-row">
+              <strong>{contact.name}</strong>
+              <span>{contact.email || "-"}</span>
+              <span>{contact.phone || "-"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+
+  if (section === "contacts") {
+    return (
+      <div className="dashboard-panel-body cases-panel">
+        <header className="cases-page-head">
+          <div>
+            <p className="dashboard-kicker">Cases</p>
+            <h2 className="dashboard-panel-title">Collected contacts</h2>
+            <p className="floor-settings-help">
+              Export names, emails, and phone numbers collected after chats end.
+            </p>
+          </div>
+        </header>
+        {contactsSection}
+      </div>
+    );
   }
 
   async function viewConversation(client: Client) {

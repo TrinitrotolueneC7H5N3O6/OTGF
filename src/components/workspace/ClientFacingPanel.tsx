@@ -10,6 +10,7 @@ import { PreChatSetupModal } from "./PreChatSetupModal";
 import { UserPreferencesPanel } from "./UserPreferencesPanel";
 import { ClientFacingPreview } from "./ClientFacingPreview";
 import { EndScreenBehaviorPanel } from "./EndScreenBehaviorPanel";
+import { StaffOutIntakePanel } from "./StaffOutIntakePanel";
 
 export type ClientFacingSurface = "page" | "chat";
 
@@ -71,6 +72,7 @@ export function ClientFacingPanel({
       ...(introOn
         ? [{ id: "cf-initial-messages", label: "Opening messages" }]
         : []),
+      { id: "cf-staff-out", label: "When staff out" },
       { id: "cf-end-screen", label: "End screen behavior" },
       ...(shoutoutsOn ? [{ id: "cf-promos", label: "Promo banners" }] : []),
       ...(photosOn ? [{ id: "cf-photos", label: "Chat photos" }] : []),
@@ -80,22 +82,36 @@ export function ClientFacingPanel({
   useEffect(() => {
     const root = document.querySelector(".client-facing-editor");
     if (!(root instanceof HTMLElement)) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (Date.now() < pinActiveUntil.current) return;
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-        const id = visible[0]?.target.id;
-        if (id) setActive(id);
-      },
-      { root, rootMargin: "-80px 0px -55% 0px", threshold: [0.1, 0.35, 0.7] },
-    );
-    for (const item of toc) {
-      const el = document.getElementById(item.id);
-      if (el) observer.observe(el);
+    const editorRoot = root;
+    let frame = 0;
+    function updateActive() {
+      if (Date.now() < pinActiveUntil.current) return;
+      const tocEl = editorRoot.querySelector(".client-facing-toc");
+      const offset = tocEl instanceof HTMLElement ? tocEl.offsetHeight + 24 : 24;
+      const y = editorRoot.scrollTop + offset;
+      const current =
+        [...toc]
+          .map((item) => {
+            const el = document.getElementById(item.id);
+            return el instanceof HTMLElement
+              ? { id: item.id, top: el.offsetTop }
+              : null;
+          })
+          .filter((item): item is { id: string; top: number } => Boolean(item))
+          .filter((item) => item.top <= y)
+          .sort((a, b) => b.top - a.top)[0]?.id ?? toc[0]?.id ?? null;
+      setActive((prev) => (prev === current ? prev : current));
     }
-    return () => observer.disconnect();
+    function onScroll() {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updateActive);
+    }
+    updateActive();
+    editorRoot.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      editorRoot.removeEventListener("scroll", onScroll);
+    };
   }, [toc]);
 
   function scrollSectionIntoView(id: string) {
@@ -116,14 +132,6 @@ export function ClientFacingPanel({
     scrollSectionIntoView(id);
     setActive(id);
   }
-
-  useEffect(() => {
-    setActive((current) =>
-      current && toc.some((item) => item.id === current)
-        ? current
-        : (toc[0]?.id ?? null),
-    );
-  }, [toc]);
 
   useEffect(() => {
     const hash = window.location.hash.replace(/^#/, "");
@@ -285,6 +293,17 @@ export function ClientFacingPanel({
               {prefChunk("intro", "messages")}
             </section>
           ) : null}
+
+          <section id="cf-staff-out" className="client-facing-section">
+            <h3>When staff out</h3>
+            <p className="floor-settings-help">
+              Guide visitors through a useful after-hours intake instead of a plain email box.
+            </p>
+            <StaffOutIntakePanel
+              settings={settings}
+              onChangeSettings={onChangeSettings}
+            />
+          </section>
 
           <section id="cf-end-screen" className="client-facing-section">
             <h3>End screen behavior</h3>

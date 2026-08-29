@@ -435,7 +435,8 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
       .filter((client) => client.preview.trim() && !client.hiddenFromInbox)
       .sort(
         (a, b) =>
-          clientCreatedMs(a, messages) - clientCreatedMs(b, messages),
+          clientCreatedMs(b, messages) - clientCreatedMs(a, messages) ||
+          b.id.localeCompare(a.id),
       );
   }, [clients, messages]);
 

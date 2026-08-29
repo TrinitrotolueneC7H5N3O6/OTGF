@@ -55,6 +55,9 @@ function behaviorWithDefaults(
         "Want a copy of this conversation or future updates? Leave your name, email, or phone number.",
       collectLabel: "Contact info",
       collectPlaceholder: "Name, email, or phone",
+      collectName: true,
+      collectEmail: true,
+      collectPhone: true,
       submitLabel: "Send",
     },
     offer: {
@@ -92,6 +95,17 @@ export function EndScreenBehaviorPanel({
       ...settings,
       endScreenBehavior: { ...behavior, ...partial },
     });
+  }
+
+  function patchContactField(
+    field: "collectEmail" | "collectPhone",
+    enabled: boolean,
+  ) {
+    const next = { ...behavior, [field]: enabled };
+    if (!next.collectEmail && !next.collectPhone) {
+      next[field === "collectEmail" ? "collectPhone" : "collectEmail"] = true;
+    }
+    patch(next);
   }
 
   function chooseKind(kind: ChatEndScreenKind) {
@@ -169,18 +183,38 @@ export function EndScreenBehaviorPanel({
                   placeholder="Send"
                 />
               </label>
-              <label className="floor-settings-note end-screen-wide">
-                <span>Placeholder</span>
-                <input
-                  value={behavior.collectPlaceholder}
-                  onChange={(event) =>
-                    patch({
-                      collectPlaceholder: event.target.value.slice(0, 80),
-                    })
-                  }
-                  placeholder="Name, email, or phone"
-                />
-              </label>
+              <div className="floor-settings-note end-screen-wide">
+                <span>Collect fields</span>
+                <div className="end-screen-field-toggles">
+                  <label>
+                    <input type="checkbox" checked readOnly />
+                    Name
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={behavior.collectEmail}
+                      onChange={(event) =>
+                        patchContactField("collectEmail", event.target.checked)
+                      }
+                    />
+                    Email
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={behavior.collectPhone}
+                      onChange={(event) =>
+                        patchContactField("collectPhone", event.target.checked)
+                      }
+                    />
+                    Phone
+                  </label>
+                </div>
+                <p className="editor-hint">
+                  Name is always collected. Keep email or phone on for follow-up.
+                </p>
+              </div>
             </div>
           ) : null}
 
