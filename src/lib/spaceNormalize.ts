@@ -5,11 +5,13 @@ import type {
   ChatParticipant,
   Client,
   ComposerShortcut,
+  CollectedContact,
   CustomerCase,
   CustomerCaseIdentifier,
   CustomerCaseStatus,
   DepartmentAttachment,
   DepartmentContent,
+  EmailAlerts,
   FloorMember,
   FloorSettings,
   ChatEndScreenBehavior,
@@ -26,8 +28,10 @@ import type {
   ReceiptPayload,
   ReceiptProduct,
   ResponseWindow,
+  StaffOutIntake,
   Weekday,
 } from "./types";
+import { EMAIL_ALERT_KINDS } from "./types";
 import {
   normalizeAutoAnswerDraft,
   withoutAutoAnswerDraft,
@@ -46,6 +50,7 @@ import {
 } from "./setupSolutions";
 import { normalizeOfferings } from "./offerings";
 import { normalizeKnowledgeNotes } from "./knowledge";
+import { EMAIL_ALERT_DEFAULTS } from "./emailAlertOptions";
 
 const WEEKDAYS: Weekday[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -112,6 +117,7 @@ export function defaultFloorSettings(): FloorSettings {
     responseNote: "",
     awayMessage:
       "We're not available right now. Leave your email and we'll reply to your question.",
+    staffOutIntake: defaultStaffOutIntake(),
     banners: [],
     brandBannerUrl: undefined,
     logoUrl: undefined,
@@ -121,6 +127,7 @@ export function defaultFloorSettings(): FloorSettings {
     chatEndImages: [],
     endScreenBehavior: defaultChatEndScreenBehavior(),
     notifyEmails: [],
+    emailAlerts: defaultEmailAlerts(),
     assistBehavior: "",
     autoAnswer: false,
     autoAnswerMessage: "",
@@ -141,10 +148,31 @@ export function defaultChatEndScreenBehavior(): ChatEndScreenBehavior {
       "Want a copy of this conversation or future updates? Leave your name, email, or phone number.",
     collectLabel: "Contact info",
     collectPlaceholder: "Name, email, or phone",
+    collectName: true,
+    collectEmail: true,
+    collectPhone: true,
     submitLabel: "Send",
     offerCode: "THANKYOU10",
     ctaLabel: "Book a follow-up",
     ctaUrl: "",
+  };
+}
+
+export function defaultStaffOutIntake(): StaffOutIntake {
+  return {
+    enabled: true,
+    title: "We’re away, but we can still help",
+    reassurance:
+      "Share a few details and we’ll come back with a useful answer instead of starting from scratch.",
+    responseTime: "We usually reply by the next business day.",
+    emergencyNote: "If this is urgent, call the business directly.",
+    askUrgency: true,
+    askReason: true,
+    askPreferredContact: true,
+    askDetails: true,
+    askConsent: true,
+    nextStepLabel: "Book a time",
+    nextStepUrl: "",
   };
 }
 
@@ -161,12 +189,60 @@ function normalizeChatEndScreenKind(raw: unknown): ChatEndScreenKind {
   return "record_contact";
 }
 
+function normalizeCollectedContacts(raw: unknown): CollectedContact[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: CollectedContact[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Partial<CollectedContact>;
+    const name = typeof row.name === "string" ? row.name.trim().slice(0, 120) : "";
+    const chatId = typeof row.chatId === "string" ? row.chatId.trim().slice(0, 80) : "";
+    if (!name || !chatId) continue;
+    const source = row.source === "staff_out" ? "staff_out" : "end_screen";
+    const id =
+      typeof row.id === "string" && row.id.trim()
+        ? row.id.trim().slice(0, 120)
+        : `${source}:${chatId}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      chatId,
+      chatName:
+        typeof row.chatName === "string" && row.chatName.trim()
+          ? row.chatName.trim().slice(0, 120)
+          : name,
+      name,
+      ...(typeof row.email === "string" && row.email.trim()
+        ? { email: row.email.trim().slice(0, 180) }
+        : {}),
+      ...(typeof row.phone === "string" && row.phone.trim()
+        ? { phone: row.phone.trim().slice(0, 40) }
+        : {}),
+      source,
+      ...(typeof row.caseId === "string" && row.caseId.trim()
+        ? { caseId: row.caseId.trim().slice(0, 48) }
+        : {}),
+      collectedAt:
+        typeof row.collectedAt === "string" && row.collectedAt.trim()
+          ? row.collectedAt.trim()
+          : new Date().toISOString(),
+    });
+  }
+  return out;
+}
+
 export function normalizeChatEndScreenBehavior(
   raw: unknown,
 ): ChatEndScreenBehavior {
   const defaults = defaultChatEndScreenBehavior();
   if (!raw || typeof raw !== "object") return defaults;
   const row = raw as Partial<ChatEndScreenBehavior>;
+  const collectEmail =
+    typeof row.collectEmail === "boolean" ? row.collectEmail : true;
+  const collectPhone =
+    typeof row.collectPhone === "boolean" ? row.collectPhone : true;
   return {
     kind: normalizeChatEndScreenKind(row.kind),
     title:
@@ -185,6 +261,10 @@ export function normalizeChatEndScreenBehavior(
       typeof row.collectPlaceholder === "string" && row.collectPlaceholder.trim()
         ? row.collectPlaceholder.trim().slice(0, 80)
         : defaults.collectPlaceholder,
+    collectName:
+      typeof row.collectName === "boolean" ? row.collectName : true,
+    collectEmail: collectEmail || !collectPhone,
+    collectPhone: collectPhone || !collectEmail,
     submitLabel:
       typeof row.submitLabel === "string" && row.submitLabel.trim()
         ? row.submitLabel.trim().slice(0, 40)
@@ -199,6 +279,52 @@ export function normalizeChatEndScreenBehavior(
         : defaults.ctaLabel,
     ctaUrl:
       typeof row.ctaUrl === "string" ? row.ctaUrl.trim().slice(0, 500) : "",
+  };
+}
+
+export function normalizeStaffOutIntake(raw: unknown): StaffOutIntake {
+  const defaults = defaultStaffOutIntake();
+  if (!raw || typeof raw !== "object") return defaults;
+  const row = raw as Partial<StaffOutIntake>;
+  return {
+    enabled:
+      typeof row.enabled === "boolean" ? row.enabled : defaults.enabled,
+    title:
+      typeof row.title === "string" && row.title.trim()
+        ? row.title.trim().slice(0, 90)
+        : defaults.title,
+    reassurance:
+      typeof row.reassurance === "string" && row.reassurance.trim()
+        ? row.reassurance.trim().slice(0, 400)
+        : defaults.reassurance,
+    responseTime:
+      typeof row.responseTime === "string"
+        ? row.responseTime.trim().slice(0, 160)
+        : defaults.responseTime,
+    emergencyNote:
+      typeof row.emergencyNote === "string"
+        ? row.emergencyNote.trim().slice(0, 200)
+        : defaults.emergencyNote,
+    askUrgency:
+      typeof row.askUrgency === "boolean" ? row.askUrgency : defaults.askUrgency,
+    askReason:
+      typeof row.askReason === "boolean" ? row.askReason : defaults.askReason,
+    askPreferredContact:
+      typeof row.askPreferredContact === "boolean"
+        ? row.askPreferredContact
+        : defaults.askPreferredContact,
+    askDetails:
+      typeof row.askDetails === "boolean" ? row.askDetails : defaults.askDetails,
+    askConsent:
+      typeof row.askConsent === "boolean" ? row.askConsent : defaults.askConsent,
+    nextStepLabel:
+      typeof row.nextStepLabel === "string" && row.nextStepLabel.trim()
+        ? row.nextStepLabel.trim().slice(0, 60)
+        : defaults.nextStepLabel,
+    nextStepUrl:
+      typeof row.nextStepUrl === "string"
+        ? row.nextStepUrl.trim().slice(0, 500)
+        : "",
   };
 }
 
@@ -284,6 +410,21 @@ function normalizeBanners(banners: unknown): ChatBanner[] {
         ? { color: row.color }
         : {}),
     });
+  }
+  return next;
+}
+
+export function defaultEmailAlerts(): EmailAlerts {
+  return { ...EMAIL_ALERT_DEFAULTS };
+}
+
+export function normalizeEmailAlerts(raw: unknown): EmailAlerts {
+  const defaults = defaultEmailAlerts();
+  if (!raw || typeof raw !== "object") return defaults;
+  const row = raw as Partial<Record<string, unknown>>;
+  const next = { ...defaults };
+  for (const kind of EMAIL_ALERT_KINDS) {
+    if (typeof row[kind] === "boolean") next[kind] = row[kind];
   }
   return next;
 }
@@ -608,6 +749,7 @@ export function normalizeFloorSettings(
       typeof settings.awayMessage === "string" && settings.awayMessage.trim()
         ? settings.awayMessage.trim()
         : defaults.awayMessage,
+    staffOutIntake: normalizeStaffOutIntake(settings.staffOutIntake),
     banners: normalizeBanners(settings.banners),
     brandBannerUrl:
       typeof settings.brandBannerUrl === "string" &&
@@ -628,6 +770,7 @@ export function normalizeFloorSettings(
       settings.endScreenBehavior,
     ),
     notifyEmails: normalizeNotifyEmails(settings.notifyEmails),
+    emailAlerts: normalizeEmailAlerts(settings.emailAlerts),
     assistBehavior:
       typeof settings.assistBehavior === "string"
         ? settings.assistBehavior.trim().slice(0, 4000)
@@ -857,6 +1000,80 @@ export function normalizeSpace(raw: BusinessSpace): BusinessSpace {
       ...(typeof c.email === "string" && c.email.trim()
         ? { email: c.email.trim() }
         : {}),
+      ...(c.contactInfo &&
+      typeof c.contactInfo === "object" &&
+      typeof c.contactInfo.name === "string" &&
+      c.contactInfo.name.trim()
+        ? {
+            contactInfo: {
+              name: c.contactInfo.name.trim().slice(0, 120),
+              ...(typeof c.contactInfo.email === "string" &&
+              c.contactInfo.email.trim()
+                ? { email: c.contactInfo.email.trim().slice(0, 180) }
+                : {}),
+              ...(typeof c.contactInfo.phone === "string" &&
+              c.contactInfo.phone.trim()
+                ? { phone: c.contactInfo.phone.trim().slice(0, 40) }
+                : {}),
+              source:
+                c.contactInfo.source === "staff_out" ? "staff_out" : "end_screen",
+              collectedAt:
+                typeof c.contactInfo.collectedAt === "string" &&
+                c.contactInfo.collectedAt.trim()
+                  ? c.contactInfo.collectedAt.trim()
+                  : new Date().toISOString(),
+            },
+          }
+        : {}),
+      ...(c.staffOutIntake &&
+      typeof c.staffOutIntake === "object" &&
+      typeof c.staffOutIntake.name === "string" &&
+      c.staffOutIntake.name.trim()
+        ? {
+            staffOutIntake: {
+              name: c.staffOutIntake.name.trim().slice(0, 120),
+              ...(typeof c.staffOutIntake.email === "string" &&
+              c.staffOutIntake.email.trim()
+                ? { email: c.staffOutIntake.email.trim().slice(0, 180) }
+                : {}),
+              ...(typeof c.staffOutIntake.phone === "string" &&
+              c.staffOutIntake.phone.trim()
+                ? { phone: c.staffOutIntake.phone.trim().slice(0, 40) }
+                : {}),
+              ...(typeof c.staffOutIntake.reason === "string" &&
+              c.staffOutIntake.reason.trim()
+                ? { reason: c.staffOutIntake.reason.trim().slice(0, 120) }
+                : {}),
+              ...(c.staffOutIntake.urgency === "low" ||
+              c.staffOutIntake.urgency === "normal" ||
+              c.staffOutIntake.urgency === "high"
+                ? { urgency: c.staffOutIntake.urgency }
+                : {}),
+              ...((c.staffOutIntake.preferredContact as string) === "email" ||
+              (c.staffOutIntake.preferredContact as string) === "phone" ||
+              (c.staffOutIntake.preferredContact as string) === "chat" ||
+              (c.staffOutIntake.preferredContact as string) === "either"
+                ? {
+                    preferredContact:
+                      (c.staffOutIntake.preferredContact as string) === "either"
+                        ? "chat"
+                        : c.staffOutIntake.preferredContact,
+                  }
+                : {}),
+              ...(typeof c.staffOutIntake.details === "string" &&
+              c.staffOutIntake.details.trim()
+                ? { details: c.staffOutIntake.details.trim().slice(0, 1000) }
+                : {}),
+              consent: Boolean(c.staffOutIntake.consent),
+              source: "staff_out",
+              collectedAt:
+                typeof c.staffOutIntake.collectedAt === "string" &&
+                c.staffOutIntake.collectedAt.trim()
+                  ? c.staffOutIntake.collectedAt.trim()
+                  : new Date().toISOString(),
+            },
+          }
+        : {}),
       ...(typeof c.presentAt === "string" && c.presentAt.trim()
         ? { presentAt: c.presentAt.trim() }
         : {}),
@@ -896,6 +1113,7 @@ export function normalizeSpace(raw: BusinessSpace): BusinessSpace {
     offerings: normalizeOfferings(space.offerings),
     knowledgeNotes: normalizeKnowledgeNotes(space.knowledgeNotes),
     cases: normalizeCustomerCases(space.cases),
+    collectedContacts: normalizeCollectedContacts(space.collectedContacts),
     categories: cleaned.categories,
     artifacts,
     messages: (space.messages ?? []).map(normalizeMessage),

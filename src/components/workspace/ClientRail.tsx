@@ -103,9 +103,9 @@ export function ClientRail({
 
   function startRename(client: Client, e?: MouseEvent) {
     e?.stopPropagation();
-    e?.preventDefault();
-    setEditingId(client.id);
-    setDraftName(client.name ?? "");
+  e?.preventDefault();
+  setEditingId(client.id);
+  setDraftName(client.name ?? "");
   }
 
   function commitRename(clientId: string) {
@@ -128,9 +128,9 @@ export function ClientRail({
   function deleteChat(client: Client, e: MouseEvent) {
     e.stopPropagation();
     e.preventDefault();
-    const assigned = Boolean(client.caseId);
+    const shouldHide = Boolean(client.caseId);
     const ok = window.confirm(
-      assigned
+      shouldHide
         ? `Hide ${client.name} from the inbox? It will stay in ${client.caseId}.`
         : `Delete chat with ${client.name}?`,
     );
@@ -360,7 +360,11 @@ export function ClientRail({
                             ? `Hide chat with ${client.name}`
                             : `Delete chat with ${client.name}`
                         }
-                        title={client.caseId ? "Hide" : "Delete"}
+                        title={
+                          client.caseId
+                            ? "Hide"
+                            : "Delete"
+                        }
                       >
                         {client.caseId ? (
                           <IconEyeOff size={13} />

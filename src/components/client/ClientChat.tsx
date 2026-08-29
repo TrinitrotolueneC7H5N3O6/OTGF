@@ -13,6 +13,7 @@ import {
   appendMessage,
   readAttachmentFile,
   readMediaFile,
+  sendSpaceEmail,
   subscribeSpace,
   toggleReaction,
   messageTimeStamp,
@@ -56,6 +57,7 @@ interface ClientChatProps {
   embedded?: boolean;
   /** Dashboard live preview — no network, no real chat. */
   preview?: boolean;
+  previewEnded?: boolean;
   previewSpace?: BusinessSpace;
   inquireOfferingId?: string;
 }
@@ -75,6 +77,7 @@ export function ClientChat({
   chatId,
   embedded = false,
   preview = false,
+  previewEnded = false,
   previewSpace,
   inquireOfferingId,
 }: ClientChatProps) {
@@ -84,6 +87,16 @@ export function ClientChat({
   const [displayName, setDisplayName] = useState("");
   const [draft, setDraft] = useState("");
   const [emailDraft, setEmailDraft] = useState("");
+  const [contactNameDraft, setContactNameDraft] = useState("");
+  const [contactEmailDraft, setContactEmailDraft] = useState("");
+  const [contactPhoneDraft, setContactPhoneDraft] = useState("");
+  const [intakeReasonDraft, setIntakeReasonDraft] = useState("");
+  const [intakeDetailsDraft, setIntakeDetailsDraft] = useState("");
+  const [intakePhoneDraft, setIntakePhoneDraft] = useState("");
+  const [intakeUrgency, setIntakeUrgency] = useState<"low" | "normal" | "high">("normal");
+  const [intakePreferredContact, setIntakePreferredContact] = useState<"email" | "phone" | "chat">("chat");
+  const [intakeConsent, setIntakeConsent] = useState(false);
+  const [intakeSaved, setIntakeSaved] = useState(false);
   const [emailSaved, setEmailSaved] = useState(false);
   const [recordingSaved, setRecordingSaved] = useState(false);
   const [ready, setReady] = useState(() => Boolean(preview && previewSpace));
@@ -100,6 +113,8 @@ export function ClientChat({
   const [departmentSaving, setDepartmentSaving] = useState(false);
   const [copiedReturnLink, setCopiedReturnLink] = useState(false);
   const [linkEmailSent, setLinkEmailSent] = useState(false);
+  const [linkEmailSending, setLinkEmailSending] = useState(false);
+  const [linkEmailError, setLinkEmailError] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<MessageReplyRef | null>(null);
   const [contactReason, setContactReason] = useState<string | null>(null);
   const [actionsFor, setActionsFor] = useState<string | null>(null);
@@ -135,6 +150,23 @@ export function ClientChat({
       setSpace(loaded);
       rememberChat(slug, chatId);
       if (client && !isGuestName(client.name)) setDisplayName(client.name);
+      if (client?.staffOutIntake) {
+        setDisplayName(client.staffOutIntake.name);
+        setEmailDraft(client.staffOutIntake.email ?? client.email ?? "");
+        setIntakePhoneDraft(client.staffOutIntake.phone ?? "");
+        setIntakeReasonDraft(client.staffOutIntake.reason ?? "");
+        setIntakeDetailsDraft(client.staffOutIntake.details ?? "");
+        setIntakeUrgency(client.staffOutIntake.urgency ?? "normal");
+        setIntakePreferredContact(client.staffOutIntake.preferredContact ?? "chat");
+        setIntakeConsent(client.staffOutIntake.consent);
+        setIntakeSaved(true);
+      }
+      if (client?.contactInfo) {
+        setContactNameDraft(client.contactInfo.name);
+        setContactEmailDraft(client.contactInfo.email ?? "");
+        setContactPhoneDraft(client.contactInfo.phone ?? "");
+        setRecordingSaved(true);
+      }
       if (client?.email) {
         setEmailDraft(client.email);
         setEmailSaved(true);
@@ -212,7 +244,21 @@ export function ClientChat({
     );
   }, [space, chatId, slug, introMessages]);
 
-  const client = space?.clients.find((c) => c.id === chatId);
+  const storedClient = space?.clients.find((c) => c.id === chatId);
+  const client =
+    preview && previewEnded
+      ? {
+          id: chatId,
+          name: "Preview guest",
+          status: "unknown" as const,
+          channel: "web" as const,
+          preview: "Chat ended",
+          unread: 0,
+          trade: space?.business.trade ?? "salon",
+          lastActive: "Just now",
+          chatEndedAt: new Date(0).toISOString(),
+        }
+      : storedClient;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -699,19 +745,12 @@ export function ClientChat({
     }
   }
 
-  async function emailReturnLink(e: FormEvent, path: string) {
+  async function emailReturnLink(e: FormEvent) {
     e.preventDefault();
     const email = emailDraft.trim();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
-
-    const url = path.startsWith("http")
-      ? path
-      : `${window.location.origin}${path}`;
-    const mailto = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(
-      "Your chat link",
-    )}&body=${encodeURIComponent(
-      `Use this link to return to your chat with ${space?.business.name ?? "us"}:\n\n${url}`,
-    )}`;
+    setLinkEmailError(null);
+    setLinkEmailSending(true);
 
     try {
       const next = await patchSpace(slug, (latest) => {
@@ -779,14 +818,20 @@ export function ClientChat({
       });
       setSpace(next);
       setEmailSaved(true);
+      await sendSpaceEmail(slug, {
+        kind: "chat_link",
+        chatId,
+        email,
+        origin: window.location.origin,
+      });
       setLinkEmailSent(true);
-    } catch {
-      // still offer the mail draft if save fails
+    } catch (err) {
+      setLinkEmailError(
+        err instanceof Error ? err.message : "Could not send that email.",
+      );
+    } finally {
+      setLinkEmailSending(false);
     }
-
-    const mail = document.createElement("a");
-    mail.href = mailto;
-    mail.click();
   }
 
   function pickDepartment(n: number, closeMenu: () => void) {
@@ -1146,17 +1191,168 @@ export function ClientChat({
     setEmailSaved(true);
   }
 
-  async function saveEndScreenContact(e: FormEvent) {
+  async function saveStaffOutIntake(e: FormEvent) {
     e.preventDefault();
-    const contact = emailDraft.trim();
-    if (!contact) return;
-    const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)
-      ? contact
-      : "";
+    const name = displayName.trim();
+    const email = emailDraft.trim();
+    const phone = intakePhoneDraft.trim();
+    const reason = intakeReasonDraft.trim();
+    const details = intakeDetailsDraft.trim();
+    if (!name || (!email && !phone)) return;
+    if (staffOutIntake.askReason && !reason) return;
+    if (staffOutIntake.askDetails && !details) return;
+    if (staffOutIntake.askConsent && !intakeConsent) return;
+
+    const contactParts = [
+      `Name: ${name}`,
+      email ? `Email: ${email}` : "",
+      phone ? `Phone: ${phone}` : "",
+      staffOutIntake.askPreferredContact
+        ? `Prefers: ${intakePreferredContact}`
+        : "",
+      staffOutIntake.askUrgency ? `Urgency: ${intakeUrgency}` : "",
+      reason ? `Reason: ${reason}` : "",
+      details ? `Details: ${details}` : "",
+      staffOutIntake.askConsent ? "Consented to follow-up" : "",
+    ].filter(Boolean);
+    const body = `Staff-out intake: ${contactParts.join(" · ")}`;
 
     const next = await patchSpace(slug, (latest) => {
       const existing = latest.clients.find((c) => c.id === chatId);
-      const body = `End screen contact: ${contact}`;
+      const alreadyNoted = latest.messages.some(
+        (m) =>
+          m.clientId === chatId &&
+          m.from === "client" &&
+          m.body.startsWith("Staff-out intake:"),
+      );
+      const noteBase = existing?.note?.toLowerCase().includes("staff-out intake")
+        ? existing.note
+        : [existing?.note, "Staff-out intake"].filter(Boolean).join(" · ");
+      const staffOutIntakePayload = {
+        name,
+        ...(email ? { email } : {}),
+        ...(phone ? { phone } : {}),
+        ...(reason ? { reason } : {}),
+        ...(staffOutIntake.askUrgency ? { urgency: intakeUrgency } : {}),
+        ...(staffOutIntake.askPreferredContact
+          ? { preferredContact: intakePreferredContact }
+          : {}),
+        ...(details ? { details } : {}),
+        consent: staffOutIntake.askConsent ? intakeConsent : true,
+        source: "staff_out" as const,
+        collectedAt: new Date().toISOString(),
+      };
+      const collectedContact = {
+        id: `staff_out:${chatId}`,
+        chatId,
+        chatName: name,
+        name,
+        ...(email ? { email } : {}),
+        ...(phone ? { phone } : {}),
+        source: "staff_out" as const,
+        ...(existing?.caseId ? { caseId: existing.caseId } : {}),
+        collectedAt: staffOutIntakePayload.collectedAt,
+      };
+
+      const nextClient: Client = existing
+        ? {
+            ...existing,
+            name,
+            ...(email ? { email } : {}),
+            staffOutIntake: staffOutIntakePayload,
+            contactInfo: {
+              name,
+              ...(email ? { email } : {}),
+              ...(phone ? { phone } : {}),
+              source: "staff_out",
+              collectedAt: staffOutIntakePayload.collectedAt,
+            },
+            note: noteBase || "Staff-out intake",
+            preview: body,
+            lastActive: "Just now",
+            unread: alreadyNoted ? existing.unread : existing.unread + 1,
+            presentAt: new Date().toISOString(),
+          }
+        : {
+            id: chatId,
+            name,
+            status: "unknown",
+            channel: "web",
+            preview: body,
+            unread: 1,
+            trade: latest.business.trade,
+            lastActive: "Just now",
+            note: "Staff-out intake",
+            ...(email ? { email } : {}),
+            staffOutIntake: staffOutIntakePayload,
+            contactInfo: {
+              name,
+              ...(email ? { email } : {}),
+              ...(phone ? { phone } : {}),
+              source: "staff_out",
+              collectedAt: staffOutIntakePayload.collectedAt,
+            },
+            presentAt: new Date().toISOString(),
+          };
+
+      return {
+        ...latest,
+        deletedClientIds: (latest.deletedClientIds ?? []).filter(
+          (id) => id !== chatId,
+        ),
+        clients: existing
+          ? latest.clients.map((c) => (c.id === chatId ? nextClient : c))
+          : [nextClient, ...latest.clients],
+        collectedContacts: [
+          ...(latest.collectedContacts ?? []).filter(
+            (contact) => contact.id !== collectedContact.id,
+          ),
+          collectedContact,
+        ],
+        messages: alreadyNoted
+          ? latest.messages.map((m) =>
+              m.clientId === chatId &&
+              m.from === "client" &&
+              m.body.startsWith("Staff-out intake:")
+                ? { ...m, body, ...messageTimeStamp() }
+                : m,
+            )
+          : [
+              ...latest.messages,
+              {
+                id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                clientId: chatId,
+                from: "client" as const,
+                kind: "text" as const,
+                body,
+                ...messageTimeStamp(),
+              },
+            ],
+      };
+    });
+
+    setSpace(next);
+    setIntakeSaved(true);
+    if (email) setEmailSaved(true);
+  }
+
+  async function saveEndScreenContact(e: FormEvent) {
+    e.preventDefault();
+    const name = contactNameDraft.trim();
+    const email = contactEmailDraft.trim();
+    const phone = contactPhoneDraft.trim();
+    if (!name) return;
+    if (endScreen.collectEmail && !email) return;
+    if (endScreen.collectPhone && !phone) return;
+    const contactParts = [
+      `Name: ${name}`,
+      email ? `Email: ${email}` : "",
+      phone ? `Phone: ${phone}` : "",
+    ].filter(Boolean);
+
+    const next = await patchSpace(slug, (latest) => {
+      const existing = latest.clients.find((c) => c.id === chatId);
+      const body = `End screen contact: ${contactParts.join(" · ")}`;
       const alreadyNoted = latest.messages.some(
         (m) =>
           m.clientId === chatId &&
@@ -1167,11 +1363,30 @@ export function ClientChat({
       const noteBase = existing?.note?.toLowerCase().includes("end screen contact")
         ? existing.note
         : [existing?.note, "End screen contact"].filter(Boolean).join(" · ");
+      const collectedAt = new Date().toISOString();
+      const collectedContact = {
+        id: `end_screen:${chatId}`,
+        chatId,
+        chatName: (existing?.name ?? displayName.trim()) || name,
+        name,
+        ...(email ? { email } : {}),
+        ...(phone ? { phone } : {}),
+        source: "end_screen" as const,
+        ...(existing?.caseId ? { caseId: existing.caseId } : {}),
+        collectedAt,
+      };
 
       const nextClient: Client = existing
         ? {
             ...existing,
             ...(email ? { email } : {}),
+            contactInfo: {
+              name,
+              ...(email ? { email } : {}),
+              ...(phone ? { phone } : {}),
+              source: "end_screen",
+              collectedAt,
+            },
             note: noteBase || "End screen contact",
             preview: body,
             lastActive: "Just now",
@@ -1188,6 +1403,13 @@ export function ClientChat({
             lastActive: "Just now",
             note: "End screen contact",
             ...(email ? { email } : {}),
+            contactInfo: {
+              name,
+              ...(email ? { email } : {}),
+              ...(phone ? { phone } : {}),
+              source: "end_screen",
+              collectedAt,
+            },
             chatEndedAt: new Date().toISOString(),
           };
 
@@ -1199,6 +1421,12 @@ export function ClientChat({
         clients: existing
           ? latest.clients.map((c) => (c.id === chatId ? nextClient : c))
           : [nextClient, ...latest.clients],
+        collectedContacts: [
+          ...(latest.collectedContacts ?? []).filter(
+            (contact) => contact.id !== collectedContact.id,
+          ),
+          collectedContact,
+        ],
         messages: alreadyNoted
           ? latest.messages.map((m) =>
               m.clientId === chatId &&
@@ -1223,6 +1451,7 @@ export function ClientChat({
 
     setSpace(next);
     setRecordingSaved(true);
+    setEmailDraft(email);
     if (email) setEmailSaved(true);
   }
 
@@ -1255,6 +1484,7 @@ export function ClientChat({
     ? (settings.chatEndImages ?? []).slice(0, 6)
     : [];
   const endScreen = settings.endScreenBehavior;
+  const staffOutIntake = settings.staffOutIntake;
   const introText = isSolutionEnabled(settings, "intro")
     ? (settings.intro ?? "").trim()
     : "";
@@ -1265,11 +1495,24 @@ export function ClientChat({
   const showPromos = isSolutionEnabled(settings, "promos");
   const chatEnded = Boolean(client?.chatEndedAt);
   const isAway = !settings.live && !chatEnded;
+  const chatLinkEmailOn = settings.emailAlerts?.customerChatLink !== false;
   const awayCopy =
     settings.awayMessage?.trim() ||
     "We're not available right now. Leave your email and we'll reply to your question.";
-  const savedEmail = client?.email ?? (emailSaved || recordingSaved ? emailDraft.trim() : "");
+  const savedEmail = client?.email ?? (emailSaved ? emailDraft.trim() : "");
+  const savedIntakeName = intakeSaved
+    ? client?.staffOutIntake?.name || displayName.trim()
+    : "";
+  const savedContact =
+    client?.contactInfo?.name ||
+    client?.email ||
+    (recordingSaved
+      ? contactNameDraft.trim() ||
+        contactEmailDraft.trim() ||
+        contactPhoneDraft.trim()
+      : "");
   const endScreenCtaHref = externalHref(endScreen.ctaUrl);
+  const staffOutNextStepHref = externalHref(staffOutIntake.nextStepUrl);
   const members = space.members ?? [];
   const soleMember = members.length === 1 ? members[0] : undefined;
   const chatOwner = client?.ownerMemberId
@@ -1552,9 +1795,9 @@ export function ClientChat({
             <p className="client-away-title">{endScreen.title}</p>
             <p className="client-away-copy">{endScreen.body}</p>
             {endScreen.kind === "record_contact" ? (
-              recordingSaved && savedEmail ? (
+              recordingSaved && savedContact ? (
                 <p className="client-away-saved">
-                  Got it — we saved <strong>{savedEmail}</strong>
+                  Got it — we saved <strong>{savedContact}</strong>
                   <button
                     type="button"
                     className="client-away-edit"
@@ -1569,16 +1812,42 @@ export function ClientChat({
                   onSubmit={(e) => void saveEndScreenContact(e)}
                 >
                   <label className="composer-field">
-                    <span className="sr-only">{endScreen.collectLabel}</span>
+                    <span className="sr-only">Name</span>
                     <input
                       type="text"
-                      value={emailDraft ?? ""}
-                      onChange={(e) => setEmailDraft(e.target.value)}
-                      placeholder={endScreen.collectPlaceholder}
+                      value={contactNameDraft}
+                      onChange={(e) => setContactNameDraft(e.target.value)}
+                      placeholder="Name"
                       required
-                      autoComplete="email"
+                      autoComplete="name"
                     />
                   </label>
+                  {endScreen.collectEmail ? (
+                    <label className="composer-field">
+                      <span className="sr-only">Email</span>
+                      <input
+                        type="email"
+                        value={contactEmailDraft}
+                        onChange={(e) => setContactEmailDraft(e.target.value)}
+                        placeholder="Email"
+                        required
+                        autoComplete="email"
+                      />
+                    </label>
+                  ) : null}
+                  {endScreen.collectPhone ? (
+                    <label className="composer-field">
+                      <span className="sr-only">Phone</span>
+                      <input
+                        type="tel"
+                        value={contactPhoneDraft}
+                        onChange={(e) => setContactPhoneDraft(e.target.value)}
+                        placeholder="Phone number"
+                        required
+                        autoComplete="tel"
+                      />
+                    </label>
+                  ) : null}
                   <button type="submit" className="btn-solid client-away-submit">
                     {endScreen.submitLabel}
                   </button>
@@ -1607,8 +1876,155 @@ export function ClientChat({
           </div>
         ) : isAway ? (
           <div className="client-away-panel" role="status">
-            <p className="client-away-copy">{awayCopy}</p>
-            {savedEmail ? (
+            {staffOutIntake.enabled ? (
+              <>
+                <p className="client-away-title">{staffOutIntake.title}</p>
+                <p className="client-away-copy">{staffOutIntake.reassurance}</p>
+                {staffOutIntake.responseTime ? (
+                  <p className="client-away-meta">{staffOutIntake.responseTime}</p>
+                ) : null}
+                {staffOutIntake.emergencyNote ? (
+                  <p className="client-away-warning">{staffOutIntake.emergencyNote}</p>
+                ) : null}
+                {savedIntakeName ? (
+                  <p className="client-away-saved">
+                    Got it — we saved your details, <strong>{savedIntakeName}</strong>
+                    <button
+                      type="button"
+                      className="client-away-edit"
+                      onClick={() => setIntakeSaved(false)}
+                    >
+                      Change
+                    </button>
+                  </p>
+                ) : (
+                  <form
+                    className="client-away-form client-intake-form"
+                    onSubmit={(e) => void saveStaffOutIntake(e)}
+                  >
+                    <label className="composer-field">
+                      <span className="sr-only">Name</span>
+                      <input
+                        type="text"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        placeholder="Name"
+                        required
+                        autoComplete="name"
+                      />
+                    </label>
+                    <div className="client-intake-contact-row">
+                      <label className="composer-field">
+                        <span className="sr-only">Email</span>
+                        <input
+                          type="email"
+                          value={emailDraft ?? ""}
+                          onChange={(e) => setEmailDraft(e.target.value)}
+                          placeholder="Email"
+                          autoComplete="email"
+                        />
+                      </label>
+                      <label className="composer-field">
+                        <span className="sr-only">Phone</span>
+                        <input
+                          type="tel"
+                          value={intakePhoneDraft}
+                          onChange={(e) => setIntakePhoneDraft(e.target.value)}
+                          placeholder="Phone"
+                          autoComplete="tel"
+                        />
+                      </label>
+                    </div>
+                    <p className="client-away-mini">Add email or phone so we can follow up.</p>
+                    {staffOutIntake.askReason ? (
+                      <label className="composer-field">
+                        <span className="sr-only">Reason</span>
+                        <input
+                          type="text"
+                          value={intakeReasonDraft}
+                          onChange={(e) => setIntakeReasonDraft(e.target.value)}
+                          placeholder="What are you reaching out about?"
+                          required
+                        />
+                      </label>
+                    ) : null}
+                    {staffOutIntake.askUrgency ? (
+                      <label className="composer-field">
+                        <span className="sr-only">Urgency</span>
+                        <select
+                          value={intakeUrgency}
+                          onChange={(e) =>
+                            setIntakeUrgency(
+                              e.target.value as "low" | "normal" | "high",
+                            )
+                          }
+                        >
+                          <option value="normal">Normal — reply when available</option>
+                          <option value="high">Urgent — please prioritize</option>
+                          <option value="low">Low urgency — just planning ahead</option>
+                        </select>
+                      </label>
+                    ) : null}
+                    {staffOutIntake.askPreferredContact ? (
+                      <label className="composer-field">
+                        <span className="sr-only">Preferred contact</span>
+                        <select
+                          value={intakePreferredContact}
+                          onChange={(e) =>
+                            setIntakePreferredContact(
+                              e.target.value as "email" | "phone" | "chat",
+                            )
+                          }
+                        >
+                          <option value="email">Email</option>
+                          <option value="phone">Phone</option>
+                          <option value="chat">Talk on this chat</option>
+                        </select>
+                      </label>
+                    ) : null}
+                    {staffOutIntake.askDetails ? (
+                      <label className="composer-field">
+                        <span className="sr-only">Details</span>
+                        <textarea
+                          rows={3}
+                          value={intakeDetailsDraft}
+                          onChange={(e) => setIntakeDetailsDraft(e.target.value)}
+                          placeholder="Add details that would help the team understand your situation…"
+                          required
+                        />
+                      </label>
+                    ) : null}
+                    {staffOutIntake.askConsent ? (
+                      <label className="client-intake-consent">
+                        <input
+                          type="checkbox"
+                          checked={intakeConsent}
+                          onChange={(e) => setIntakeConsent(e.target.checked)}
+                          required
+                        />
+                        <span>You can contact me about this request.</span>
+                      </label>
+                    ) : null}
+                    <button type="submit" className="btn-solid client-away-submit">
+                      Send details
+                    </button>
+                  </form>
+                )}
+                {staffOutNextStepHref ? (
+                  <a
+                    className="btn-ghost client-away-secondary"
+                    href={staffOutNextStepHref}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {staffOutIntake.nextStepLabel}
+                  </a>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <p className="client-away-copy">{awayCopy}</p>
+                {savedEmail ? (
               <p className="client-away-saved">
                 Got it — we&apos;ll reply to <strong>{savedEmail}</strong>
                 <button
@@ -1639,6 +2055,8 @@ export function ClientChat({
                   Leave email
                 </button>
               </form>
+                )}
+              </>
             )}
           </div>
         ) : null}
@@ -1808,42 +2226,55 @@ export function ClientChat({
                       >
                         {copiedReturnLink ? "Copied" : "Copy link"}
                       </button>
-                      {linkEmailSent && emailDraft.trim() ? (
-                        <p className="client-reconnect-sent">
-                          We&apos;ll email this chat link to{" "}
-                          <strong>{emailDraft.trim()}</strong>
-                          <button
-                            type="button"
-                            className="client-away-edit"
-                            onClick={() => setLinkEmailSent(false)}
+                      {chatLinkEmailOn && !preview ? (
+                        linkEmailSent && emailDraft.trim() ? (
+                          <p className="client-reconnect-sent">
+                            We emailed this chat link to{" "}
+                            <strong>{emailDraft.trim()}</strong>
+                            <button
+                              type="button"
+                              className="client-away-edit"
+                              onClick={() => {
+                                setLinkEmailSent(false);
+                                setLinkEmailError(null);
+                              }}
+                            >
+                              Change
+                            </button>
+                          </p>
+                        ) : (
+                          <form
+                            className="client-away-form client-reconnect-form"
+                            onSubmit={(e) => void emailReturnLink(e)}
                           >
-                            Change
-                          </button>
-                        </p>
-                      ) : (
-                        <form
-                          className="client-away-form client-reconnect-form"
-                          onSubmit={(e) => void emailReturnLink(e, reconnectPath)}
-                        >
-                          <label className="composer-field">
-                            <span className="sr-only">Email this chat link</span>
-                            <input
-                              type="email"
-                              value={emailDraft ?? ""}
-                              onChange={(e) => setEmailDraft(e.target.value)}
-                              placeholder="you@email.com"
-                              required
-                              autoComplete="email"
-                            />
-                          </label>
-                          <button
-                            type="submit"
-                            className="btn-solid client-away-submit"
-                          >
-                            Email link
-                          </button>
-                        </form>
-                      )}
+                            <label className="composer-field">
+                              <span className="sr-only">Email this chat link</span>
+                              <input
+                                type="email"
+                                value={emailDraft ?? ""}
+                                onChange={(e) => {
+                                  setEmailDraft(e.target.value);
+                                  setLinkEmailError(null);
+                                }}
+                                placeholder="you@email.com"
+                                required
+                                autoComplete="email"
+                                disabled={linkEmailSending}
+                              />
+                            </label>
+                            <button
+                              type="submit"
+                              className="btn-solid client-away-submit"
+                              disabled={linkEmailSending}
+                            >
+                              {linkEmailSending ? "Sending…" : "Email link"}
+                            </button>
+                            {linkEmailError ? (
+                              <p className="client-reconnect-error">{linkEmailError}</p>
+                            ) : null}
+                          </form>
+                        )
+                      ) : null}
                     </div>
                   ) : (
                     <>

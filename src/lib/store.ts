@@ -307,6 +307,23 @@ export type AppendMessageResult = {
   updatedAt: string;
 };
 
+export async function sendSpaceEmail(
+  slug: string,
+  input: { kind: "chat_link"; chatId: string; email: string; origin?: string },
+): Promise<{ ok: true; id?: string }> {
+  const res = await fetch(`/api/spaces/${encodeURIComponent(slug)}/email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string; id?: string };
+  if (!res.ok) {
+    throw new Error(data.error || "Could not send email.");
+  }
+  return { ok: true, id: data.id };
+}
+
 export async function applySpaceOp(slug: string, op: SpaceOp): Promise<void> {
   await api<{ ok: boolean }>(`/api/spaces/${encodeURIComponent(slug)}/ops`, {
     method: "POST",

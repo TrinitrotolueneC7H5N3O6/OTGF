@@ -20,10 +20,8 @@ export function ClientFacingPreview({
   space,
 }: ClientFacingPreviewProps) {
   const [fullscreen, setFullscreen] = useState(false);
-
-  useEffect(() => {
-    setFullscreen(false);
-  }, [surface]);
+  const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
+  const [showEndScreen, setShowEndScreen] = useState(false);
 
   useEffect(() => {
     if (!fullscreen) return;
@@ -53,7 +51,38 @@ export function ClientFacingPreview({
       >
         {fullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
       </button>
-      <div className="client-facing-preview-device" inert aria-hidden>
+      <div className="client-facing-preview-controls" aria-label="Preview controls">
+        <div className="client-facing-preview-segmented">
+          {(["mobile", "desktop"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={device === mode ? "is-active" : undefined}
+              onClick={() => setDevice(mode)}
+              aria-pressed={device === mode}
+            >
+              {mode === "mobile" ? "Mobile" : "Desktop"}
+            </button>
+          ))}
+        </div>
+        {surface === "chat" ? (
+          <button
+            type="button"
+            className={`client-facing-preview-toggle${
+              showEndScreen ? " is-active" : ""
+            }`}
+            onClick={() => setShowEndScreen((show) => !show)}
+            aria-pressed={showEndScreen}
+          >
+            End screen
+          </button>
+        ) : null}
+      </div>
+      <div
+        className={`client-facing-preview-device is-${device}`}
+        inert
+        aria-hidden
+      >
         {surface === "page" ? (
           <PreChatPage slug={slug} preview previewSpace={space} />
         ) : (
@@ -61,6 +90,7 @@ export function ClientFacingPreview({
             slug={slug}
             chatId={PREVIEW_CHAT_ID}
             preview
+            previewEnded={showEndScreen}
             previewSpace={space}
           />
         )}

@@ -37,7 +37,7 @@ export function WorkspaceTopBar({
       <div className="brand-lockup">
         <span className="brand-mark" aria-hidden />
         <div>
-          <p className="brand-name">OTGF</p>
+          <p className="brand-name">OTGF - HelpDesk</p>
           <p className="brand-sub">{businessName}</p>
         </div>
       </div>
