@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getSpace } from "@/lib/store";
 import type {
   Client,
@@ -69,6 +69,10 @@ export function CasesPanel({
   const [notes, setNotes] = useState("");
   const [assignDraft, setAssignDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [lookupQuery, setLookupQuery] = useState("");
+  const [lookupCaseId, setLookupCaseId] = useState("");
+  const [lookupOpen, setLookupOpen] = useState(false);
+  const lookupRef = useRef<HTMLDivElement>(null);
   const [viewingClient, setViewingClient] = useState<Client | null>(null);
   const [threadMessages, setThreadMessages] = useState<Message[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -92,6 +96,27 @@ export function CasesPanel({
     [activeClients],
   );
   const unassignedClients = activeClients.filter((client) => !assignedIds.has(client.id));
+  const lookupMatches = useMemo(() => {
+    const query = lookupQuery.trim().toLowerCase();
+    const sorted = [...cases].sort((a, b) => a.id.localeCompare(b.id));
+    if (!query) return sorted;
+    return sorted.filter(
+      (item) =>
+        item.id.toLowerCase().includes(query) ||
+        item.notes.toLowerCase().includes(query),
+    );
+  }, [cases, lookupQuery]);
+  const lookupCase = cases.find((item) => item.id === lookupCaseId);
+
+  useEffect(() => {
+    function onPointerDown(event: PointerEvent) {
+      if (!lookupRef.current?.contains(event.target as Node)) {
+        setLookupOpen(false);
+      }
+    }
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, []);
 
   function createCase() {
     const id = caseId.trim().slice(0, 48).toUpperCase();
@@ -114,6 +139,12 @@ export function CasesPanel({
     setCaseId(newCaseId());
     setNotes("");
     setError(null);
+  }
+
+  function chooseLookupCase(id: string) {
+    setLookupCaseId(id);
+    setLookupQuery(id);
+    setLookupOpen(false);
   }
 
   async function viewConversation(client: Client) {
@@ -169,26 +200,27 @@ export function CasesPanel({
         </div>
       </header>
 
-      <section className="cases-summary" aria-label="Case summary">
-        <div>
-          <span>Total</span>
-          <strong>{caseCounts.total}</strong>
-        </div>
-        <div>
-          <span>Open</span>
-          <strong>{caseCounts.open}</strong>
-        </div>
-        <div>
-          <span>In progress</span>
-          <strong>{caseCounts.inProgress}</strong>
-        </div>
-        <div>
-          <span>Resolved</span>
-          <strong>{caseCounts.resolved}</strong>
-        </div>
-      </section>
+      <div className="cases-layout">
+        <section className="cases-summary" aria-label="Case summary">
+          <div className="dashboard-stat is-open-chats">
+            <span className="dashboard-stat-label">Total</span>
+            <strong>{caseCounts.total}</strong>
+          </div>
+          <div className="dashboard-stat is-unread">
+            <span className="dashboard-stat-label">Open</span>
+            <strong>{caseCounts.open}</strong>
+          </div>
+          <div className="dashboard-stat is-customers-online">
+            <span className="dashboard-stat-label">In progress</span>
+            <strong>{caseCounts.inProgress}</strong>
+          </div>
+          <div className="dashboard-stat is-status">
+            <span className="dashboard-stat-label">Resolved</span>
+            <strong>{caseCounts.resolved}</strong>
+          </div>
+        </section>
 
-      <section className="dashboard-card cases-create">
+        <section className="dashboard-card cases-create">
         <header className="dashboard-card-head cases-create-head">
           <div>
             <h2>Create case</h2>
@@ -220,6 +252,78 @@ export function CasesPanel({
         {error ? <p className="settings-error">{error}</p> : null}
       </section>
 
+      <div className="cases-main">
+      <section className="dashboard-card cases-lookup">
+        <header className="dashboard-card-head">
+          <h2>Find a case</h2>
+          <p>Search or pick a case to read its notes.</p>
+        </header>
+        <div className="cases-lookup-body">
+          <div className="cases-lookup-search" ref={lookupRef}>
+            <label className="floor-settings-note">
+              <span>Search cases</span>
+              <input
+                value={lookupQuery}
+                onChange={(event) => {
+                  setLookupQuery(event.target.value);
+                  setLookupOpen(true);
+                }}
+                onFocus={() => setLookupOpen(true)}
+                placeholder={
+                  cases.length === 0 ? "No cases yet" : "Search or pick a case…"
+                }
+                disabled={cases.length === 0}
+                aria-expanded={lookupOpen}
+                aria-controls="cases-lookup-results"
+                autoComplete="off"
+              />
+            </label>
+            {lookupOpen && cases.length > 0 ? (
+              <ul
+                className="cases-lookup-results"
+                id="cases-lookup-results"
+                role="listbox"
+              >
+                {lookupMatches.length === 0 ? (
+                  <li className="is-empty">No matching cases</li>
+                ) : (
+                  lookupMatches.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={item.id === lookupCaseId}
+                        className={item.id === lookupCaseId ? "is-selected" : ""}
+                        onClick={() => chooseLookupCase(item.id)}
+                      >
+                        <strong>{item.id}</strong>
+                        <span>{statusLabel(item.status)}</span>
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            ) : null}
+          </div>
+          {lookupCase ? (
+            <div className="cases-lookup-notes">
+              <p className="cases-lookup-notes-kicker">
+                {lookupCase.id} · {statusLabel(lookupCase.status)}
+              </p>
+              <p className="cases-lookup-notes-body">
+                {lookupCase.notes.trim() || "No notes on this case."}
+              </p>
+            </div>
+          ) : (
+            <div className="cases-lookup-notes is-empty">
+              <p className="dashboard-empty">
+                Select a case to read its notes.
+              </p>
+            </div>
+          )}
+        </div>
+      </section>
+
       {cases.length === 0 ? (
         <p className="dashboard-empty">No cases yet.</p>
       ) : (
@@ -243,12 +347,14 @@ export function CasesPanel({
                   </div>
                   <div className="case-card-meta">
                     <p>
-                      {assigned.length} assigned chat
-                      {assigned.length === 1 ? "" : "s"}
+                      {assigned.length === 1
+                        ? "1 assigned chat"
+                        : `${assigned.length} assigned chats`}
                     </p>
                     <p>
-                      {customerCase.identifiers.length} linked identifier
-                      {customerCase.identifiers.length === 1 ? "" : "s"}
+                      {customerCase.identifiers.length === 1
+                        ? "1 linked identifier"
+                        : `${customerCase.identifiers.length} linked identifiers`}
                     </p>
                   </div>
                 </header>
@@ -476,6 +582,8 @@ export function CasesPanel({
           })}
         </div>
       )}
+        </div>
+      </div>
 
       {viewingClient ? (
         <div

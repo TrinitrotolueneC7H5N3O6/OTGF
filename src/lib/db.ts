@@ -58,10 +58,23 @@ function urlFor(target: DbTarget) {
   return url;
 }
 
+/** True when this process still holds a Prisma client from before `prisma generate`. */
+function hasCurrentDelegates(client: PrismaClient) {
+  return (
+    "offering" in client &&
+    "knowledgeNote" in client &&
+    "customerCase" in client
+  );
+}
+
 function clientFor(target: DbTarget) {
   const cache = (globalForPrisma.prismaByTarget ??= {});
   const existing = cache[target];
-  if (existing) return existing;
+  if (existing && hasCurrentDelegates(existing)) return existing;
+  if (existing) {
+    void existing.$disconnect().catch(() => {});
+    delete cache[target];
+  }
   const client = new PrismaClient({
     datasources: { db: { url: urlFor(target) } },
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],

@@ -123,6 +123,7 @@ export function defaultFloorSettings(): FloorSettings {
     notifyEmails: [],
     assistBehavior: "",
     autoAnswer: false,
+    autoAnswerMessage: "",
     shortcuts: [],
     departmentMessages: Array.from({ length: 20 }, () => ""),
     departments: Array.from({ length: 20 }, () => ({ message: "", attachments: [] })),
@@ -632,6 +633,10 @@ export function normalizeFloorSettings(
         ? settings.assistBehavior.trim().slice(0, 4000)
         : "",
     autoAnswer: Boolean(settings.autoAnswer),
+    autoAnswerMessage:
+      typeof settings.autoAnswerMessage === "string"
+        ? settings.autoAnswerMessage.slice(0, 2000)
+        : "",
     shortcuts: normalizeShortcuts(settings.shortcuts),
     chatEndImages: normalizeChatEndImages(settings.chatEndImages),
     departmentMessages: normalizeDepartmentMessages(settings.departmentMessages),

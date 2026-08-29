@@ -31,6 +31,7 @@ import { WorkspaceTopBar } from "./WorkspaceTopBar";
 import {
   ACCOUNT_SETTINGS_TABS,
   FloorSettingsPanel,
+  TeamMembersEditor,
   visibleAccountSettingsTabs,
   type SettingsTab,
 } from "./FloorSettingsPanel";
@@ -70,7 +71,7 @@ type DashNav =
   | "cases"
   | "ai";
 
-type DashGroupId = "business" | "account";
+type DashGroupId = "setup" | "business";
 
 type DashNavEntry =
   | { kind: "pref"; id: PrefSection; label: string }
@@ -84,7 +85,7 @@ type DashNavEntry =
 interface DashNavNested {
   id: string;
   label: string;
-  items: DashNavEntry[];
+  items: DashNavNode[];
 }
 
 type DashNavNode = DashNavEntry | DashNavNested;
@@ -95,40 +96,31 @@ const DASH_NAV_GROUPS: {
   items: DashNavNode[];
 }[] = [
   {
-    id: "business",
-    label: "Business settings",
+    id: "setup",
+    label: "Setup Station",
     items: [
-      { kind: "account", id: "setup", label: "Setup" },
+      { kind: "client", id: "page", label: "Public Page" },
+      { kind: "site", id: "contact", label: "Contact Page" },
+      { kind: "client", id: "chat", label: "Live Chat" },
+      { kind: "ai", label: "AI" },
+    ],
+  },
+  {
+    id: "business",
+    label: "Settings",
+    items: [
       { kind: "offerings", label: "What you offer" },
-      { kind: "account", id: "team", label: "Team" },
-      { kind: "ai", label: "AI setup" },
       {
-        id: "client-experience",
-        label: "What clients see",
+        id: "account-pages",
+        label: "Account",
         items: [
-          { kind: "client", id: "page", label: "Public page" },
-          { kind: "client", id: "chat", label: "Live chat" },
-        ],
-      },
-      {
-        id: "site-install",
-        label: "On your website",
-        items: [
-          { kind: "site", id: "contact", label: "Contact page" },
-          { kind: "site", id: "bubble", label: "Chat bubble" },
+          { kind: "account", id: "billing", label: "Billing" },
+          { kind: "account", id: "notify", label: "Email alerts" },
+          { kind: "account", id: "account", label: "Your account" },
         ],
       },
       { kind: "pref", id: "sounds", label: "Sounds" },
       { kind: "account", id: "shortcuts", label: "Shortcuts" },
-    ],
-  },
-  {
-    id: "account",
-    label: "Account settings",
-    items: [
-      { kind: "account", id: "billing", label: "Billing" },
-      { kind: "account", id: "notify", label: "Email alerts" },
-      { kind: "account", id: "account", label: "Your account" },
     ],
   },
 ];
@@ -153,6 +145,7 @@ const LEGACY_NAV: Record<string, DashNav> = {
   "account:brand": "client:page",
   "account:hours": "client:page",
   "account:shoutouts": "client:chat",
+  "site:bubble": "client:chat",
 };
 
 function isNavNested(node: DashNavNode): node is DashNavNested {
@@ -196,13 +189,15 @@ function visibleNavNodes(
     if (!isNavNested(node)) {
       return isDashItemVisible(settings, node) ? [node] : [];
     }
-    const items = node.items.filter((item) => isDashItemVisible(settings, item));
+    const items = visibleNavNodes(settings, node.items);
     return items.length > 0 ? [{ ...node, items }] : [];
   });
 }
 
 function flattenNavEntries(nodes: DashNavNode[]): DashNavEntry[] {
-  return nodes.flatMap((node) => (isNavNested(node) ? node.items : [node]));
+  return nodes.flatMap((node) =>
+    isNavNested(node) ? flattenNavEntries(node.items) : [node],
+  );
 }
 
 function groupIdForNav(nav: DashNav): DashGroupId | null {
@@ -215,19 +210,26 @@ function groupIdForNav(nav: DashNav): DashGroupId | null {
   return null;
 }
 
-function nestedIdForNav(nav: DashNav): string | null {
-  if (nav === "home") return null;
-  for (const group of DASH_NAV_GROUPS) {
-    for (const node of group.items) {
-      if (
-        isNavNested(node) &&
-        node.items.some((item) => dashNavId(item) === nav)
-      ) {
-        return node.id;
+function nestedIdsForNav(nav: DashNav): string[] {
+  if (nav === "home") return [];
+  const ids: string[] = [];
+  function walk(nodes: DashNavNode[], ancestors: string[]): boolean {
+    for (const node of nodes) {
+      if (!isNavNested(node)) {
+        if (dashNavId(node) === nav) {
+          ids.push(...ancestors);
+          return true;
+        }
+        continue;
       }
+      if (walk(node.items, [...ancestors, node.id])) return true;
     }
+    return false;
   }
-  return null;
+  for (const group of DASH_NAV_GROUPS) {
+    if (walk(group.items, [])) return ids;
+  }
+  return ids;
 }
 
 function guestActiveClients(clients: Client[]) {
@@ -256,10 +258,9 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [nav, setNav] = useState<DashNav>("home");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    setup: true,
     business: true,
-    account: true,
-    "client-experience": true,
-    "site-install": true,
+    "account-pages": true,
   });
   const opsInFlight = useRef(0);
   const offeringsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -281,12 +282,12 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     const next: DashNav = SETTINGS_QUERY_TO_NAV[tab] ?? `account:${tab}`;
     const section = SETTINGS_QUERY_TO_SECTION[tab];
     const group = groupIdForNav(next);
-    const nested = nestedIdForNav(next);
-    if (group || nested) {
+    const nestedIds = nestedIdsForNav(next);
+    if (group || nestedIds.length > 0) {
       setOpenGroups((current) => ({
         ...current,
         ...(group ? { [group]: true } : {}),
-        ...(nested ? { [nested]: true } : {}),
+        ...Object.fromEntries(nestedIds.map((id) => [id, true])),
       }));
     }
     setNav(next);
@@ -539,7 +540,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     runOp({ type: "setAutoAnswerDraft", clientId, draft: null });
     setPopupClientId((current) =>
       current === clientId
-        ? nextReadyPopupId(clients, clientId, draftId
+        ? nextReadyPopupId(space?.clients ?? [], clientId, draftId
             ? new Set([...laterDraftIds, draftId])
             : laterDraftIds)
         : current,
@@ -548,7 +549,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
 
   function laterAutoAnswer(clientId: string, draftId: string) {
     setLaterDraftIds((current) => new Set(current).add(draftId));
-    setPopupClientId(nextReadyPopupId(clients, clientId, new Set([...laterDraftIds, draftId])));
+    setPopupClientId(nextReadyPopupId(space?.clients ?? [], clientId, new Set([...laterDraftIds, draftId])));
   }
 
   function retryAutoAnswer(clientId: string) {
@@ -591,7 +592,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         : current,
     );
     setSendingDraftId(client.id);
-    setPopupClientId(nextReadyPopupId(clients, client.id));
+    setPopupClientId(nextReadyPopupId(space?.clients ?? [], client.id));
     void appendMessage(slug, {
       message,
       client: nextClient,
@@ -626,6 +627,9 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     if (!space) return;
     const remapped = LEGACY_NAV[nav];
     if (remapped) {
+      if (nav === "site:bubble" && !window.location.hash) {
+        window.history.replaceState(null, "", "#cf-bubble");
+      }
       setNav(remapped);
       return;
     }
@@ -654,18 +658,6 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   const unreadTotal = clients.reduce((sum, c) => sum + (c.unread || 0), 0);
   const presentNow = clients.filter((c) => isClientLive(c)).length;
 
-  const byOwner = useMemo(() => {
-    const rows = members.map((m) => {
-      const owned = openChats.filter((c) => c.ownerMemberId === m.id);
-      const unread = owned.reduce((sum, c) => sum + (c.unread || 0), 0);
-      return { member: m, chats: owned.length, unread };
-    });
-    const unassigned = openChats.filter(
-      (c) => !c.ownerMemberId || !members.some((m) => m.id === c.ownerMemberId),
-    );
-    return { rows, unassigned: unassigned.length };
-  }, [members, openChats]);
-
   const recent = useMemo(() => {
     return [...clients]
       .sort(
@@ -677,21 +669,22 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
 
   const autoAnswerQueue = useMemo(
     () =>
-      clients.filter(
+      (space?.clients ?? []).filter(
         (c) => Boolean(c.autoAnswerDraft) && !c.chatEndedAt,
       ),
-    [clients],
+    [space?.clients],
   );
 
   useEffect(() => {
+    const draftClients = space?.clients ?? [];
     if (popupClientId) {
-      const open = clients.find((c) => c.id === popupClientId);
+      const open = draftClients.find((c) => c.id === popupClientId);
       if (!open?.autoAnswerDraft || open.chatEndedAt) {
-        setPopupClientId(nextReadyPopupId(clients, popupClientId));
+        setPopupClientId(nextReadyPopupId(draftClients, popupClientId));
       }
       return;
     }
-    const next = clients.find((c) => {
+    const next = draftClients.find((c) => {
       const draft = c.autoAnswerDraft;
       return (
         draft?.status === "ready" &&
@@ -700,7 +693,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
       );
     });
     if (next) setPopupClientId(next.id);
-  }, [clients, popupClientId, laterDraftIds]);
+  }, [space?.clients, popupClientId, laterDraftIds]);
 
   if (!space) {
     return <div className="client-chat-loading">Loading dashboard…</div>;
@@ -723,7 +716,6 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
 
   const brandIncomplete =
     !space.settings.brandBannerUrl || !space.settings.logoUrl;
-  const teamIncomplete = !members.some((m) => m.name.trim());
 
   const publicPageOn = isSolutionEnabled(space.settings, "preChat");
 
@@ -735,8 +727,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         (item.id === "chat" && !publicPageOn));
     return (
       brandAlert ||
-      (item.kind === "account" && item.id === "brand" && brandIncomplete) ||
-      (item.kind === "account" && item.id === "team" && teamIncomplete)
+      (item.kind === "account" && item.id === "brand" && brandIncomplete)
     );
   }
 
@@ -757,6 +748,46 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
           </span>
         ) : null}
       </button>
+    );
+  }
+
+  function renderNavNode(node: DashNavNode, nested = false) {
+    if (!isNavNested(node)) return renderNavLeaf(node, nested);
+    const nestedOpen = openGroups[node.id] !== false;
+    const nestedIncomplete = flattenNavEntries(node.items).some(leafIncomplete);
+    const children = nestedOpen
+      ? node.items.map((item) => renderNavNode(item, true))
+      : null;
+    return (
+      <div key={node.id}>
+        <button
+          type="button"
+          className={`dashboard-nav-group-toggle is-child${nested ? " is-nested-child" : ""}`}
+          aria-expanded={nestedOpen}
+          onClick={() =>
+            setOpenGroups((current) => ({
+              ...current,
+              [node.id]: !nestedOpen,
+            }))
+          }
+        >
+          <span className="dashboard-nav-group-label">
+            {node.label}
+            {nestedIncomplete ? (
+              <span className="settings-tab-alert" aria-hidden>
+                !
+              </span>
+            ) : null}
+          </span>
+          <IconChevronDown
+            size={16}
+            className={nestedOpen ? "is-open" : undefined}
+          />
+        </button>
+        {nestedOpen ? (
+          <div className="dashboard-nav-nested">{children}</div>
+        ) : null}
+      </div>
     );
   }
 
@@ -841,47 +872,26 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         <section className="dashboard-card is-team-load">
           <header className="dashboard-card-head">
             <h2>Team Load</h2>
-            <p>Open chats by employee</p>
+            <p>Add people who can own chats</p>
           </header>
-          {members.length === 0 ? (
-            <div className="dashboard-team-inner">
-              <p className="dashboard-empty">
-                Add team members under Business settings → Team.
+          <div className="dashboard-team-stack">
+            <div className="dashboard-team-inner dashboard-team-employees">
+              <p className="dashboard-team-help">
+                Add employees so chats can be assigned to someone. If
+                there&apos;s only one person, they own every chat by default.
               </p>
+              <TeamMembersEditor
+                members={members}
+                onChangeMembers={updateMembers}
+                searchable
+              />
             </div>
-          ) : (
-            <div className="dashboard-team-inner">
-              <ul className="dashboard-team-list">
-                {byOwner.rows.map(({ member, chats, unread }) => (
-                  <li key={member.id}>
-                    <div>
-                      <strong>{member.name || "Unnamed"}</strong>
-                      <span>
-                        {chats} open
-                        {unread ? ` · ${unread} unread` : ""}
-                      </span>
-                    </div>
-                    <span className="dashboard-load-bar" aria-hidden>
-                      <span style={{ width: `${Math.min(100, chats * 18)}%` }} />
-                    </span>
-                  </li>
-                ))}
-                {byOwner.unassigned > 0 ? (
-                  <li className="is-muted">
-                    <div>
-                      <strong>Unassigned</strong>
-                      <span>{byOwner.unassigned} open</span>
-                    </div>
-                  </li>
-                ) : null}
-              </ul>
-            </div>
-          )}
+          </div>
         </section>
       </div>
 
       <div className="dashboard-more">
-        <section className="dashboard-card">
+        <section className="dashboard-card is-auto-answer">
           <header className="dashboard-card-head">
             <h2>AI auto-answer</h2>
             <p>
@@ -893,6 +903,49 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
             on={Boolean(space.settings.autoAnswer)}
             onToggle={toggleAutoAnswer}
           />
+          <div className="dashboard-team-inner dashboard-auto-answer-inner">
+            <p className="dashboard-auto-answer-waiting-label">
+              Waiting on an AI draft
+            </p>
+            {autoAnswerQueue.length === 0 ? (
+              <p className="dashboard-empty">
+                {space.settings.autoAnswer
+                  ? "No drafts right now. New customer messages will show up here."
+                  : "Turn on AI Auto-Answer to draft replies for incoming chats."}
+              </p>
+            ) : (
+              <ul className="auto-answer-list">
+                {autoAnswerQueue.map((client) => {
+                  const draft = client.autoAnswerDraft;
+                  if (!draft) return null;
+                  return (
+                    <li key={client.id}>
+                      <button
+                        type="button"
+                        className="auto-answer-list-open"
+                        onClick={() => setPopupClientId(client.id)}
+                      >
+                        <div className="auto-answer-list-main">
+                          <strong>{client.name}</strong>
+                          <span>{autoAnswerListLabel(draft)}</span>
+                        </div>
+                        <div className="dashboard-recent-meta">
+                          <span>
+                            {draft.status === "working"
+                              ? "Writing"
+                              : draft.status === "failed"
+                                ? "Needs retry"
+                                : "Review"}
+                          </span>
+                          <span>This chat only</span>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </section>
 
         <section className="dashboard-card dashboard-share-card">
@@ -909,51 +962,6 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
             />
           ) : (
             <p className="dashboard-empty">Preparing your link…</p>
-          )}
-        </section>
-
-        <section className="dashboard-card is-auto-answer">
-          <header className="dashboard-card-head">
-            <h2>Waiting on an AI draft</h2>
-            <p>Chats the AI is writing for, or that need your OK</p>
-          </header>
-          {autoAnswerQueue.length === 0 ? (
-            <p className="dashboard-empty">
-              {space.settings.autoAnswer
-                ? "No drafts right now. New customer messages will show up here."
-                : "Turn on AI auto-answer to draft replies for incoming chats."}
-            </p>
-          ) : (
-            <ul className="auto-answer-list">
-              {autoAnswerQueue.map((client) => {
-                const draft = client.autoAnswerDraft;
-                if (!draft) return null;
-                return (
-                  <li key={client.id}>
-                    <button
-                      type="button"
-                      className="auto-answer-list-open"
-                      onClick={() => setPopupClientId(client.id)}
-                    >
-                      <div className="auto-answer-list-main">
-                        <strong>{client.name}</strong>
-                        <span>{autoAnswerListLabel(draft)}</span>
-                      </div>
-                      <div className="dashboard-recent-meta">
-                        <span>
-                          {draft.status === "working"
-                            ? "Writing"
-                            : draft.status === "failed"
-                              ? "Needs retry"
-                              : "Review"}
-                        </span>
-                        <span>This chat only</span>
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
           )}
         </section>
       </div>
@@ -1005,11 +1013,11 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         onToggleAutoAnswer={toggleAutoAnswer}
       />
     );
-  } else if (nav === "site:contact" || nav === "site:bubble") {
+  } else if (nav === "site:contact") {
     main = (
       <WebsiteInstallPanel
         slug={slug}
-        kind={nav === "site:contact" ? "contact" : "bubble"}
+        kind="contact"
         publicPageOn={isSolutionEnabled(space.settings, "preChat")}
       />
     );
@@ -1042,7 +1050,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   }
 
   const popupClient = popupClientId
-    ? clients.find((c) => c.id === popupClientId)
+    ? space.clients.find((c) => c.id === popupClientId)
     : undefined;
   const popupDraft = popupClient?.autoAnswerDraft;
   const readyDrafts = autoAnswerQueue.filter(
@@ -1115,50 +1123,9 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
                 </button>
                 {open ? (
                   <div className="dashboard-nav-children">
-                    {items.map((node) => {
-                      if (!isNavNested(node)) return renderNavLeaf(node);
-                      const nestedOpen = openGroups[node.id] !== false;
-                      const nestedIncomplete = node.items.some(leafIncomplete);
-                      return (
-                        <div
-                          key={node.id}
-                          className="dashboard-nav-nested"
-                        >
-                          <button
-                            type="button"
-                            className="dashboard-nav-group-toggle is-nested"
-                            aria-expanded={nestedOpen}
-                            onClick={() =>
-                              setOpenGroups((current) => ({
-                                ...current,
-                                [node.id]: !nestedOpen,
-                              }))
-                            }
-                          >
-                            <span className="dashboard-nav-group-label">
-                              {node.label}
-                              {nestedIncomplete ? (
-                                <span
-                                  className="settings-tab-alert"
-                                  aria-hidden
-                                >
-                                  !
-                                </span>
-                              ) : null}
-                            </span>
-                            <IconChevronDown
-                              size={16}
-                              className={nestedOpen ? "is-open" : undefined}
-                            />
-                          </button>
-                          {nestedOpen
-                            ? node.items.map((item) =>
-                                renderNavLeaf(item, true),
-                              )
-                            : null}
-                        </div>
-                      );
-                    })}
+                    <div className="dashboard-nav-nested">
+                      {items.map((node) => renderNavNode(node, true))}
+                    </div>
                   </div>
                 ) : null}
               </div>

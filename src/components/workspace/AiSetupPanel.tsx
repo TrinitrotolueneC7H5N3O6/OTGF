@@ -147,7 +147,7 @@ export function AiSetupPanel({
 
   return (
     <div className="dashboard-panel-body ai-setup">
-      <h2 className="dashboard-panel-title">AI setup</h2>
+      <h2 className="dashboard-panel-title">AI</h2>
       <p className="floor-settings-help">
         Write what your business knows, in everyday words. Turn on auto-answer
         when you want a draft after each customer message — you still approve

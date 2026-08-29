@@ -9,12 +9,14 @@ interface WebsiteInstallPanelProps {
   slug: string;
   kind: WebsiteInstallKind;
   publicPageOn: boolean;
+  embed?: boolean;
 }
 
 export function WebsiteInstallPanel({
   slug,
   kind,
   publicPageOn,
+  embed = false,
 }: WebsiteInstallPanelProps) {
   const [origin, setOrigin] = useState(() =>
     typeof window === "undefined" ? "" : window.location.origin,
@@ -46,17 +48,15 @@ export function WebsiteInstallPanel({
   }
 
   const isContact = kind === "contact";
+  const heading = isContact ? "Contact Page" : "Chat Bubble";
+  const help = isContact
+    ? "Replace the old Contact Us page. Visitors stay on your site: they see your public page first, then live chat."
+    : "A button in the bottom-right corner. It opens live chat — same inbox as your link.";
 
-  return (
-    <div className="dashboard-panel-body">
-      <h2 className="dashboard-panel-title">
-        {isContact ? "Contact page" : "Chat bubble"}
-      </h2>
-      <p className="floor-settings-help">
-        {isContact
-          ? "Replace the old Contact Us page. Visitors stay on your site: they see your public page first, then live chat."
-          : "A button in the bottom-right corner. It opens live chat — same inbox as your link."}
-      </p>
+  const content = (
+    <>
+      {embed ? null : <h2 className="dashboard-panel-title">{heading}</h2>}
+      <p className="floor-settings-help">{help}</p>
 
       {!isContact || publicPageOn ? null : (
         <p className="floor-settings-help">
@@ -107,6 +107,9 @@ export function WebsiteInstallPanel({
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
+
+  if (embed) return content;
+  return <div className="dashboard-panel-body">{content}</div>;
 }

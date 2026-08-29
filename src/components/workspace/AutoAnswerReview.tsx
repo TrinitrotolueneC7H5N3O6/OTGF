@@ -20,7 +20,7 @@ export function AutoAnswerToggle({ on, onToggle, hint }: AutoAnswerToggleProps) 
         onClick={() => onToggle(!on)}
       >
         <span className="auto-answer-toggle-dot" aria-hidden />
-        {on ? "AI auto-answer on" : "AI auto-answer off"}
+        AI Auto-Answer
       </button>
       {hint ? <p className="auto-answer-toggle-hint">{hint}</p> : null}
     </div>

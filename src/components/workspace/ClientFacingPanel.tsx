@@ -10,6 +10,7 @@ import { PreChatSetupModal } from "./PreChatSetupModal";
 import { UserPreferencesPanel } from "./UserPreferencesPanel";
 import { ClientFacingPreview } from "./ClientFacingPreview";
 import { EndScreenBehaviorPanel } from "./EndScreenBehaviorPanel";
+import { WebsiteInstallPanel } from "./WebsiteInstallPanel";
 
 export type ClientFacingSurface = "page" | "chat";
 
@@ -62,6 +63,7 @@ export function ClientFacingPanel({
       ];
     }
     return [
+      { id: "cf-bubble", label: "Chat Bubble" },
       ...(sharedOnChat ? [{ id: "cf-look", label: "Logo & banner" }] : []),
       ...(sharedOnChat && hoursOn
         ? [{ id: "cf-hours", label: "Hours" }]
@@ -181,7 +183,7 @@ export function ClientFacingPanel({
     <div className="client-facing-layout">
       <div className="client-facing-editor dashboard-panel-body is-client-facing">
       <h2 className="dashboard-panel-title">
-        {surface === "page" ? "Public page" : "Live chat"}
+        {surface === "page" ? "Public Page" : "Live Chat"}
       </h2>
       <p className="floor-settings-help">
         {surface === "page"
@@ -253,6 +255,16 @@ export function ClientFacingPanel({
         </>
       ) : (
         <>
+          <section id="cf-bubble" className="client-facing-section">
+            <h3>Chat Bubble</h3>
+            <WebsiteInstallPanel
+              slug={slug}
+              kind="bubble"
+              publicPageOn={pageOn}
+              embed
+            />
+          </section>
+
           {sharedOnChat ? (
             <section id="cf-look" className="client-facing-section">
               <h3>Logo & banner</h3>

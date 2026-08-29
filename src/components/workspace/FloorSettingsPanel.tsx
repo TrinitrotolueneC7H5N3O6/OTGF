@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   Artifact,
   BannerTone,
@@ -44,7 +44,6 @@ const TONE_OPTIONS: { id: BannerTone; label: string }[] = [
 export type SettingsTab =
   | "setup"
   | "brand"
-  | "team"
   | "hours"
   | "shortcuts"
   | "shoutouts"
@@ -55,7 +54,6 @@ export type SettingsTab =
 export const ACCOUNT_SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "setup", label: "Setup" },
   { id: "brand", label: "Logo & banner" },
-  { id: "team", label: "Team" },
   { id: "hours", label: "Hours" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "shoutouts", label: "Promo banners" },
@@ -96,6 +94,211 @@ function newShortcutId() {
   return `sc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+export function TeamMembersEditor({
+  members,
+  onChangeMembers,
+  searchable = false,
+}: {
+  members: FloorMember[];
+  onChangeMembers: (members: FloorMember[]) => void;
+  searchable?: boolean;
+}) {
+  const [memberDraft, setMemberDraft] = useState("");
+  const [lookupOpen, setLookupOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const lookupRef = useRef<HTMLDivElement>(null);
+
+  const matches = useMemo(() => {
+    const query = memberDraft.trim().toLowerCase();
+    const sorted = [...members].sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "", undefined, {
+        sensitivity: "base",
+      }),
+    );
+    if (!query) return sorted;
+    return sorted.filter((member) =>
+      (member.name || "").toLowerCase().includes(query),
+    );
+  }, [members, memberDraft]);
+
+  useEffect(() => {
+    if (!searchable) return;
+    function onPointerDown(event: PointerEvent) {
+      if (!lookupRef.current?.contains(event.target as Node)) {
+        setLookupOpen(false);
+      }
+    }
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [searchable]);
+
+  useEffect(() => {
+    if (selectedId && !members.some((member) => member.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [members, selectedId]);
+
+  function chooseMember(member: FloorMember) {
+    setSelectedId(member.id);
+    setMemberDraft(member.name ?? "");
+    setLookupOpen(false);
+  }
+
+  function addMember() {
+    const name = memberDraft.trim();
+    if (!name) return;
+    const existing = members.find(
+      (member) => member.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    if (existing) {
+      chooseMember(existing);
+      return;
+    }
+    const member: FloorMember = {
+      id: `mem-${Date.now().toString(36)}`,
+      name,
+    };
+    onChangeMembers([...members, member]);
+    setSelectedId(member.id);
+    setMemberDraft("");
+    setLookupOpen(false);
+  }
+
+  function updateMemberName(id: string, name: string) {
+    onChangeMembers(
+      members.map((m) => (m.id === id ? { ...m, name } : m)),
+    );
+  }
+
+  function removeMember(id: string) {
+    onChangeMembers(members.filter((m) => m.id !== id));
+    if (selectedId === id) {
+      setSelectedId(null);
+      setMemberDraft("");
+    }
+  }
+
+  const nameInput = (
+    <input
+      value={memberDraft}
+      onChange={(e) => {
+        setMemberDraft(e.target.value);
+        if (searchable) setLookupOpen(true);
+      }}
+      onFocus={() => {
+        if (searchable) setLookupOpen(true);
+      }}
+      placeholder={searchable ? "Search or pick an employee…" : "Name…"}
+      aria-label={searchable ? "Search employees" : "Employee name"}
+      aria-expanded={searchable ? lookupOpen : undefined}
+      aria-controls={searchable ? "employee-lookup-results" : undefined}
+      autoComplete="off"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && searchable) {
+          e.preventDefault();
+          setLookupOpen(false);
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const exact = matches.find(
+            (member) =>
+              member.name.trim().toLowerCase() ===
+              memberDraft.trim().toLowerCase(),
+          );
+          if (exact) chooseMember(exact);
+          else addMember();
+        }
+      }}
+    />
+  );
+
+  if (searchable) {
+    return (
+      <div className="employee-lookup">
+        <div className="employee-lookup-search" ref={lookupRef}>
+          {nameInput}
+          <button type="button" className="btn-solid" onClick={addMember}>
+            Add
+          </button>
+          {lookupOpen ? (
+            <ul
+              className="employee-lookup-results"
+              id="employee-lookup-results"
+              role="listbox"
+            >
+              {members.length === 0 ? (
+                <li className="is-empty">
+                  No employees yet. Type a name and Add.
+                </li>
+              ) : matches.length === 0 ? (
+                <li className="is-empty">
+                  No matching names. Add to create this person.
+                </li>
+              ) : (
+                matches.map((member) => (
+                  <li key={member.id} className="employee-lookup-row">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={member.id === selectedId}
+                      className={member.id === selectedId ? "is-selected" : ""}
+                      onClick={() => chooseMember(member)}
+                    >
+                      <strong>{member.name || "Unnamed"}</strong>
+                    </button>
+                    <button
+                      type="button"
+                      className="floor-banner-remove icon-btn"
+                      onClick={() => removeMember(member.id)}
+                      aria-label={`Remove ${member.name}`}
+                      title="Remove"
+                    >
+                      <IconTrash size={13} />
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <ul className="floor-member-list">
+        {members.map((member) => (
+          <li key={member.id} className="floor-member-item">
+            <input
+              className="floor-member-name"
+              value={member.name ?? ""}
+              onChange={(e) => updateMemberName(member.id, e.target.value)}
+              aria-label="Member name"
+            />
+            <button
+              type="button"
+              className="floor-banner-remove icon-btn"
+              onClick={() => removeMember(member.id)}
+              aria-label={`Remove ${member.name}`}
+              title="Remove"
+            >
+              <IconTrash size={13} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="floor-banner-add">
+        {nameInput}
+        <button type="button" className="btn-solid" onClick={addMember}>
+          Add
+        </button>
+      </div>
+    </>
+  );
+}
+
 export function FloorSettingsPanel({
   settings,
   members,
@@ -115,7 +318,6 @@ export function FloorSettingsPanel({
   const [tabState, setTab] = useState<SettingsTab>(activeTab ?? initialTab);
   const tab = activeTab ?? tabState;
   const [bannerDraft, setBannerDraft] = useState("");
-  const [memberDraft, setMemberDraft] = useState("");
   const [notifyDraft, setNotifyDraft] = useState("");
   const [notifyError, setNotifyError] = useState<string | null>(null);
   const [ownerEmail, setOwnerEmail] = useState<string | null>(
@@ -316,27 +518,6 @@ export function FloorSettingsPanel({
     return "Artifact";
   }
 
-  function addMember() {
-    const name = memberDraft.trim();
-    if (!name) return;
-    const member: FloorMember = {
-      id: `mem-${Date.now().toString(36)}`,
-      name,
-    };
-    onChangeMembers([...members, member]);
-    setMemberDraft("");
-  }
-
-  function updateMemberName(id: string, name: string) {
-    onChangeMembers(
-      members.map((m) => (m.id === id ? { ...m, name } : m)),
-    );
-  }
-
-  function removeMember(id: string) {
-    onChangeMembers(members.filter((m) => m.id !== id));
-  }
-
   function addNotifyEmail() {
     const email = notifyDraft.trim().toLowerCase();
     setNotifyError(null);
@@ -363,7 +544,6 @@ export function FloorSettingsPanel({
   }
 
   const brandIncomplete = !settings.brandBannerUrl || !settings.logoUrl;
-  const teamIncomplete = !members.some((m) => m.name.trim());
   const notifyEmails = settings.notifyEmails ?? [];
 
   async function onBrandImage(
@@ -496,61 +676,6 @@ export function FloorSettingsPanel({
               </div>
 
               {brandError ? <p className="editor-error">{brandError}</p> : null}
-            </section>
-          ) : null}
-
-          {tab === "team" ? (
-            <section
-              className="floor-settings-section"
-              role="tabpanel"
-              id="settings-panel-team"
-              aria-labelledby="settings-tab-team"
-            >
-              <p className="floor-settings-help">
-                Add employees so chats can be assigned to someone. If
-                there&apos;s only one person, they own every chat by default.
-              </p>
-
-              <ul className="floor-member-list">
-                {members.map((member) => (
-                  <li key={member.id} className="floor-member-item">
-                    <input
-                      className="floor-member-name"
-                      value={member.name ?? ""}
-                      onChange={(e) =>
-                        updateMemberName(member.id, e.target.value)
-                      }
-                      aria-label="Member name"
-                    />
-                    <button
-                      type="button"
-                      className="floor-banner-remove icon-btn"
-                      onClick={() => removeMember(member.id)}
-                      aria-label={`Remove ${member.name}`}
-                      title="Remove"
-                    >
-                      <IconTrash size={13} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-
-              <div className="floor-banner-add">
-                <input
-                  value={memberDraft}
-                  onChange={(e) => setMemberDraft(e.target.value)}
-                  placeholder="Name…"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addMember();
-                    }
-                  }}
-                />
-                <button type="button" className="btn-solid" onClick={addMember}>
-                  Add
-                </button>
-              </div>
             </section>
           ) : null}
 
@@ -1117,7 +1242,7 @@ export function FloorSettingsPanel({
         <header className="floor-settings-head">
           <div>
             <h2 id="floor-settings-title">Account Settings</h2>
-            <p>Industry setup, brand, team, hours, and account.</p>
+            <p>Industry setup, brand, hours, and account.</p>
           </div>
           <button
             type="button"
@@ -1132,9 +1257,7 @@ export function FloorSettingsPanel({
 
         <div className="floor-settings-tabs" role="tablist" aria-label="Account Settings">
           {visibleTabs.map((item) => {
-            const incomplete =
-              (item.id === "brand" && brandIncomplete) ||
-              (item.id === "team" && teamIncomplete);
+            const incomplete = item.id === "brand" && brandIncomplete;
             return (
               <button
                 key={item.id}

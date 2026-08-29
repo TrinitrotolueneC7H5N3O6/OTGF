@@ -180,10 +180,14 @@ export function buildAutoAnswerPrompt(input: {
   knowledgeNotes: KnowledgeNote[];
   offerings: Offering[];
   assistBehavior?: string;
+  autoAnswerMessage?: string;
 }): { system: string; user: string } {
   const knowledge = formatKnowledgeForPrompt(input.knowledgeNotes);
   const offerings = formatOfferingsForPrompt(input.offerings);
   const voice = resolveAssistBehavior(input.assistBehavior);
+  const staffMessage = input.autoAnswerMessage?.trim()
+    ? `Staff message for these drafts: ${input.autoAnswerMessage.trim()}`
+    : "No extra staff message for auto-answer.";
   const note = input.clientNote?.trim()
     ? `Staff note about this customer (this chat only): ${input.clientNote.trim()}`
     : "No staff note on this customer.";
@@ -207,6 +211,7 @@ Write like a real person on the floor: warm, concise, 2–4 sentences. No markdo
   const user = `Business: ${input.businessName} (${input.trade || "shop"})
 This customer: ${input.clientName}
 ${note}
+${staffMessage}
 
 ${knowledge ? `${knowledge}\n` : ""}${offerings ? `${offerings}\n` : ""}
 This chat only (CUSTOMER vs STAFF; ← LATEST is what to answer):
@@ -277,6 +282,7 @@ export async function generateAutoAnswerBody(input: {
   knowledgeNotes: KnowledgeNote[];
   offerings: Offering[];
   assistBehavior?: string;
+  autoAnswerMessage?: string;
 }): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) {
@@ -298,6 +304,7 @@ export async function generateAutoAnswerBody(input: {
     knowledgeNotes: input.knowledgeNotes,
     offerings: input.offerings,
     assistBehavior: input.assistBehavior,
+    autoAnswerMessage: input.autoAnswerMessage,
   });
 
   const content = await callOpenRouter(apiKey, [

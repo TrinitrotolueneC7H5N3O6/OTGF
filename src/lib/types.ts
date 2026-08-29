@@ -377,6 +377,8 @@ export interface FloorSettings {
    * Drafts wait for staff to approve or edit — they are never sent on their own.
    */
   autoAnswer?: boolean;
+  /** Optional note the AI should follow when auto-answer is on. */
+  autoAnswerMessage?: string;
   /**
    * Composer shortcut bar — pin common artifacts / phrases for one-tap send.
    * Tool chips (Assist / Artifacts / Receipt) stay fixed in the UI.

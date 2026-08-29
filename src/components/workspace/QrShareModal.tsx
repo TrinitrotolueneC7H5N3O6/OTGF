@@ -61,7 +61,7 @@ export function ShareQrCard({
       ) : null}
       <code className="qr-share-url">{url}</code>
       <div className="widget-snippet-actions">
-        <button type="button" className="btn-solid" onClick={downloadPng}>
+        <button type="button" className="btn-ghost" onClick={downloadPng}>
           Download PNG
         </button>
         <button type="button" className="btn-ghost" onClick={onCopyLink}>

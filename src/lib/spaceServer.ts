@@ -856,6 +856,7 @@ async function runAutoAnswerJob(
       knowledgeNotes,
       offerings,
       assistBehavior: doc.settings.assistBehavior,
+      autoAnswerMessage: doc.settings.autoAnswerMessage,
     });
   } catch (err) {
     error = err instanceof Error ? err.message : "Couldn’t draft a reply.";
