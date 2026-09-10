@@ -16,8 +16,13 @@ export async function POST(
     await dbApplySpaceOp(slug, op);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed";
-    const status = message === "Space not found" ? 404 : 400;
+    const raw = err instanceof Error ? err.message : "Failed";
+    const message =
+      raw.includes("does not exist in the current database") ||
+      raw.includes("TURBOPACK")
+        ? "Could not save that. Try again in a moment."
+        : raw;
+    const status = raw === "Space not found" ? 404 : 400;
     return NextResponse.json({ error: message }, { status });
   }
 }

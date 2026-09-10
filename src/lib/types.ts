@@ -34,6 +34,20 @@ export type SolutionId =
   | "shortcuts"
   | "hours";
 
+export type WorkspaceComponentId =
+  | "referrals"
+  | "affiliates"
+  | "storytelling"
+  | "liveChat"
+  | "schedule"
+  | "forms"
+  | "cases"
+  | "contacts"
+  | "watch"
+  | "chatWidget"
+  | "contactPage"
+  | "quickBuilds";
+
 export type ArtifactKind = "photo" | "video" | "url" | "text" | "collection";
 
 export type PaymentMethodKind =
@@ -279,6 +293,45 @@ export interface CustomerCase {
 
 export type CustomerCaseStatus = "open" | "in_progress" | "resolved";
 
+export type ScheduleRequestStatus = "requested" | "confirmed" | "declined";
+
+export type FormSubmissionStatus = "new" | "read";
+
+/** Appointment request submitted from a scheduler quick build. */
+export interface ScheduleRequest {
+  id: string;
+  chatId: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  date: string;
+  time: string;
+  durationMinutes: number;
+  notes?: string;
+  title?: string;
+  status: ScheduleRequestStatus;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface FormSubmissionField {
+  label: string;
+  value: string;
+}
+
+/** Intake submitted from a public form. */
+export interface FormSubmission {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  title: string;
+  fields: FormSubmissionField[];
+  status: FormSubmissionStatus;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface CustomerCaseIdentifier {
   id: string;
   label: string;
@@ -426,6 +479,8 @@ export interface FloorSettings {
   notifyEmails: string[];
   /** Which transactional emails to send to staff vs customers */
   emailAlerts: EmailAlerts;
+  /** Verified staff phone destination for SMS copies of enabled team alerts. */
+  phoneAlerts?: PhoneAlerts;
   /** Custom instructions for AI Assist tone / behavior */
   assistBehavior?: string;
   /**
@@ -450,6 +505,10 @@ export interface FloorSettings {
   setupIndustry?: SetupIndustry;
   /** Modules turned on for this space (Custom can mix any set) */
   enabledSolutions?: SolutionId[];
+  /** Workspace tools this business wants on (Live Chat, Schedule, widget, …) */
+  enabledWorkspace?: WorkspaceComponentId[];
+  /** How published job stories are shaped and searched. */
+  storyTemplate?: import("./storytelling").StoryTemplate;
 }
 
 export const EMAIL_ALERT_KINDS = [
@@ -467,6 +526,13 @@ export const EMAIL_ALERT_KINDS = [
 export type EmailAlertKind = (typeof EMAIL_ALERT_KINDS)[number];
 
 export type EmailAlerts = Record<EmailAlertKind, boolean>;
+
+export interface PhoneAlerts {
+  enabled: boolean;
+  phoneNumber: string;
+  /** Server-signed proof that Twilio accepted a test message for this number. */
+  verificationToken: string;
+}
 
 export type ChatEndScreenKind =
   | "record_contact"
@@ -503,13 +569,57 @@ export interface DepartmentContent {
   attachments: DepartmentAttachment[];
 }
 
-export type PreChatLinkKind = "chat" | "call" | "url" | "email";
+export type PreChatLinkKind = "chat" | "call" | "sms" | "url" | "email";
+
+export type QuickBuildFieldType = "text" | "email" | "tel" | "textarea";
+
+export interface QuickBuildField {
+  id: string;
+  label: string;
+  type: QuickBuildFieldType;
+  required: boolean;
+}
+
+export type QuickBuildConfig =
+  | {
+      type: "form";
+      title: string;
+      description: string;
+      fields: QuickBuildField[];
+      shareEmbed?: boolean;
+      sharePage?: boolean;
+    }
+  | {
+      type: "scheduler";
+      title: string;
+      description: string;
+      durationMinutes: number;
+      startTime: string;
+      endTime: string;
+      daysAhead: number;
+      sharePage?: boolean;
+      shareEmbed?: boolean;
+      weekdays?: number[];
+      minimumNoticeHours?: number;
+      timeZone?: string;
+      location?: string;
+      requirePhone?: boolean;
+    }
+  | {
+      type: "sms" | "email";
+      title: string;
+      description: string;
+    };
 
 export interface PreChatLink {
   id: string;
   kind: PreChatLinkKind;
   label: string;
   enabled: boolean;
+  /** Show this action in the compact embedded widget toolbar. */
+  showInWidget?: boolean;
+  /** On-site form or scheduler configuration created from Customer actions. */
+  quickBuild?: QuickBuildConfig;
   /** Phone, URL, or email depending on kind */
   href?: string;
 }
@@ -559,6 +669,10 @@ export interface BusinessSpace {
   knowledgeNotes: KnowledgeNote[];
   /** Customer cases with notes and assigned chats. */
   cases: CustomerCase[];
+  /** Appointment requests from the public scheduler. */
+  scheduleRequests: ScheduleRequest[];
+  /** Form submissions from public forms. */
+  formSubmissions: FormSubmission[];
   /** Durable contact records captured from chats, independent from chat deletion. */
   collectedContacts?: CollectedContact[];
   /** Clients removed on the floor — kept so merges don't resurrect them */

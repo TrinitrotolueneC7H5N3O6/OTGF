@@ -4,10 +4,15 @@ import { useEffect, useState } from "react";
 import type { FloorSettings, PreChatLink, PreChatLinkKind } from "@/lib/types";
 import { DEFAULT_CALL_PHONE, defaultPreChat } from "@/lib/spaceNormalize";
 import { IconTrash, IconX } from "@/components/shared/Icons";
+import {
+  isPublicActionEnabled,
+  isPublicLinkEnabled,
+} from "@/lib/toolPublic";
 
 const KIND_OPTIONS: { id: PreChatLinkKind; label: string }[] = [
   { id: "chat", label: "Live Chat" },
   { id: "call", label: "Call Us" },
+  { id: "sms", label: "Text Us" },
   { id: "url", label: "Link" },
   { id: "email", label: "Email" },
 ];
@@ -17,6 +22,7 @@ interface PreChatSetupModalProps {
   onChangeSettings: (settings: FloorSettings) => void;
   onClose?: () => void;
   variant?: "modal" | "page";
+  hideButtons?: boolean;
 }
 
 export function PreChatSetupModal({
@@ -24,8 +30,13 @@ export function PreChatSetupModal({
   onChangeSettings,
   onClose,
   variant = "modal",
+  hideButtons = false,
 }: PreChatSetupModalProps) {
   const page = settings.preChat ?? defaultPreChat();
+  const kindOptions = KIND_OPTIONS.filter(
+    (option) =>
+      option.id !== "chat" || isPublicActionEnabled(settings, "chat"),
+  );
   const [headline, setHeadline] = useState(page.headline);
   const [bio, setBio] = useState(page.bio);
   const [links, setLinks] = useState<PreChatLink[]>(page.links);
@@ -111,6 +122,7 @@ export function PreChatSetupModal({
         />
       </label>
 
+      {hideButtons ? null : (
       <label className="floor-settings-note">
         <span>Phone number</span>
         <input
@@ -140,7 +152,9 @@ export function PreChatSetupModal({
           autoComplete="tel"
         />
       </label>
+      )}
 
+      {hideButtons ? null : (
       <div className="pre-chat-editor-links">
         <div className="pre-chat-editor-links-head">
           <h3>Buttons</h3>
@@ -148,7 +162,11 @@ export function PreChatSetupModal({
             Add button
           </button>
         </div>
-        {links.map((link, index) => (
+        {links
+          .filter((link) => isPublicLinkEnabled(settings, link))
+          .map((link) => {
+            const index = links.indexOf(link);
+            return (
           <div key={link.id} className="pre-chat-editor-row">
             <label className="pre-chat-editor-enabled">
               <input
@@ -174,7 +192,7 @@ export function PreChatSetupModal({
                 })
               }
             >
-              {KIND_OPTIONS.map((option) => (
+              {kindOptions.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.label}
                 </option>
@@ -189,7 +207,11 @@ export function PreChatSetupModal({
                 value={link.href ?? ""}
                 onChange={(e) => patchLink(link.id, { href: e.target.value })}
                 placeholder={
-                  link.kind === "email" ? "hello@email.com" : "https://"
+                  link.kind === "email"
+                    ? "hello@email.com"
+                    : link.kind === "sms"
+                      ? "+1 877 780 4236"
+                      : "https://"
                 }
               />
             )}
@@ -226,13 +248,17 @@ export function PreChatSetupModal({
               </button>
             </div>
           </div>
-        ))}
+            );
+          })}
       </div>
+      )}
+      {hideButtons ? null : (
       <p className="floor-settings-help">
-        Call Us stays hidden on the public page until you add a phone number.
-        Email and link buttons also need a value. Logo and banner are set in
+        Call Us stays hidden on the micro-landing page until you add a phone number.
+        Text, email, and link buttons also need a value. Logo and banner are set in
         Logo & banner above.
       </p>
+      )}
     </div>
   );
 
@@ -249,7 +275,7 @@ export function PreChatSetupModal({
       >
         <header className="floor-settings-head">
           <div>
-            <h2 id="pre-chat-title">Edit public page</h2>
+            <h2 id="pre-chat-title">Edit micro-landing page</h2>
             <p>
               This is the page people hit from your link — before they start a
               live chat.

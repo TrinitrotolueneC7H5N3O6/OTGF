@@ -36,6 +36,7 @@ import { MessageReplyQuote } from "@/components/shared/MessageReplyQuote";
 import { MessageReactions } from "@/components/shared/MessageReactions";
 import { MessageActionBar } from "@/components/shared/MessageActionBar";
 import { MessageBodyText } from "@/components/shared/MessageBodyText";
+import { LinkSheetProvider } from "@/components/shared/LinkSheet";
 import { ComposerTextarea } from "@/components/shared/ComposerTextarea";
 import { ScrollToBottomButton } from "@/components/shared/ScrollToBottomButton";
 import { ChatSystemLine } from "@/components/shared/ChatSystemLine";
@@ -234,6 +235,7 @@ export function ForwardChat({ slug, chatId, participant }: ForwardChatProps) {
   }
 
   return (
+    <LinkSheetProvider>
     <div className="client-chat">
       <header className="client-chat-head">
         <div className="client-chat-head-main">
@@ -424,5 +426,6 @@ export function ForwardChat({ slug, chatId, participant }: ForwardChatProps) {
         )}
       </div>
     </div>
+    </LinkSheetProvider>
   );
 }

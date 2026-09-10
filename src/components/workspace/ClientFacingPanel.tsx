@@ -3,17 +3,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Artifact, BusinessSpace, FloorMember, FloorSettings } from "@/lib/types";
-import { IconEye } from "@/components/shared/Icons";
+import {
+  IconCheck,
+  IconCode,
+  IconEye,
+} from "@/components/shared/Icons";
 import { isSolutionEnabled } from "@/lib/setupSolutions";
 import { FloorSettingsPanel } from "./FloorSettingsPanel";
 import { PreChatSetupModal } from "./PreChatSetupModal";
 import { UserPreferencesPanel } from "./UserPreferencesPanel";
 import { ClientFacingPreview } from "./ClientFacingPreview";
 import { EndScreenBehaviorPanel } from "./EndScreenBehaviorPanel";
-import { WebsiteInstallPanel } from "./WebsiteInstallPanel";
 import { StaffOutIntakePanel } from "./StaffOutIntakePanel";
+import { SettingsEditorHeader } from "./SettingsEditorHeader";
+import { SurfaceActionToggles } from "./SurfaceActionToggles";
 
-export type ClientFacingSurface = "page" | "chat";
+export type ClientFacingSurface = "page" | "chat" | "widget";
 
 interface ClientFacingPanelProps {
   slug: string;
@@ -24,6 +29,7 @@ interface ClientFacingPanelProps {
   artifacts: Artifact[];
   onChangeSettings: (settings: FloorSettings) => void;
   onChangeMembers: (members: FloorMember[]) => void;
+  hideTitle?: boolean;
 }
 
 interface TocItem {
@@ -41,34 +47,33 @@ export function ClientFacingPanel({
   onChangeSettings,
   onChangeMembers,
 }: ClientFacingPanelProps) {
-  const pageOn = isSolutionEnabled(settings, "preChat");
   const hoursOn = isSolutionEnabled(settings, "hours");
   const introOn = isSolutionEnabled(settings, "intro");
   const shoutoutsOn = isSolutionEnabled(settings, "shoutouts");
   const photosOn = isSolutionEnabled(settings, "chatInterface");
-  const sharedOnChat = !pageOn;
   const [active, setActive] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const pinActiveUntil = useRef(0);
   const previewSpace = useMemo<BusinessSpace>(
     () => ({ ...space, settings, members }),
     [space, settings, members],
   );
+  const origin =
+    typeof window === "undefined" ? "" : window.location.origin;
+  const pageUrl = `${origin}/${slug}`;
+  const snippet = `<script src="${origin}/widget.js" data-slug="${slug}" async></script>`;
+  const previewHref = `/widget-demo.html?slug=${encodeURIComponent(slug)}`;
+  const isPresence = surface === "page" || surface === "widget";
 
   const toc = useMemo((): TocItem[] => {
-    if (surface === "page") {
-      return [
-        { id: "cf-share", label: "Share" },
-        { id: "cf-look", label: "Logo & banner" },
-        { id: "cf-content", label: "Copy & buttons" },
-        ...(hoursOn ? [{ id: "cf-hours", label: "Hours" }] : []),
-      ];
-    }
+    if (isPresence) return [
+      { id: "cf-share", label: "Share" },
+      { id: "cf-contact", label: "Call, text & email" },
+      { id: "cf-actions", label: "Tools" },
+      ...(surface === "page" ? [{ id: "cf-look", label: "Look" }, ...(hoursOn ? [{ id: "cf-hours", label: "Hours" }] : [])] : []),
+    ];
     return [
-      { id: "cf-bubble", label: "Chat Bubble" },
-      ...(sharedOnChat ? [{ id: "cf-look", label: "Logo & banner" }] : []),
-      ...(sharedOnChat && hoursOn
-        ? [{ id: "cf-hours", label: "Hours" }]
-        : []),
+      { id: "cf-sounds", label: "Sounds" },
       ...(introOn ? [{ id: "cf-about", label: "About" }] : []),
       { id: "cf-links", label: "Chat links" },
       ...(introOn
@@ -79,11 +84,11 @@ export function ClientFacingPanel({
       ...(shoutoutsOn ? [{ id: "cf-promos", label: "Promo banners" }] : []),
       ...(photosOn ? [{ id: "cf-photos", label: "Chat photos" }] : []),
     ];
-  }, [surface, sharedOnChat, hoursOn, introOn, shoutoutsOn, photosOn]);
+  }, [isPresence, surface, hoursOn, introOn, shoutoutsOn, photosOn]);
 
   useEffect(() => {
     const root = document.querySelector(".client-facing-editor");
-    if (!(root instanceof HTMLElement)) return;
+    if (!(root instanceof HTMLElement) || toc.length === 0) return;
     const editorRoot = root;
     let frame = 0;
     function updateActive() {
@@ -152,6 +157,16 @@ export function ClientFacingPanel({
     window.history.replaceState(null, "", `#${id}`);
   }
 
+  async function copyText(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* clipboard can be blocked */
+    }
+  }
+
   function settingsChunk(tab: "brand" | "hours" | "shoutouts") {
     return (
       <FloorSettingsPanel
@@ -170,7 +185,7 @@ export function ClientFacingPanel({
   }
 
   function prefChunk(
-    section: "intro" | "links" | "chat-interface",
+    section: "intro" | "links" | "chat-interface" | "sounds",
     introMode?: "combined" | "about" | "messages",
   ) {
     return (
@@ -187,105 +202,140 @@ export function ClientFacingPanel({
     );
   }
 
+  const shareCode = surface === "widget" ? snippet : pageUrl;
+  const actionSurface = surface === "widget" ? "widget" : "page";
+
   return (
     <div className="client-facing-layout">
       <div className="client-facing-editor dashboard-panel-body is-client-facing">
-      <h2 className="dashboard-panel-title">
-        {surface === "page" ? "Public Page" : "Live Chat"}
-      </h2>
-      <p className="floor-settings-help">
-        {surface === "page"
-          ? "This is the page people hit from your link — before they start a live chat."
-          : pageOn
-            ? "This is the live conversation after they tap chat. Logo, banner, and hours are set on Public page."
-            : "This is the live conversation after they tap chat."}
-      </p>
+      <SettingsEditorHeader
+        title={surface === "page" ? "Micro-landing page" : surface === "widget" ? "Widget" : "Live Chat"}
+        description={surface === "page" ? "Customize your page, choose customer actions, and share your link." : surface === "widget" ? "Customize your website widget, choose customer actions, and install it on your site." : "Customize your chat, notification sounds, opening messages, and follow-up experience."}
+      />
 
-      <nav className="client-facing-toc" aria-label="Jump to section">
-        {toc.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={active === item.id ? "is-active" : undefined}
-            onClick={() => scrollTo(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      {toc.length > 0 ? (
+        <nav className="client-facing-toc" aria-label="Jump to section">
+          {toc.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={active === item.id ? "is-active" : undefined}
+              onClick={() => scrollTo(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      ) : null}
 
-      {surface === "page" ? (
+      {isPresence ? (
         <>
           <section id="cf-share" className="client-facing-section">
             <h3>Share</h3>
-            <p className="floor-settings-help">
-              This updates live on the right. You can also open it in a new
-              tab. To put it on your site, use On your website.
-            </p>
-            <div className="pre-chat-share">
-              <div className="pre-chat-share-actions">
-                <Link
-                  href={`/${slug}`}
-                  className="btn-solid"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <IconEye size={16} />
-                  Open in new tab
-                </Link>
+            <div className="pre-chat-share website-install-card">
+              <div className="pre-chat-widget">
+                <p className="pre-chat-widget-label">
+                  <IconCode size={15} />
+                  {surface === "widget"
+                    ? "Paste this on your website"
+                    : "Send people this link"}
+                </p>
+                <pre className="widget-snippet-code">
+                  <code>{shareCode}</code>
+                </pre>
+                <div className="widget-snippet-actions">
+                  {surface === "widget" ? (
+                    <a
+                      className="btn-ghost"
+                      href={previewHref}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <IconEye size={16} />
+                      Open sample site
+                    </a>
+                  ) : (
+                    <Link
+                      href={`/${slug}`}
+                      className="btn-ghost"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <IconEye size={16} />
+                      Open in new tab
+                    </Link>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-solid"
+                    onClick={() => void copyText(shareCode)}
+                  >
+                    {copied ? (
+                      <>
+                        <IconCheck size={14} /> Copied
+                      </>
+                    ) : surface === "widget" ? (
+                      "Copy snippet"
+                    ) : (
+                      "Copy link"
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </section>
 
-          <section id="cf-look" className="client-facing-section">
-            <h3>Logo & banner</h3>
-            {settingsChunk("brand")}
-          </section>
-
-          <section id="cf-content" className="client-facing-section">
-            <h3>Copy & buttons</h3>
-            <p className="floor-settings-help">
-              Headline, bio, and the buttons on the public page.
-            </p>
-            <PreChatSetupModal
-              variant="page"
+          <section id="cf-contact" className="client-facing-section">
+            <h3>Call, text & email</h3>
+            <SurfaceActionToggles
+              slug={slug}
               settings={settings}
               onChangeSettings={onChangeSettings}
+              surface={actionSurface}
+              group="contacts"
             />
           </section>
 
-          {hoursOn ? (
-            <section id="cf-hours" className="client-facing-section">
-              <h3>Hours</h3>
-              {settingsChunk("hours")}
-            </section>
+          <section id="cf-actions" className="client-facing-section">
+            <h3>Tools</h3>
+            <SurfaceActionToggles
+              slug={slug}
+              settings={settings}
+              onChangeSettings={onChangeSettings}
+              surface={actionSurface}
+              group="tools"
+            />
+          </section>
+
+          {surface === "page" ? (
+            <>
+              <section id="cf-look" className="client-facing-section">
+                <h3>Look</h3>
+                {settingsChunk("brand")}
+                <p className="floor-settings-help">Headline and bio.</p>
+                <PreChatSetupModal
+                  variant="page"
+                  hideButtons
+                  settings={settings}
+                  onChangeSettings={onChangeSettings}
+                />
+              </section>
+
+              {hoursOn ? (
+                <section id="cf-hours" className="client-facing-section">
+                  <h3>Hours</h3>
+                  {settingsChunk("hours")}
+                </section>
+              ) : null}
+            </>
           ) : null}
         </>
       ) : (
         <>
-          <section id="cf-bubble" className="client-facing-section">
-            <h3>Chat Bubble</h3>
-            <WebsiteInstallPanel
-              slug={slug}
-              kind="bubble"
-              publicPageOn={pageOn}
-              embed
-            />
+          <section id="cf-sounds" className="client-facing-section">
+            <h3>Sounds</h3>
+            {prefChunk("sounds")}
           </section>
-
-          {sharedOnChat ? (
-            <section id="cf-look" className="client-facing-section">
-              <h3>Logo & banner</h3>
-              {settingsChunk("brand")}
-            </section>
-          ) : null}
-
-          {sharedOnChat && hoursOn ? (
-            <section id="cf-hours" className="client-facing-section">
-              <h3>Hours</h3>
-              {settingsChunk("hours")}
-            </section>
-          ) : null}
 
           {introOn ? (
             <section id="cf-about" className="client-facing-section">
@@ -345,6 +395,7 @@ export function ClientFacingPanel({
       )}
       </div>
       <ClientFacingPreview
+        key={surface}
         slug={slug}
         surface={surface}
         space={previewSpace}

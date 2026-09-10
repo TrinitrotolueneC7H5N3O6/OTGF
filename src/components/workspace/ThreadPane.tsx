@@ -39,9 +39,12 @@ import {
   IconArrowSend,
   IconClock,
   IconPaperclip,
-  IconPencil,
   IconX,
 } from "@/components/shared/Icons";
+
+function isThumbsUpOnly(message: Message) {
+  return message.kind === "text" && message.body.trim() === "👍";
+}
 
 interface ThreadPaneProps {
   client: Client;
@@ -70,7 +73,6 @@ interface ThreadPaneProps {
   forwardCopied?: boolean;
   onOpenTool: (tab: RightTab) => void;
   onStageArtifact: (item: Artifact) => void;
-  onEditShortcuts: () => void;
   onReplyTo: (message: Message) => void;
   onClearReply: () => void;
   onReact: (messageId: string, emoji: string) => void;
@@ -125,7 +127,6 @@ export function ThreadPane({
   forwardCopied = false,
   onOpenTool,
   onStageArtifact,
-  onEditShortcuts,
   onReplyTo,
   onClearReply,
   onReact,
@@ -448,6 +449,7 @@ export function ThreadPane({
             const mediaOnly =
               (message.kind === "image" || message.kind === "video") &&
               !message.body?.trim();
+            const thumbsUpOnly = isThumbsUpOnly(message);
             const showSpeaker =
               message.from === "business" &&
               Boolean(message.fromName) &&
@@ -471,7 +473,7 @@ export function ThreadPane({
                 }}
               >
                 <article
-                  className={`bubble bubble-${message.from} bubble-${message.kind}${mediaOnly ? " is-media-only" : ""}${pendingIds?.has(message.id) ? " is-pending" : ""}${failedIds?.has(message.id) ? " is-failed" : ""}`}
+                  className={`bubble bubble-${message.from} bubble-${message.kind}${mediaOnly ? " is-media-only" : ""}${thumbsUpOnly ? " bubble-like-only" : ""}${pendingIds?.has(message.id) ? " is-pending" : ""}${failedIds?.has(message.id) ? " is-failed" : ""}`}
                 >
                   {showSpeaker ? (
                     <span className="bubble-speaker">{message.fromName}</span>
@@ -655,18 +657,7 @@ export function ThreadPane({
             })
               : null}
 
-            {enabledTools.shortcuts ? (
-            <button
-              type="button"
-              className="composer-chip is-edit"
-              onClick={onEditShortcuts}
-              title="Edit shortcut bar"
-              aria-label="Edit shortcut bar"
-            >
-              <IconPencil size={12} />
-              {shortcuts.length === 0 ? "Add shortcuts" : "Edit"}
-            </button>
-            ) : null}
+
           </div>
         </div>
       ) : null}

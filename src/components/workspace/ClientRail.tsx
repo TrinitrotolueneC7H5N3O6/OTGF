@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
   type MouseEvent,
 } from "react";
 import type { Client, FloorMember, Message } from "@/lib/types";
@@ -18,7 +19,7 @@ import {
 import { ClientAvatar } from "@/components/shared/ClientAvatar";
 import { IconEyeOff, IconPencil, IconTrash } from "@/components/shared/Icons";
 
-export type InboxQuickFilter = "all" | "unanswered" | "new" | "cases";
+export type InboxQuickFilter = "all" | "unanswered" | "new" | "cases" | "ai";
 
 export interface InboxQuickCounts {
   all: number;
@@ -28,6 +29,8 @@ export interface InboxQuickCounts {
 }
 
 interface ClientRailProps {
+  sectionContent?: ReactNode;
+  casesEnabled?: boolean;
   clients: Client[];
   members: FloorMember[];
   messages: Message[];
@@ -46,8 +49,9 @@ interface ClientRailProps {
 const QUICK_FILTERS: { id: InboxQuickFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "unanswered", label: "Unanswered" },
-  { id: "new", label: "New" },
   { id: "cases", label: "Cases" },
+  { id: "new", label: "New" },
+  { id: "ai", label: "AI" },
 ];
 
 function awaitingReply(clientId: string, messages: Message[], ended?: boolean) {
@@ -69,6 +73,8 @@ function initials(name: string) {
 }
 
 export function ClientRail({
+  sectionContent,
+  casesEnabled = true,
   clients,
   members,
   messages,
@@ -151,11 +157,11 @@ export function ClientRail({
     <div className="rail">
       <div className="rail-head">
         <div className="rail-head-row">
-          <h2>Inbox</h2>
+          <h2>{quickFilter === "cases" ? "Cases" : quickFilter === "ai" ? "AI" : "Inbox"}</h2>
           <span className="rail-count">{clients.length}</span>
         </div>
         <div className="rail-quick-filters" aria-label="Inbox filters">
-          {QUICK_FILTERS.map((filter) => (
+          {QUICK_FILTERS.filter((filter) => filter.id !== "cases" || casesEnabled).map((filter) => (
             <button
               key={filter.id}
               type="button"
@@ -164,7 +170,7 @@ export function ClientRail({
               aria-pressed={quickFilter === filter.id}
             >
               <span>{filter.label}</span>
-              <strong>{quickCounts[filter.id]}</strong>
+              {filter.id !== "ai" ? <strong>{quickCounts[filter.id]}</strong> : null}
             </button>
           ))}
         </div>
@@ -188,7 +194,9 @@ export function ClientRail({
         ) : null}
       </div>
 
-      {clients.length === 0 ? (
+      {sectionContent ? (
+        <div className="rail-cases">{sectionContent}</div>
+      ) : clients.length === 0 ? (
         <div className="rail-empty">
           <p>Share your link. Clients show up here.</p>
         </div>

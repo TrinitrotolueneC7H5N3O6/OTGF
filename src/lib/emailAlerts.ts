@@ -9,6 +9,11 @@ import {
   sendTransactionalEmail,
   wrapEmailHtml,
 } from "./email";
+import {
+  isValidPhoneNumber,
+  sendTwilioSms,
+  verifyPhoneConnection,
+} from "./phoneAlerts";
 
 const META_PREFIXES = [
   "Staff-out intake:",
@@ -30,6 +35,13 @@ function previewText(value: string, max = 280) {
   const compact = value.replace(/\s+/g, " ").trim();
   if (compact.length <= max) return compact;
   return `${compact.slice(0, max - 1)}…`;
+}
+
+function smsText(value: string, max = 700) {
+  const clean = value.trim();
+  if (clean.length <= max) return clean;
+  const tailLength = 150;
+  return `${clean.slice(0, max - tailLength - 2).trimEnd()}…\n${clean.slice(-tailLength).trimStart()}`;
 }
 
 function customerEmail(client: Client, fallback?: string) {
@@ -149,21 +161,37 @@ async function sendOwnerEmail(input: {
   emailType: string;
 }) {
   const to = input.settings.notifyEmails.filter(isValidEmail);
-  if (to.length === 0) return;
-  const result = await sendTransactionalEmail({
-    to,
-    from: fromAddress(input.businessName),
-    subject: input.subject,
-    html: input.html,
-    text: input.text,
-    idempotencyKey: input.idempotencyKey,
-    tags: [
-      { name: "email_type", value: input.emailType },
-      { name: "space", value: input.slug.replace(/[^a-z0-9_-]/gi, "-").slice(0, 50) },
-    ],
-  });
-  if (result.error) {
-    console.error(`[email] ${input.emailType} failed:`, result.error);
+  if (to.length > 0) {
+    const result = await sendTransactionalEmail({
+      to,
+      from: fromAddress(input.businessName),
+      subject: input.subject,
+      html: input.html,
+      text: input.text,
+      idempotencyKey: input.idempotencyKey,
+      tags: [
+        { name: "email_type", value: input.emailType },
+        { name: "space", value: input.slug.replace(/[^a-z0-9_-]/gi, "-").slice(0, 50) },
+      ],
+    });
+    if (result.error) {
+      console.error(`[email] ${input.emailType} failed:`, result.error);
+    }
+  }
+
+  const phone = input.settings.phoneAlerts;
+  if (
+    phone?.enabled &&
+    isValidPhoneNumber(phone.phoneNumber) &&
+    verifyPhoneConnection(input.slug, phone.phoneNumber, phone.verificationToken)
+  ) {
+    const result = await sendTwilioSms({
+      to: phone.phoneNumber,
+      text: smsText(`${input.subject}\n\n${input.text}`),
+    });
+    if (result.error) {
+      console.error(`[sms] ${input.emailType} failed:`, result.error);
+    }
   }
 }
 
@@ -205,7 +233,7 @@ export async function dispatchAlertForMessage(input: {
   origin?: string;
 }) {
   const origin = appOrigin(input.origin);
-  const floorUrl = `${origin}/${input.slug}/floor`;
+  const floorUrl = `${origin}/${input.slug}/live-chat`;
   const chatUrl = `${origin}${reconnectChatPath(input.slug, input.client.id)}`;
   const alerts = input.settings.emailAlerts ?? EMAIL_ALERT_DEFAULTS;
   const name = input.client.name?.trim() || "A customer";

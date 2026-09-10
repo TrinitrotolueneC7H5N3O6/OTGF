@@ -67,11 +67,11 @@ export function SpaceAuthForm({
     (mode === "create" ? "Create account" : "Log in to your space");
   const copy = spaceName
     ? mode === "create"
-      ? "Create an account to own this space and open your floor."
-      : "Sign in to claim this space and open your floor."
+      ? "Create an account to own this space and open live chat."
+      : "Sign in to claim this space and open live chat."
     : mode === "create"
-      ? "Create an account to manage your floors."
-      : "Sign in to open the floors you own.";
+      ? "Create an account to manage your spaces."
+      : "Sign in to open the spaces you own.";
 
   return (
     <div className={`setup-done space-auth${bare ? " is-bare" : ""}`}>
@@ -211,7 +211,7 @@ export function FloorAuthGate({ slug, children }: FloorAuthGateProps) {
       <div className="client-missing">
         <p className="brand-name">OTGF</p>
         <h1>Sign in required</h1>
-        <p>Only the account that owns this space can open the floor.</p>
+        <p>Only the account that owns this space can open live chat.</p>
         <Link href="/">Go to home</Link>
       </div>
     );

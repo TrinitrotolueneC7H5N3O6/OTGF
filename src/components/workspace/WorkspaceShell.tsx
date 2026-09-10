@@ -49,17 +49,21 @@ import { parseSoloUrl } from "@/lib/messageLinks";
 import { ensureWelcomeMessages } from "@/lib/customerAutoReply";
 import { resolveChatIntroMessages } from "@/lib/chatIntroMessages";
 import { isSolutionEnabled } from "@/lib/setupSolutions";
+import { isWorkspaceComponentEnabled } from "@/lib/workspaceComponents";
 import { ClientRail, type InboxQuickFilter } from "./ClientRail";
 import { WorkspaceTopBar } from "./WorkspaceTopBar";
+import { WorkspaceSidebar } from "./WorkspaceSidebar";
+import { AiSetupPanel } from "./AiSetupPanel";
+import { CasesPanel } from "./CasesPanel";
 import { ThreadPane } from "./ThreadPane";
 import { RightPane, type RightTab } from "./RightPane";
-import { CornerTools } from "@/components/shared/CornerTools";
 import {
   loadFloorPrefs,
   playActiveChatSound,
   playNewChatSound,
 } from "@/lib/floorPrefs";
 import { useRouter } from "next/navigation";
+import { dashHref, workspaceHomeNav } from "@/lib/workspaceNav";
 
 interface WorkspaceShellProps {
   slug: string;
@@ -111,7 +115,7 @@ function clientMatchesInboxFilter(
   messages: Message[],
   filter: InboxQuickFilter,
 ): boolean {
-  if (filter === "all") return true;
+  if (filter === "all" || filter === "ai") return true;
   if (filter === "unanswered") return clientAwaitingReply(client, messages);
   if (filter === "new") return (client.unread ?? 0) > 0;
   return Boolean(client.caseId);
@@ -153,10 +157,18 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   /** Chats that got new messages while not focused — open scrolled to bottom. */
   const pinBottomOnOpenRef = useRef<Set<string>>(new Set());
   const [, startTransition] = useTransition();
+  const liveChatOn = space
+    ? isWorkspaceComponentEnabled(space.settings, "liveChat")
+    : true;
 
   useEffect(() => {
     activeIdRef.current = activeId;
   }, [activeId]);
+
+  useEffect(() => {
+    if (!space || liveChatOn) return;
+    router.replace(dashHref(slug, "dashboard"));
+  }, [space, liveChatOn, slug, router]);
 
   useEffect(() => {
     document.documentElement.classList.add("floor-lock");
@@ -440,6 +452,9 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
       );
   }, [clients, messages]);
 
+  const casesEnabled = isWorkspaceComponentEnabled(space?.settings, "cases");
+  const showingCases = inboxFilter === "cases" && casesEnabled;
+
   const inboxQuickCounts = useMemo(
     () => ({
       all: inboxClients.length,
@@ -447,9 +462,9 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
         clientAwaitingReply(client, messages),
       ).length,
       new: inboxClients.filter((client) => (client.unread ?? 0) > 0).length,
-      cases: inboxClients.filter((client) => client.caseId).length,
+      cases: space?.cases?.length ?? 0,
     }),
-    [inboxClients, messages],
+    [inboxClients, messages, space?.cases],
   );
 
   const filteredClients = useMemo(() => {
@@ -1122,9 +1137,6 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     updateSettings({ ...space.settings, shortcuts });
   }
 
-  function openShortcutSettings() {
-    router.push(`/${slug}/dashboard?settings=shortcuts`);
-  }
 
   function updateReceiptPayments(receiptPayments: ReceiptPayment[]) {
     runOp({ type: "setReceipts", receiptPayments });
@@ -1212,7 +1224,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   }
 
   if (!space) {
-    return <div className="client-chat-loading">Loading floor…</div>;
+    return <div className="client-chat-loading">Loading live chat…</div>;
   }
 
   const toolTabs = floorToolTabs(space.settings);
@@ -1236,13 +1248,39 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
         members={members}
         floorMemberId={floorMemberId}
         onChooseMember={chooseFloorMember}
+        brandNav={workspaceHomeNav(space.settings)}
       />
 
-      <div className={`workspace-grid${showLibrary ? "" : " is-two-col"}`}>
+      <div className="workspace-with-nav">
+        <WorkspaceSidebar slug={slug} settings={space.settings} />
+        <div className={`workspace-grid${showLibrary ? "" : " is-two-col"}`}>
         <aside
           className={`pane pane-clients ${mobilePane === "clients" ? "is-mobile-show" : ""}`}
         >
           <ClientRail
+            sectionContent={inboxFilter === "ai" ? (
+              <AiSetupPanel
+                notes={space.knowledgeNotes ?? []}
+                onChangeNotes={(knowledgeNotes) => runOp({ type: "setKnowledgeNotes", knowledgeNotes })}
+                autoAnswer={Boolean(space.settings.autoAnswer)}
+                onToggleAutoAnswer={(autoAnswer) => updateSettings({ ...space.settings, autoAnswer })}
+              />
+            ) : showingCases ? (
+            <CasesPanel
+              slug={slug}
+              cases={space.cases ?? []}
+              clients={space.clients ?? []}
+              contacts={space.collectedContacts ?? []}
+              section="cases"
+              onCreateCase={(customerCase) => runOp({ type: "createCase", customerCase })}
+              onUpdateStatus={(caseId, status) => runOp({ type: "updateCaseStatus", caseId, status })}
+              onUpdateNotes={(caseId, notes) => runOp({ type: "updateCaseNotes", caseId, notes })}
+              onUpdateIdentifiers={(caseId, identifiers) => runOp({ type: "updateCaseIdentifiers", caseId, identifiers })}
+              onAssignChat={(clientId, caseId) => runOp({ type: "assignChatCase", clientId, caseId })}
+              onHideChat={(clientId, hidden) => runOp({ type: "hideClient", clientId, hidden })}
+            />
+            ) : undefined}
+            casesEnabled={casesEnabled}
             clients={filteredClients}
             members={space.members ?? []}
             messages={messages}
@@ -1251,8 +1289,14 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
             quickFilter={inboxFilter}
             quickCounts={inboxQuickCounts}
             onQueryChange={setQuery}
-            onQuickFilterChange={setInboxFilter}
-            onSelect={selectClient}
+            onQuickFilterChange={(filter) => {
+              setInboxFilter(filter);
+              if (filter === "cases" || filter === "ai") setMobilePane("clients");
+            }}
+            onSelect={(client) => {
+              if (showingCases) setInboxFilter("all");
+              selectClient(client);
+            }}
             onRename={renameClient}
             onOwnerChange={changeClientOwner}
             onDelete={deleteClient}
@@ -1299,7 +1343,6 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
               onOpenTool={openTool}
               enabledTools={enabledTools}
               onStageArtifact={stageArtifact}
-              onEditShortcuts={openShortcutSettings}
               onReplyTo={startReply}
               onClearReply={() => setReplyTo(null)}
               onReact={reactToMessage}
@@ -1312,8 +1355,8 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
             <div className="thread thread-empty-floor">
               <h2>Waiting for clients</h2>
               <p>
-                Share your link from Dashboard. Each person gets their own chat
-                URL.
+                Share your micro-landing page from Platforms → Micro-landing page. Each person gets
+                their own chat URL.
               </p>
               <code>{clientUrl || `/${slug}`}</code>
             </div>
@@ -1370,6 +1413,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
         </aside>
         ) : null}
       </div>
+      </div>
 
       <nav className="mobile-tabs" aria-label="Workspace panes">
         {(
@@ -1394,8 +1438,6 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
           </button>
         ))}
       </nav>
-
-      <CornerTools />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { PreChatPage } from "@/components/client/PreChatPage";
+import { PublicPageApp } from "@/components/client/PublicPageApp";
 
 export default async function PreChatEntryPage({
   params,
@@ -6,5 +6,5 @@ export default async function PreChatEntryPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  return <PreChatPage slug={slug} />;
+  return <PublicPageApp slug={slug} />;
 }

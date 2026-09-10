@@ -56,7 +56,7 @@ export const FIT_SITUATIONS = [
   "Walk-ins and appointments mix in the same day",
   "You need to send photos or examples before someone visits",
   "After-hours messages still need a clear place to land",
-  "More than one person on the floor answers customers",
+  "More than one person in live chat answers customers",
 ];
 
 export function HowDemoFrame({ stepIndex }: { stepIndex: number }) {

@@ -1,10 +1,19 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { BusinessSpace } from "@/lib/types";
-import { getSpace, subscribeSpace } from "@/lib/store";
+import { InAppLink } from "@/components/shared/LinkSheet";
+import type { BusinessSpace, Client, PreChatLink } from "@/lib/types";
+import { QuickContactModal } from "./QuickContactModal";
+import { QuickBuildModal } from "./QuickBuildModal";
+import { quickBuildConfigForLink } from "@/lib/quickBuilds";
+import {
+  applySpaceOp,
+  getSpace,
+  nextGuestName,
+  resolveCustomerChatId,
+  subscribeSpace,
+} from "@/lib/store";
 import { defaultPreChat, formatResponseWindows } from "@/lib/spaceNormalize";
 import {
   liveChatQueueStatus,
@@ -12,6 +21,7 @@ import {
   visiblePreChatLinks,
 } from "@/lib/preChat";
 import { isSolutionEnabled } from "@/lib/setupSolutions";
+import { isWorkspaceComponentEnabled } from "@/lib/workspaceComponents";
 
 interface PreChatPageProps {
   slug: string;
@@ -20,10 +30,44 @@ interface PreChatPageProps {
   preview?: boolean;
   previewSpace?: BusinessSpace;
   onOpenChat?: () => void;
+  /** Keep the public page mounted while chat opens in a modal layer. */
+  modalChat?: boolean;
 }
 
+type PreparedChat = {
+  spaceSlug: string;
+  chatId: string;
+};
+
 function isLocalChatHref(href: string, slug: string) {
-  return href === `/${slug}/chat` || href.startsWith(`/${slug}/chat?`);
+  const chatPath = `/${slug}/chat`;
+  return href === chatPath || href.startsWith(`${chatPath}?`);
+}
+
+function hasChatEntry(space: BusinessSpace) {
+  const preChat = space.settings.preChat ?? defaultPreChat();
+  return visiblePreChatLinks(preChat, space.settings).some((link) => {
+    const href = preChatHref(link, space.business.slug);
+    return Boolean(
+      href && (link.kind === "chat" || isLocalChatHref(href, space.business.slug)),
+    );
+  });
+}
+
+function lobbyClient(space: BusinessSpace, chatId: string): Client {
+  const presentAt = new Date().toISOString();
+  return {
+    id: chatId,
+    name: nextGuestName(space.clients),
+    status: "unknown",
+    channel: "web",
+    preview: "Waiting in front lobby",
+    unread: 0,
+    trade: space.business.trade,
+    lastActive: "Just now",
+    note: "Opened front lobby",
+    presentAt,
+  };
 }
 
 export function PreChatPage({
@@ -32,11 +76,17 @@ export function PreChatPage({
   preview = false,
   previewSpace,
   onOpenChat,
+  modalChat = false,
 }: PreChatPageProps) {
   const router = useRouter();
   const [loadedSpace, setLoadedSpace] = useState<BusinessSpace | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [preparedChat, setPreparedChat] = useState<PreparedChat | null>(null);
+  const [openingChat, setOpeningChat] = useState(false);
+  const [contactLink, setContactLink] = useState<PreChatLink | null>(null);
+  const [quickBuildLink, setQuickBuildLink] = useState<PreChatLink | null>(null);
+  const prewarmSlugRef = useRef<string | null>(null);
   const space = previewSpace ?? loadedSpace;
 
   useEffect(() => {
@@ -81,6 +131,84 @@ export function PreChatPage({
     router.replace(`/${slug}/chat`);
   }, [space, slug, router, onOpenChat, preview]);
 
+  useEffect(() => {
+    if (preview) return;
+    if (!space) return;
+    if (!isSolutionEnabled(space.settings, "preChat")) return;
+    if (!hasChatEntry(space)) return;
+    if (prewarmSlugRef.current === slug) return;
+
+    let cancelled = false;
+    prewarmSlugRef.current = slug;
+
+    async function prewarmChatRoom() {
+      try {
+        const resolved = await resolveCustomerChatId(slug);
+        if (cancelled) return;
+
+        const existing = space!.clients.find((c) => c.id === resolved.chatId);
+        if (!existing) {
+          await applySpaceOp(resolved.spaceSlug, {
+            type: "upsertClient",
+            client: lobbyClient(space!, resolved.chatId),
+            clearDeleted: true,
+          });
+          if (cancelled) return;
+        }
+
+        const href = `/${resolved.spaceSlug}/c/${resolved.chatId}`;
+        setPreparedChat(resolved);
+        router.prefetch(href);
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) prewarmSlugRef.current = null;
+      }
+    }
+
+    void prewarmChatRoom();
+    return () => {
+      cancelled = true;
+    };
+  }, [space, slug, router, preview]);
+
+  async function openChat() {
+    if (openingChat) return;
+    if (preview) {
+      onOpenChat?.();
+      return;
+    }
+    setOpeningChat(true);
+
+    if (onOpenChat) {
+      if (modalChat) {
+        setOpeningChat(false);
+        onOpenChat();
+      } else {
+        window.setTimeout(onOpenChat, 170);
+      }
+      return;
+    }
+
+    let target = preparedChat;
+    try {
+      if (!target) {
+        target = await resolveCustomerChatId(slug);
+      }
+      router.push(`/${target.spaceSlug}/c/${target.chatId}`, {
+        scroll: false,
+        transitionTypes: ["front-lobby-chat"],
+      });
+    } catch (err) {
+      console.error(err);
+      setOpeningChat(false);
+      setError("Could not open chat. Pull to refresh and try again.");
+    }
+  }
+
+  function openContact(link: PreChatLink) {
+    setContactLink(link);
+  }
+
   if (error) {
     return (
       <div className="client-missing">
@@ -101,9 +229,9 @@ export function PreChatPage({
       return (
         <div className="pre-chat is-embedded is-preview">
           <main className="pre-chat-card">
-            <h1>Public page is off</h1>
+            <h1>Micro-landing page is off</h1>
             <p className="pre-chat-bio">
-              Turn it on in Setup to show this page.
+              Turn it on in Tools to show this micro-landing page.
             </p>
           </main>
         </div>
@@ -114,7 +242,7 @@ export function PreChatPage({
 
   const preChat = settings.preChat ?? defaultPreChat();
   const headline = preChat.headline.trim() || space.business.name;
-  const links = visiblePreChatLinks(preChat).filter((link) => {
+  const links = visiblePreChatLinks(preChat, settings).filter((link) => {
     const isConsult =
       link.id === "pre-consult" || /consultation/i.test(link.label);
     const isPromo =
@@ -130,21 +258,17 @@ export function PreChatPage({
   const hoursNote = isSolutionEnabled(settings, "hours")
     ? settings.responseNote.trim()
     : "";
-  const hoursMeta = hoursLabel ? (
-    <>
-      <span className="pre-chat-link-meta">Hours of Operation</span>
-      <span className="pre-chat-link-meta">
-        {hoursLabel}
-        {hoursNote ? ` · ${hoursNote}` : ""}
-      </span>
-    </>
-  ) : null;
+  const hoursLine = hoursLabel
+    ? `${hoursLabel}${hoursNote ? ` · ${hoursNote}` : ""}`
+    : "";
 
   return (
     <div
       className={`pre-chat${embedded || preview ? " is-embedded" : ""}${
         preview ? " is-preview" : ""
-      }${settings.brandBannerUrl ? " has-banner" : ""}`}
+      }${settings.brandBannerUrl ? " has-banner" : ""}${
+        openingChat ? " is-opening-chat" : ""
+      }`}
     >
       {settings.brandBannerUrl ? (
         <div className="pre-chat-banner" aria-hidden>
@@ -163,43 +287,59 @@ export function PreChatPage({
           </span>
         )}
         <h1>{headline}</h1>
+        {hoursLine ? <p className="pre-chat-hours">{hoursLine}</p> : null}
         {preChat.bio.trim() ? <p className="pre-chat-bio">{preChat.bio}</p> : null}
 
         <nav className="pre-chat-links" aria-label="Ways to reach us">
           {links.map((link) => {
             const href = preChatHref(link, space.business.slug);
-            if (!href) return null;
+            const quickBuild = quickBuildConfigForLink(link);
+            if (!href && !quickBuild) return null;
             const external = link.kind === "url";
             const isConsult =
               link.id === "pre-consult" || /consultation/i.test(link.label);
             const isPromo =
               link.id === "pre-promo" || /promotions/i.test(link.label);
-            if (link.kind === "call") {
+            if (quickBuild) {
+              const quickInner = (
+                <>
+                  <span className="pre-chat-link-label">{link.label}</span>
+                  <span className="pre-chat-link-meta">{quickBuild.description}</span>
+                </>
+              );
+              return (
+                <button key={link.id} type="button" className="pre-chat-link is-chat" onClick={() => setQuickBuildLink(link)}>{quickInner}</button>
+              );
+            }
+            if (link.kind === "call" || link.kind === "sms") {
               const phone = link.href?.trim() ?? "";
               const callInner = (
                 <>
                   <span className="pre-chat-link-label">{link.label}</span>
                   {phone ? (
-                    <span className="pre-chat-link-meta">US {phone}</span>
+                    <span className="pre-chat-link-meta">
+                      {link.kind === "sms" ? "Text" : "US"} {phone}
+                    </span>
                   ) : null}
-                  {hoursMeta}
                 </>
               );
-              if (preview) {
-                return (
-                  <span key={link.id} className="pre-chat-link is-chat">
-                    {callInner}
-                  </span>
-                );
-              }
-              return (
-                <a key={link.id} href={href} className="pre-chat-link is-chat">
+              return link.kind === "sms" ? (
+                <button
+                  key={link.id}
+                  type="button"
+                  className="pre-chat-link is-chat"
+                  onClick={() => openContact(link)}
+                >
+                  {callInner}
+                </button>
+              ) : (
+                <a key={link.id} href={href!} className="pre-chat-link is-chat">
                   {callInner}
                 </a>
               );
             }
             const opensChat =
-              link.kind === "chat" || isLocalChatHref(href, space.business.slug);
+              link.kind === "chat" || Boolean(href && isLocalChatHref(href, space.business.slug));
             if (opensChat) {
               const chatInner = (
                 <>
@@ -213,32 +353,18 @@ export function PreChatPage({
                   ) : isConsult ? (
                     <span className="pre-chat-link-meta">Book Anytime</span>
                   ) : null}
-                  {link.kind === "chat" ? hoursMeta : null}
                 </>
               );
-              if (preview) {
-                return (
-                  <span key={link.id} className="pre-chat-link is-chat">
-                    {chatInner}
-                  </span>
-                );
-              }
-              if (onOpenChat) {
-                return (
-                  <button
-                    key={link.id}
-                    type="button"
-                    className="pre-chat-link is-chat"
-                    onClick={onOpenChat}
-                  >
-                    {chatInner}
-                  </button>
-                );
-              }
               return (
-                <Link key={link.id} href={href} className="pre-chat-link is-chat">
+                <button
+                  key={link.id}
+                  type="button"
+                  className="pre-chat-link is-chat"
+                  onClick={() => void openChat()}
+                  disabled={openingChat}
+                >
                   {chatInner}
-                </Link>
+                </button>
               );
             }
             const urlInner = (
@@ -252,30 +378,59 @@ export function PreChatPage({
                 ) : null}
               </>
             );
-            if (preview) {
+            if (link.kind === "email") {
               return (
-                <span
+                <button
                   key={link.id}
-                  className={`pre-chat-link${isConsult || isPromo ? " is-chat" : ""}`}
+                  type="button"
+                  className="pre-chat-link"
+                  onClick={() => openContact(link)}
                 >
                   {urlInner}
-                </span>
+                </button>
               );
             }
             return (
-              <a
+              <InAppLink
                 key={link.id}
-                href={href}
+                href={href!}
                 className={`pre-chat-link${isConsult || isPromo ? " is-chat" : ""}`}
                 target={external ? "_blank" : undefined}
                 rel={external ? "noreferrer" : undefined}
               >
                 {urlInner}
-              </a>
+              </InAppLink>
             );
           })}
+          {isWorkspaceComponentEnabled(settings, "storytelling") ? (
+            preview ? (
+              <span className="pre-chat-link">
+                <span className="pre-chat-link-label">See our work</span>
+                <span className="pre-chat-link-meta">Search finished jobs</span>
+              </span>
+            ) : (
+              <a href={`/${slug}/stories`} className="pre-chat-link">
+                <span className="pre-chat-link-label">See our work</span>
+                <span className="pre-chat-link-meta">Search finished jobs</span>
+              </a>
+            )
+          ) : null}
         </nav>
       </main>
+      {contactLink ? (
+        <QuickContactModal
+          link={contactLink}
+          slug={slug}
+          onClose={() => setContactLink(null)}
+        />
+      ) : null}
+      {quickBuildLink ? (
+        <QuickBuildModal
+          link={quickBuildLink}
+          slug={slug}
+          onClose={() => setQuickBuildLink(null)}
+        />
+      ) : null}
     </div>
   );
 }

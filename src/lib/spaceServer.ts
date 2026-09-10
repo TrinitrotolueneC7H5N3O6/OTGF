@@ -1,12 +1,19 @@
+import { scheduleSlots } from "./scheduling";
+import { quickBuildConfigForLink } from "./quickBuilds";
+import { isPublicActionEnabled } from "./toolPublic";
 import { randomBytes } from "crypto";
 import type { Prisma } from "@prisma/client";
-import type { AutoAnswerDraft, Business, BusinessSpace, ChatParticipant, Client, CustomerCase, Message, Offering, KnowledgeNote, Trade } from "./types";
+import type { AutoAnswerDraft, Business, BusinessSpace, ChatParticipant, Client, CustomerCase, Message, Offering, KnowledgeNote, FormSubmission, ScheduleRequest, Trade } from "./types";
 import { applySpaceOpToSpace, type SpaceOp } from "./spaceOps";
 import {
   defaultFloorSettings,
   normalizeCustomerCaseIdentifiers,
   normalizeCustomerCaseStatus,
   normalizeCustomerCases,
+  normalizeScheduleRequests,
+  normalizeScheduleRequestStatus,
+  normalizeFormSubmissions,
+  normalizeFormSubmissionStatus,
   normalizeSpace,
   slugify,
   titleFromSlug,
@@ -69,7 +76,7 @@ async function withSpaceLock<T>(slug: string, fn: () => Promise<T>): Promise<T> 
 /** Business config stored in Space.data — no clients or messages. */
 type SpaceDocument = Omit<
   BusinessSpace,
-  "clients" | "messages" | "deletedClientIds" | "cases"
+  "clients" | "messages" | "deletedClientIds" | "cases" | "scheduleRequests" | "formSubmissions"
 >;
 
 function blankSpaceDoc(business: Business): SpaceDocument {
@@ -94,6 +101,8 @@ function parseSpaceDoc(raw: string): SpaceDocument {
     messages: [],
     deletedClientIds: [],
     cases: [],
+    scheduleRequests: [],
+    formSubmissions: [],
   } as BusinessSpace);
   const {
     clients: _c,
@@ -102,6 +111,8 @@ function parseSpaceDoc(raw: string): SpaceDocument {
     offerings: _o,
     knowledgeNotes: _k,
     cases: _cases,
+    scheduleRequests: _schedule,
+    formSubmissions: _forms,
     ...doc
   } = normalized;
   return { ...doc, offerings: [], knowledgeNotes: [] };
@@ -227,8 +238,18 @@ export async function dbChatExists(
 }
 
 function serializeSpaceDoc(doc: SpaceDocument): string {
-  const { offerings: _offerings, knowledgeNotes: _knowledge, cases: _cases, ...rest } =
-    doc as SpaceDocument & { cases?: CustomerCase[] };
+  const {
+    offerings: _offerings,
+    knowledgeNotes: _knowledge,
+    cases: _cases,
+    scheduleRequests: _schedule,
+    formSubmissions: _forms,
+    ...rest
+  } = doc as SpaceDocument & {
+    cases?: CustomerCase[];
+    scheduleRequests?: ScheduleRequest[];
+    formSubmissions?: FormSubmission[];
+  };
   return JSON.stringify(rest);
 }
 
@@ -363,6 +384,184 @@ async function loadCases(slug: string): Promise<CustomerCase[]> {
   return rows.map(customerCaseFromRow);
 }
 
+function scheduleRequestFromRow(row: {
+  id: string;
+  chatId: string;
+  name: string;
+  email: string;
+  phone: string;
+  date: string;
+  time: string;
+  durationMinutes: number;
+  notes: string;
+  title: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}): ScheduleRequest {
+  const [item] = normalizeScheduleRequests([
+    {
+      id: row.id,
+      chatId: row.chatId,
+      name: row.name,
+      email: row.email,
+      phone: row.phone,
+      date: row.date,
+      time: row.time,
+      durationMinutes: row.durationMinutes,
+      notes: row.notes,
+      title: row.title,
+      status: row.status,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    },
+  ]);
+  return (
+    item ?? {
+      id: row.id,
+      chatId: row.chatId,
+      name: row.name || "Guest",
+      date: row.date,
+      time: row.time,
+      durationMinutes: row.durationMinutes || 30,
+      status: normalizeScheduleRequestStatus(row.status),
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    }
+  );
+}
+
+async function loadScheduleRequests(slug: string): Promise<ScheduleRequest[]> {
+  const table = prisma.scheduleRequest;
+  if (!table) return [];
+  try {
+    const rows = await table.findMany({
+      where: { spaceSlug: slug },
+      orderBy: [{ date: "asc" }, { createdAt: "desc" }],
+    });
+    return rows.map(scheduleRequestFromRow);
+  } catch (err) {
+    console.error("[schedule] load failed:", err);
+    return [];
+  }
+}
+
+async function insertScheduleRequest(
+  slug: string,
+  request: ScheduleRequest,
+): Promise<ScheduleRequest | null> {
+  const [item] = normalizeScheduleRequests([request]);
+  if (!item || !prisma.scheduleRequest) return null;
+  try {
+    const row = await prisma.scheduleRequest.create({
+      data: {
+        id: item.id,
+        spaceSlug: slug,
+        chatId: item.chatId,
+        name: item.name,
+        email: item.email ?? "",
+        phone: item.phone ?? "",
+        date: item.date,
+        time: item.time,
+        durationMinutes: item.durationMinutes,
+        notes: item.notes ?? "",
+        title: item.title ?? "",
+        status: item.status,
+      },
+    });
+    return scheduleRequestFromRow(row);
+  } catch (err) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code?: string }).code)
+        : "";
+    if (code === "P2002") return null;
+    throw err;
+  }
+}
+
+function formSubmissionFromRow(row: {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  title: string;
+  fields: Prisma.JsonValue;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}): FormSubmission {
+  const [item] = normalizeFormSubmissions([
+    {
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      phone: row.phone,
+      title: row.title,
+      fields: row.fields,
+      status: row.status,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    },
+  ]);
+  return (
+    item ?? {
+      id: row.id,
+      name: row.name || "Guest",
+      title: row.title || "Form",
+      fields: [],
+      status: normalizeFormSubmissionStatus(row.status),
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    }
+  );
+}
+
+async function loadFormSubmissions(slug: string): Promise<FormSubmission[]> {
+  const table = prisma.formSubmission;
+  if (!table) return [];
+  try {
+    const rows = await table.findMany({
+      where: { spaceSlug: slug },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map(formSubmissionFromRow);
+  } catch (err) {
+    console.error("[forms] load failed:", err);
+    return [];
+  }
+}
+
+async function insertFormSubmission(
+  slug: string,
+  submission: FormSubmission,
+): Promise<FormSubmission | null> {
+  const [item] = normalizeFormSubmissions([submission]);
+  if (!item || !prisma.formSubmission) return null;
+  try {
+    const row = await prisma.formSubmission.create({
+      data: {
+        id: item.id,
+        spaceSlug: slug,
+        name: item.name,
+        email: item.email ?? "",
+        phone: item.phone ?? "",
+        title: item.title,
+        fields: item.fields as unknown as Prisma.InputJsonValue,
+        status: item.status,
+      },
+    });
+    return formSubmissionFromRow(row);
+  } catch (err) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code?: string }).code)
+        : "";
+    if (code === "P2002") return null;
+    throw err;
+  }
+}
+
 export async function dbGetOffering(
   slug: string,
   offeringId: string,
@@ -384,12 +583,16 @@ function assembleSpace(
   offerings: Offering[] = [],
   knowledgeNotes: KnowledgeNote[] = [],
   cases: CustomerCase[] = [],
+  scheduleRequests: ScheduleRequest[] = [],
+  formSubmissions: FormSubmission[] = [],
 ): BusinessSpace {
   return normalizeSpace({
     ...doc,
     offerings,
     knowledgeNotes,
     cases,
+    scheduleRequests,
+    formSubmissions,
     clients,
     messages,
     deletedClientIds: [],
@@ -486,7 +689,7 @@ export async function dbGetSpace(
     );
   }
 
-  const [row, clients, messages, presence, offerings, knowledgeNotes, cases] =
+  const [row, clients, messages, presence, offerings, knowledgeNotes, cases, scheduleRequests, formSubmissions] =
     await Promise.all([
       prisma.space.findUnique({ where: { slug: clean } }),
       loadClients(clean),
@@ -497,6 +700,8 @@ export async function dbGetSpace(
       loadOfferings(clean),
       loadKnowledgeNotes(clean),
       loadCases(clean),
+      loadScheduleRequests(clean),
+      loadFormSubmissions(clean),
     ]);
   if (!row) return null;
   const space = assembleSpace(
@@ -506,6 +711,8 @@ export async function dbGetSpace(
     offerings,
     knowledgeNotes,
     cases,
+    scheduleRequests,
+    formSubmissions,
   );
   return applyPresence(space, presence);
 }
@@ -516,7 +723,7 @@ export async function dbGetSpaceFloorBoot(
 ): Promise<BusinessSpace | null> {
   await readyDb();
   const clean = slugify(slug);
-  const [row, clientRows, presence, offerings, knowledgeNotes, cases] = await Promise.all([
+  const [row, clientRows, presence, offerings, knowledgeNotes, cases, scheduleRequests, formSubmissions] = await Promise.all([
     prisma.space.findUnique({ where: { slug: clean } }),
     prisma.chat.findMany({
       where: { spaceSlug: clean, deleted: false },
@@ -527,6 +734,8 @@ export async function dbGetSpaceFloorBoot(
     loadOfferings(clean),
     loadKnowledgeNotes(clean),
     loadCases(clean),
+    loadScheduleRequests(clean),
+    loadFormSubmissions(clean),
   ]);
   if (!row) return null;
 
@@ -553,6 +762,8 @@ export async function dbGetSpaceFloorBoot(
     offerings,
     knowledgeNotes,
     cases,
+    scheduleRequests,
+    formSubmissions,
   );
   return applyPresence(space, presence);
 }
@@ -792,9 +1003,10 @@ async function afterAppendMessage(
   slug: string,
   message: Message,
   chatId: string,
+  skipAutoAnswer = false,
 ) {
   void dispatchAfterStoredMessage(slug, message, chatId);
-  if (message.from !== "client") return;
+  if (message.from !== "client" || skipAutoAnswer) return;
   await runAutoAnswerJob(slug, chatId, message.id);
 }
 
@@ -981,6 +1193,7 @@ export type AppendMessageInput = {
   upsertClient?: boolean;
   clearDeleted?: boolean;
   bumpClient?: boolean;
+  scheduleRequest?: ScheduleRequest;
 };
 
 export async function dbAppendMessage(
@@ -1019,6 +1232,14 @@ export async function dbAppendMessage(
       input.message,
     );
 
+    let storedSchedule: ScheduleRequest | null = null;
+    if (!duplicate && input.scheduleRequest) {
+      storedSchedule = await insertScheduleRequest(clean, {
+        ...input.scheduleRequest,
+        chatId: input.scheduleRequest.chatId || input.client.id,
+      });
+    }
+
     if (!duplicate && input.message.from === "client") {
       const doc = parseSpaceDoc(spaceRow.data);
       const intro = resolveChatIntroMessages(doc.settings);
@@ -1046,6 +1267,7 @@ export async function dbAppendMessage(
         client: nextClient,
         updatedAt: meta?.updatedAt ?? new Date().toISOString(),
         duplicate: true,
+        scheduleRequest: null as ScheduleRequest | null,
       };
     }
 
@@ -1055,6 +1277,7 @@ export async function dbAppendMessage(
       client: nextClient,
       updatedAt: updatedAt.toISOString(),
       duplicate: false,
+      scheduleRequest: storedSchedule,
     };
   }).then(async (result) => {
     emitSpaceEvent(clean, {
@@ -1063,6 +1286,16 @@ export async function dbAppendMessage(
       client: withoutAutoAnswerDraft(result.client),
       updatedAt: result.updatedAt,
     });
+    if (result.scheduleRequest) {
+      emitSpaceEvent(clean, {
+        type: "op",
+        op: {
+          type: "createScheduleRequest",
+          scheduleRequest: result.scheduleRequest,
+        },
+        updatedAt: result.updatedAt,
+      });
+    }
     if (
       result.message.from === "business" &&
       result.client.autoAnswerDraft === undefined
@@ -1079,7 +1312,12 @@ export async function dbAppendMessage(
     }
     void notifySpaceListeners(clean);
     if (!result.duplicate) {
-      void afterAppendMessage(clean, result.message, result.client.id);
+      void afterAppendMessage(
+        clean,
+        result.message,
+        result.client.id,
+        Boolean(result.scheduleRequest),
+      );
     }
     return {
       message: result.message,
@@ -1166,7 +1404,7 @@ async function applyOpToDb(slug: string, op: SpaceOp) {
       const current = await dbGetSpace(slug);
       if (!current) throw new Error("Space not found");
       const next = applySpaceOpToSpace(current, op);
-      const { clients: _c, messages: _m, deletedClientIds: _d, cases: _cases, ...doc } =
+      const { clients: _c, messages: _m, deletedClientIds: _d, cases: _cases, scheduleRequests: _s, formSubmissions: _f, ...doc } =
         normalizeSpace(next);
       await prisma.space.update({
         where: { slug },
@@ -1219,6 +1457,52 @@ async function applyOpToDb(slug: string, op: SpaceOp) {
           ) as unknown as Prisma.InputJsonValue,
         },
       });
+      return;
+    }
+    case "createScheduleRequest": {
+      if (op.schedulerId) {
+        const space = await dbGetSpace(slug);
+        const link = space?.settings.preChat?.links.find((item) => item.id === op.schedulerId);
+        const config = link ? quickBuildConfigForLink(link) : null;
+        if (!space || !isPublicActionEnabled(space.settings, "scheduler") || config?.type !== "scheduler") {
+          throw new Error("This scheduler is no longer available.");
+        }
+        const request = op.scheduleRequest;
+        if (!request.name?.trim() || !request.email?.trim() || (config.requirePhone && !request.phone?.trim())) {
+          throw new Error("Please provide the required contact details.");
+        }
+        if (!scheduleSlots(config, request.date).some((slot) => slot.value === request.time)) {
+          throw new Error("That time is no longer available. Choose another time.");
+        }
+        request.durationMinutes = config.durationMinutes;
+        request.title = config.title;
+        request.status = "requested";
+      }
+      await insertScheduleRequest(slug, op.scheduleRequest);
+      return;
+    }
+    case "updateScheduleStatus": {
+      const status = normalizeScheduleRequestStatus(op.status);
+      if (!prisma.scheduleRequest) return;
+      const updated = await prisma.scheduleRequest.updateMany({
+        where: { id: op.id, spaceSlug: slug },
+        data: { status },
+      });
+      if (updated.count === 0) throw new Error("Schedule request not found");
+      return;
+    }
+    case "createFormSubmission": {
+      await insertFormSubmission(slug, op.formSubmission);
+      return;
+    }
+    case "updateFormStatus": {
+      const status = normalizeFormSubmissionStatus(op.status);
+      if (!prisma.formSubmission) return;
+      const updated = await prisma.formSubmission.updateMany({
+        where: { id: op.id, spaceSlug: slug },
+        data: { status },
+      });
+      if (updated.count === 0) throw new Error("Form submission not found");
       return;
     }
     case "assignChatCase": {
@@ -1334,7 +1618,7 @@ export async function dbSaveSpace(space: BusinessSpace): Promise<BusinessSpace> 
   const newlyStored: { message: Message; client: Client }[] = [];
   const result = await withSpaceLock(clean, async () => {
     const normalized = ensureWelcomeMessagesForSpace(normalizeSpace(space));
-    const { clients, messages, deletedClientIds: _d, cases: _cases, ...doc } = normalized;
+    const { clients, messages, deletedClientIds: _d, cases: _cases, scheduleRequests: _s, formSubmissions: _f, ...doc } = normalized;
 
     await prisma.space.upsert({
       where: { slug: clean },

@@ -3,143 +3,136 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Fake storefront — OTGF widget demo</title>
+    <meta name="description" content="Summit Air & Home Services — fast, dependable heating and cooling service for local homeowners." />
+    <title>Summit Air & Home Services</title>
     <style>
-      :root {
-        color-scheme: light;
-        --ink: #1a1c20;
-        --muted: #6b7280;
-        --line: #e5e7eb;
-        --bg: #f6f4ef;
-        --surface: #fff;
-        --accent: #c45c26;
+      :root { color-scheme: light; --navy:#10263f; --deep:#091a2c; --orange:#e96538; --orange-dark:#cf4e25; --cream:#f6f2ea; --ink:#152333; --muted:#66717c; --line:#dbe0e3; --surface:#fff; --page:#fafaf8; }
+      * { box-sizing:border-box; }
+      html { scroll-behavior:smooth; }
+      body { margin:0; min-width:320px; color:var(--ink); background:var(--page); font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+      a { color:inherit; }
+      .notice { display:flex; align-items:center; justify-content:center; gap:.55rem; min-height:2.3rem; padding:.45rem 1rem; color:#fff; background:var(--deep); font-size:.78rem; font-weight:650; text-align:center; }
+      .notice-dot { width:.46rem; height:.46rem; flex:0 0 auto; border-radius:50%; background:#6ed39c; box-shadow:0 0 0 4px rgba(110,211,156,.12); }
+      .site-header { position:sticky; top:0; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:2rem; min-height:4.7rem; padding:0 5vw; border-bottom:1px solid rgba(16,38,63,.1); background:rgba(255,255,255,.94); backdrop-filter:blur(12px); }
+      .brand { display:inline-flex; align-items:center; gap:.72rem; text-decoration:none; }
+      .brand-mark { width:2.5rem; height:2.5rem; display:grid; place-items:center; border-radius:.7rem; color:#fff; background:var(--orange); box-shadow:0 7px 18px rgba(233,101,56,.24); }
+      .brand-mark svg { width:1.45rem; height:1.45rem; }
+      .brand-copy { display:grid; gap:.02rem; }
+      .brand-copy strong { color:var(--navy); font-size:1rem; letter-spacing:-.02em; }
+      .brand-copy small { color:var(--muted); font-size:.61rem; font-weight:750; letter-spacing:.13em; text-transform:uppercase; }
+      nav { display:flex; align-items:center; gap:clamp(1rem,2.4vw,2rem); }
+      nav a { color:#3e4c59; font-size:.86rem; font-weight:650; text-decoration:none; }
+      nav a:hover { color:var(--orange-dark); }
+      .phone-link { display:inline-flex; align-items:center; min-height:2.55rem; padding:0 1rem; border-radius:.55rem; color:#fff; background:var(--navy); }
+      main { overflow:hidden; }
+      .hero { position:relative; min-height:min(680px,calc(100vh - 7rem)); display:grid; align-items:center; background:linear-gradient(90deg,rgba(9,26,44,.97) 0%,rgba(9,26,44,.9) 38%,rgba(9,26,44,.28) 68%,rgba(9,26,44,.06) 100%),url("/hvac-hero.png") center/cover no-repeat; }
+      .hero-inner { width:min(1180px,90vw); margin:0 auto; padding:clamp(4.5rem,9vw,7.5rem) 0; }
+      .eyebrow { margin:0 0 1rem; color:#b34520; font-size:.76rem; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
+      .hero .eyebrow { color:#f4ae91; }
+      h1 { max-width:680px; margin:0; color:#fff; font-family:Georgia,"Times New Roman",serif; font-size:clamp(3rem,6vw,5.8rem); font-weight:500; letter-spacing:-.055em; line-height:.96; }
+      .hero-lede { max-width:590px; margin:1.5rem 0 0; color:rgba(255,255,255,.8); font-size:clamp(1rem,1.8vw,1.18rem); line-height:1.62; }
+      .hero-actions { display:flex; align-items:center; flex-wrap:wrap; gap:.8rem; margin-top:2rem; }
+      .button { min-height:3.2rem; display:inline-flex; align-items:center; justify-content:center; padding:0 1.35rem; border-radius:.55rem; font-size:.9rem; font-weight:750; text-decoration:none; transition:transform 150ms ease,background 150ms ease; }
+      .button:hover { transform:translateY(-1px); }
+      .button-primary { color:#fff; background:var(--orange); box-shadow:0 12px 28px rgba(233,101,56,.24); }
+      .button-primary:hover { background:var(--orange-dark); }
+      .button-secondary { border:1px solid rgba(255,255,255,.34); color:#fff; background:rgba(255,255,255,.08); }
+      .trust-strip { position:relative; z-index:2; width:min(1100px,90vw); display:grid; grid-template-columns:repeat(4,1fr); margin:-2.7rem auto 0; border:1px solid var(--line); border-radius:.85rem; background:var(--surface); box-shadow:0 18px 45px rgba(18,34,50,.1); }
+      .trust-item { padding:1.35rem 1.2rem; text-align:center; }
+      .trust-item + .trust-item { border-left:1px solid var(--line); }
+      .trust-item strong { display:block; color:var(--navy); font-family:Georgia,"Times New Roman",serif; font-size:1.35rem; }
+      .trust-item span { display:block; margin-top:.22rem; color:var(--muted); font-size:.72rem; font-weight:650; }
+      .section { width:min(1100px,90vw); margin:0 auto; padding:clamp(4.5rem,8vw,7rem) 0; }
+      .section-heading { max-width:650px; margin-bottom:2.3rem; }
+      .section-heading h2,.why-copy h2 { margin:0; color:var(--navy); font-family:Georgia,"Times New Roman",serif; font-size:clamp(2.1rem,4vw,3.4rem); font-weight:500; letter-spacing:-.045em; line-height:1.04; }
+      .section-heading p:last-child { margin:.85rem 0 0; color:var(--muted); line-height:1.6; }
+      .service-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; }
+      .service-card { min-height:250px; display:flex; flex-direction:column; align-items:flex-start; padding:1.6rem; border:1px solid var(--line); border-radius:.85rem; background:var(--surface); box-shadow:0 9px 30px rgba(18,34,50,.05); }
+      .service-icon { width:2.65rem; height:2.65rem; display:grid; place-items:center; border-radius:.65rem; color:var(--orange-dark); background:#fff0e9; }
+      .service-icon svg { width:1.35rem; height:1.35rem; }
+      .service-card h3 { margin:1.2rem 0 .55rem; color:var(--navy); font-size:1.06rem; }
+      .service-card p { margin:0; color:var(--muted); font-size:.88rem; line-height:1.55; }
+      .service-card a { margin-top:auto; padding-top:1.25rem; color:var(--orange-dark); font-size:.82rem; font-weight:750; text-decoration:none; }
+      .why { background:var(--cream); }
+      .why-inner { width:min(1100px,90vw); display:grid; grid-template-columns:.9fr 1.1fr; align-items:center; gap:clamp(2.5rem,7vw,6rem); margin:0 auto; padding:clamp(4.5rem,8vw,7rem) 0; }
+      .rating-card { padding:clamp(2rem,5vw,3.5rem); border-radius:1rem; color:#fff; background:var(--navy); box-shadow:0 20px 50px rgba(16,38,63,.18); }
+      .stars { color:#ffc071; font-size:1.05rem; letter-spacing:.14em; }
+      .rating-card blockquote { margin:1.4rem 0; font-family:Georgia,"Times New Roman",serif; font-size:clamp(1.45rem,3vw,2.15rem); letter-spacing:-.025em; line-height:1.3; }
+      .rating-card cite { color:rgba(255,255,255,.66); font-size:.78rem; font-style:normal; }
+      .check-list { display:grid; gap:1rem; margin:1.6rem 0 0; padding:0; list-style:none; }
+      .check-list li { position:relative; padding-left:1.75rem; color:#485561; line-height:1.48; }
+      .check-list li::before { content:"✓"; position:absolute; left:0; top:0; color:var(--orange-dark); font-weight:900; }
+      footer { padding:2.4rem 5vw; color:rgba(255,255,255,.62); background:var(--deep); font-size:.75rem; line-height:1.5; text-align:center; }
+      footer strong { color:#fff; }
+      @media (max-width:800px) {
+        nav a:not(.phone-link) { display:none; }
+        .hero { min-height:660px; background:linear-gradient(90deg,rgba(9,26,44,.95),rgba(9,26,44,.68)),url("/hvac-hero.png") 61% center/cover no-repeat; }
+        h1 { max-width:600px; font-size:clamp(3rem,13vw,4.7rem); }
+        .trust-strip { grid-template-columns:repeat(2,1fr); }
+        .trust-item:nth-child(3) { border-left:0; border-top:1px solid var(--line); }
+        .trust-item:nth-child(4) { border-top:1px solid var(--line); }
+        .service-grid,.why-inner { grid-template-columns:1fr; }
       }
-      * {
-        box-sizing: border-box;
+      @media (max-width:520px) {
+        .notice { font-size:.7rem; }
+        .site-header { min-height:4.2rem; padding:0 1rem; }
+        .brand-copy small { display:none; }
+        .phone-link { min-height:2.35rem; padding:0 .75rem; font-size:.75rem; }
+        .hero-inner,.section,.why-inner,.trust-strip { width:calc(100% - 2rem); }
+        .hero { min-height:610px; }
+        .hero-actions { align-items:stretch; flex-direction:column; }
+        .button { width:100%; }
+        .trust-item { padding:1.1rem .65rem; }
+        .trust-item strong { font-size:1.12rem; }
+        .service-grid { gap:.75rem; }
       }
-      body {
-        margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
-        color: var(--ink);
-        background:
-          radial-gradient(80% 60% at 10% 0%, #efe8dc 0%, transparent 55%),
-          var(--bg);
-        min-height: 100vh;
-      }
-      header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 1rem 1.5rem;
-        border-bottom: 1px solid var(--line);
-        background: color-mix(in srgb, var(--surface) 88%, transparent);
-        backdrop-filter: blur(8px);
-        position: sticky;
-        top: 0;
-      }
-      .logo {
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        font-size: 0.95rem;
-      }
-      nav {
-        display: flex;
-        gap: 1rem;
-        color: var(--muted);
-        font-size: 0.9rem;
-      }
-      main {
-        max-width: 42rem;
-        margin: 0 auto;
-        padding: 3rem 1.5rem 6rem;
-      }
-      h1 {
-        font-size: clamp(2.2rem, 6vw, 3.4rem);
-        line-height: 1.05;
-        margin: 0 0 0.75rem;
-        letter-spacing: -0.03em;
-      }
-      .lede {
-        font-size: 1.15rem;
-        line-height: 1.5;
-        color: var(--muted);
-        margin: 0 0 1.75rem;
-      }
-      .card {
-        background: var(--surface);
-        border: 1px solid var(--line);
-        border-radius: 1rem;
-        padding: 1.25rem 1.35rem;
-        box-shadow: 0 10px 30px rgba(16, 24, 40, 0.06);
-      }
-      .card h2 {
-        margin: 0 0 0.4rem;
-        font-size: 1.15rem;
-      }
-      .card p {
-        margin: 0;
-        color: var(--muted);
-        line-height: 1.45;
-      }
-      .hint {
-        margin-top: 2rem;
-        font-size: 0.92rem;
-        color: var(--muted);
-        line-height: 1.45;
-      }
-      code {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 0.85em;
-        background: #efece6;
-        padding: 0.1rem 0.35rem;
-        border-radius: 0.35rem;
-      }
+      @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .button { transition:none; } }
     </style>
   </head>
   <body>
-    <header>
-      <div class="logo">River Salon</div>
-      <nav>
-        <span>Services</span>
-        <span>Team</span>
-        <span>Book</span>
-      </nav>
+    <div class="notice"><span class="notice-dot" aria-hidden="true"></span>Same-day appointments available — serving the Valley until 8 PM</div>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Summit Air home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14 9.5 6l3 4L15 7l5 7"/><path d="M7 17h10M9.5 20h5"/></svg></span>
+        <span class="brand-copy"><strong>Summit Air</strong><small>Heating &amp; Cooling</small></span>
+      </a>
+      <nav aria-label="Primary navigation"><a href="#services">Services</a><a href="#why-us">Why us</a><a href="#reviews">Reviews</a><a class="phone-link" href="tel:+15550142789">Call (555) 014-2789</a></nav>
     </header>
-
-    <main>
-      <h1>Color, cuts, and quiet floors.</h1>
-      <p class="lede">
-        This is a fake storefront page — pretend it’s the salon’s real website.
-        The chat bubble in the corner is the OTGF widget.
-      </p>
-
-      <div class="card">
-        <h2>Try the chat bubble</h2>
-        <p>
-          Click the round button bottom-right. It opens live chat for
-          <code id="slug-label">your space</code>.
-        </p>
-      </div>
-
-      <p class="hint">
-        This is a sample site so you can see the bubble before pasting the
-        snippet on your real pages.
-      </p>
+    <main id="top">
+      <section class="hero">
+        <div class="hero-inner">
+          <p class="eyebrow">Local comfort, handled</p>
+          <h1>Comfort restored. No runaround.</h1>
+          <p class="hero-lede">Honest heating and cooling repairs from licensed local technicians. Clear options, upfront pricing, and a home left cleaner than we found it.</p>
+          <div class="hero-actions"><a class="button button-primary" href="#services">Schedule service</a><a class="button button-secondary" href="tel:+15550142789">Emergency repair</a></div>
+        </div>
+      </section>
+      <section class="trust-strip" aria-label="Service highlights">
+        <div class="trust-item"><strong>4.9 / 5</strong><span>Local homeowner rating</span></div><div class="trust-item"><strong>12 years</strong><span>Serving the Valley</span></div><div class="trust-item"><strong>Same day</strong><span>Appointments available</span></div><div class="trust-item"><strong>100%</strong><span>Satisfaction guarantee</span></div>
+      </section>
+      <section class="section" id="services">
+        <div class="section-heading"><p class="eyebrow">How we can help</p><h2>Everything your home needs to stay comfortable.</h2><p>From urgent fixes to full-system upgrades, our technicians explain the work before it begins.</p></div>
+        <div class="service-grid">
+          <article class="service-card"><span class="service-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></span><h3>AC repair &amp; tune-ups</h3><p>Fast diagnostics, straightforward repair options, and preventive maintenance for every major brand.</p><a href="#top">Explore cooling →</a></article>
+          <article class="service-card"><span class="service-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2c2 3 4 4.8 4 8a4 4 0 0 1-8 0c0-1.8.8-3.4 2.3-5.2 0 2.3 1 3.4 1.7 3.9C13 6.8 13 4.6 12 2Z"/><path d="M6 20h12"/></svg></span><h3>Heating &amp; furnaces</h3><p>Reliable heating repairs, seasonal safety checks, and efficient replacements sized for your home.</p><a href="#top">Explore heating →</a></article>
+          <article class="service-card"><span class="service-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16M7 7h10M9 17h6"/><path d="M12 3v18"/></svg></span><h3>Indoor air quality</h3><p>Whole-home filtration, airflow balancing, and humidity solutions for cleaner, healthier indoor air.</p><a href="#top">Breathe easier →</a></article>
+        </div>
+      </section>
+      <section class="why" id="why-us"><div class="why-inner">
+        <article class="rating-card" id="reviews"><div class="stars" aria-label="5 out of 5 stars">★★★★★</div><blockquote>“They gave me options without pressure and had the AC running before dinner.”</blockquote><cite>— Maria R., verified homeowner</cite></article>
+        <div class="why-copy"><p class="eyebrow">The Summit standard</p><h2>A service visit you can feel good about.</h2><ul class="check-list"><li>Licensed, background-checked technicians</li><li>Upfront estimates with no surprise charges</li><li>Two-hour arrival windows and text updates</li><li>Workmanship backed by our one-year guarantee</li></ul></div>
+      </div></section>
     </main>
-
+    <footer><strong>Summit Air &amp; Home Services</strong><br />Fictional demonstration website created to preview the live-chat experience.</footer>
     <script>
       (function () {
-        var slug =
-          new URLSearchParams(location.search).get("slug") || "riveryogi";
-        var label = document.getElementById("slug-label");
-        if (label) label.textContent = slug;
-        var s = document.createElement("script");
-        s.src = "/widget.js";
-        s.async = true;
-        s.setAttribute("data-slug", slug);
-        document.body.appendChild(s);
+        var params = new URLSearchParams(location.search);
+        var slug = params.get("slug") || "hvac-one";
+        var widget = document.createElement("script");
+        widget.src = "/widget.js?v=3";
+        widget.async = true;
+        widget.setAttribute("data-slug", slug);
+        document.body.appendChild(widget);
       })();
     </script>
   </body>

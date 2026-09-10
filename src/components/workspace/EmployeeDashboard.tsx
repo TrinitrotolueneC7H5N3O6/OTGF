@@ -1,8 +1,13 @@
 "use client";
 
+import { GrowthToolsPanel } from "./GrowthToolsPanel";
+import { StoryTemplatePanel } from "./StoryTemplatePanel";
+import { StoryCasesPanel } from "./StoryCasesPanel";
+import { normalizeStoryTemplate } from "@/lib/storytelling";
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type {
   BusinessSpace,
   Client,
@@ -14,6 +19,8 @@ import type {
   Message,
   Offering,
   KnowledgeNote,
+  ScheduleRequestStatus,
+  FormSubmissionStatus,
 } from "@/lib/types";
 import {
   appendMessage,
@@ -27,6 +34,7 @@ import { waitSinceLabel } from "@/lib/messageTime";
 import { isClientLive } from "@/lib/presence";
 import { messageTimeStamp } from "@/lib/spaceNormalize";
 import { autoAnswerListLabel, withoutAutoAnswerDraft } from "@/lib/autoAnswer";
+import { ScheduleSettingsPanel } from "./ScheduleSettingsPanel";
 import { WorkspaceTopBar } from "./WorkspaceTopBar";
 import {
   ACCOUNT_SETTINGS_TABS,
@@ -45,195 +53,40 @@ import { ClientFacingPanel } from "./ClientFacingPanel";
 import { WebsiteInstallPanel } from "./WebsiteInstallPanel";
 import { OfferingsPanel } from "./OfferingsPanel";
 import { AiSetupPanel } from "./AiSetupPanel";
+import { QuickBuildsPanel } from "./QuickBuildsPanel";
+import { InsightsPanel } from "./InsightsPanel";
 import { CasesPanel } from "./CasesPanel";
+import { SchedulePanel } from "./SchedulePanel";
+import { FormsPanel } from "./FormsPanel";
+import { FormsManagerPanel } from "./FormsManagerPanel";
+import { ComponentsDashboard } from "./ComponentsDashboard";
 import { AutoAnswerReview, AutoAnswerToggle } from "./AutoAnswerReview";
-import { CornerTools } from "@/components/shared/CornerTools";
-import { IconChevronDown } from "@/components/shared/Icons";
+import { WorkspaceSidebar } from "./WorkspaceSidebar";
+import { isSolutionEnabled } from "@/lib/setupSolutions";
 import {
-  ACCOUNT_TAB_SOLUTION,
-  PREF_SECTION_SOLUTION,
-  isSolutionEnabled,
-} from "@/lib/setupSolutions";
+  HASH_TO_NAV,
+  LEGACY_NAV,
+  ACCOUNT_SETTINGS_NAV_TABS,
+  visibleToolsLeaves,
+  visiblePresenceLeaves,
+  SETTINGS_QUERY_TO_NAV,
+  SETTINGS_QUERY_TO_SECTION,
+  WIDGET_BUILD_CHAT_HASHES,
+  LIVE_CHAT_SETTINGS_HASHES,
+  canonicalNav,
+  dashHref,
+  isAccountSettingsNav,
+  isPublicSettingsNav,
+  isNavEnabled,
+  navFromPathname,
+  presenceHomeNav,
+  workspaceHomeNav,
+  type DashNav,
+} from "@/lib/workspaceNav";
+import { SettingsArea } from "./SettingsArea";
 
 interface EmployeeDashboardProps {
   slug: string;
-}
-
-type DashNav =
-  | "home"
-  | `pref:${PrefSection}`
-  | `account:${SettingsTab}`
-  | "client:page"
-  | "client:chat"
-  | "site:contact"
-  | "site:bubble"
-  | "offerings"
-  | "cases"
-  | "cases:contacts"
-  | "ai";
-
-type DashGroupId = "setup" | "business";
-
-type DashNavEntry =
-  | { kind: "pref"; id: PrefSection; label: string }
-  | { kind: "account"; id: SettingsTab; label: string }
-  | { kind: "client"; id: "page" | "chat"; label: string }
-  | { kind: "site"; id: "contact" | "bubble"; label: string }
-  | { kind: "offerings"; label: string }
-  | { kind: "cases"; id: "overview" | "contacts"; label: string }
-  | { kind: "ai"; label: string };
-
-interface DashNavNested {
-  id: string;
-  label: string;
-  items: DashNavNode[];
-}
-
-type DashNavNode = DashNavEntry | DashNavNested;
-
-const DASH_NAV_GROUPS: {
-  id: DashGroupId;
-  label: string;
-  items: DashNavNode[];
-}[] = [
-  {
-    id: "setup",
-    label: "Setup Station",
-    items: [
-      { kind: "client", id: "page", label: "Public Page" },
-      { kind: "site", id: "contact", label: "Contact Page" },
-      { kind: "client", id: "chat", label: "Live Chat" },
-      { kind: "ai", label: "AI" },
-    ],
-  },
-  {
-    id: "business",
-    label: "Settings",
-    items: [
-      { kind: "offerings", label: "What you offer" },
-      {
-        id: "account-pages",
-        label: "Account",
-        items: [
-          { kind: "account", id: "billing", label: "Billing" },
-          { kind: "account", id: "notify", label: "Email alerts" },
-          { kind: "account", id: "account", label: "Your account" },
-        ],
-      },
-      { kind: "pref", id: "sounds", label: "Sounds" },
-      { kind: "account", id: "shortcuts", label: "Shortcuts" },
-    ],
-  },
-];
-
-const SETTINGS_QUERY_TO_NAV: Partial<Record<SettingsTab, DashNav>> = {
-  brand: "client:page",
-  hours: "client:page",
-  shoutouts: "client:chat",
-};
-
-const SETTINGS_QUERY_TO_SECTION: Partial<Record<SettingsTab, string>> = {
-  brand: "cf-look",
-  hours: "cf-hours",
-  shoutouts: "cf-promos",
-};
-
-const LEGACY_NAV: Record<string, DashNav> = {
-  "pref:pre-chat": "client:page",
-  "pref:intro": "client:chat",
-  "pref:links": "client:chat",
-  "pref:chat-interface": "client:chat",
-  "account:brand": "client:page",
-  "account:hours": "client:page",
-  "account:shoutouts": "client:chat",
-  "site:bubble": "client:chat",
-};
-
-function isNavNested(node: DashNavNode): node is DashNavNested {
-  return "items" in node && !("kind" in node);
-}
-
-function dashNavId(item: DashNavEntry): DashNav {
-  if (item.kind === "pref") return `pref:${item.id}`;
-  if (item.kind === "client") return `client:${item.id}`;
-  if (item.kind === "site") return `site:${item.id}`;
-  if (item.kind === "offerings") return "offerings";
-  if (item.kind === "cases") {
-    return item.id === "contacts" ? "cases:contacts" : "cases";
-  }
-  if (item.kind === "ai") return "ai";
-  return `account:${item.id}`;
-}
-
-function isDashItemVisible(settings: FloorSettings, item: DashNavEntry) {
-  if (
-    item.kind === "site" ||
-    item.kind === "offerings" ||
-    item.kind === "cases" ||
-    item.kind === "ai"
-  ) {
-    return true;
-  }
-  if (item.kind === "client") {
-    return item.id === "chat" || isSolutionEnabled(settings, "preChat");
-  }
-  const required =
-    item.kind === "pref"
-      ? PREF_SECTION_SOLUTION[item.id]
-      : ACCOUNT_TAB_SOLUTION[item.id];
-  return !required || isSolutionEnabled(settings, required);
-}
-
-function visibleNavNodes(
-  settings: FloorSettings,
-  nodes: DashNavNode[],
-): DashNavNode[] {
-  return nodes.flatMap((node): DashNavNode[] => {
-    if (!isNavNested(node)) {
-      return isDashItemVisible(settings, node) ? [node] : [];
-    }
-    const items = visibleNavNodes(settings, node.items);
-    return items.length > 0 ? [{ ...node, items }] : [];
-  });
-}
-
-function flattenNavEntries(nodes: DashNavNode[]): DashNavEntry[] {
-  return nodes.flatMap((node) =>
-    isNavNested(node) ? flattenNavEntries(node.items) : [node],
-  );
-}
-
-function groupIdForNav(nav: DashNav): DashGroupId | null {
-  if (nav === "home") return null;
-  for (const group of DASH_NAV_GROUPS) {
-    if (flattenNavEntries(group.items).some((item) => dashNavId(item) === nav)) {
-      return group.id;
-    }
-  }
-  return null;
-}
-
-function nestedIdsForNav(nav: DashNav): string[] {
-  if (nav === "home") return [];
-  if (nav === "cases" || nav === "cases:contacts") return ["cases-menu"];
-  const ids: string[] = [];
-  function walk(nodes: DashNavNode[], ancestors: string[]): boolean {
-    for (const node of nodes) {
-      if (!isNavNested(node)) {
-        if (dashNavId(node) === nav) {
-          ids.push(...ancestors);
-          return true;
-        }
-        continue;
-      }
-      if (walk(node.items, [...ancestors, node.id])) return true;
-    }
-    return false;
-  }
-  for (const group of DASH_NAV_GROUPS) {
-    if (walk(group.items, [])) return ids;
-  }
-  return ids;
 }
 
 function guestActiveClients(clients: Client[]) {
@@ -255,18 +108,13 @@ function settingsTabFromQuery(raw: string | null): SettingsTab | null {
 
 export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [space, setSpace] = useState<BusinessSpace | null>(null);
   const [floorMemberId, setFloorMemberId] = useState("all");
   const [copied, setCopied] = useState(false);
   const [clientUrl, setClientUrl] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
-  const [nav, setNav] = useState<DashNav>("home");
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    setup: true,
-    "cases-menu": true,
-    business: true,
-    "account-pages": true,
-  });
+  const [nav, setNav] = useState<DashNav>(() => navFromPathname(pathname, slug));
   const opsInFlight = useRef(0);
   const offeringsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const offeringsLatest = useRef<Offering[] | null>(null);
@@ -285,27 +133,36 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     if (!tab) return;
     openedFromQuery.current = true;
     const next: DashNav = SETTINGS_QUERY_TO_NAV[tab] ?? `account:${tab}`;
-    const section = SETTINGS_QUERY_TO_SECTION[tab];
-    const group = groupIdForNav(next);
-    const nestedIds = nestedIdsForNav(next);
-    if (group || nestedIds.length > 0) {
-      setOpenGroups((current) => ({
-        ...current,
-        ...(group ? { [group]: true } : {}),
-        ...Object.fromEntries(nestedIds.map((id) => [id, true])),
-      }));
-    }
+    const hashSection = SETTINGS_QUERY_TO_SECTION[tab];
     setNav(next);
-    router.replace(
-      section ? `/${slug}/dashboard#${section}` : `/${slug}/dashboard`,
-      { scroll: false },
-    );
+    router.replace(dashHref(slug, next, hashSection), { scroll: false });
   }, [slug, router]);
 
   useEffect(() => {
     document.documentElement.classList.add("floor-lock");
     return () => document.documentElement.classList.remove("floor-lock");
   }, []);
+
+  useEffect(() => {
+    const next = navFromPathname(pathname, slug);
+    setNav((current) => (current === next ? current : next));
+  }, [pathname, slug]);
+
+  useEffect(() => {
+    const hash = window.location.hash.replace(/^#/, "");
+    const mapped = HASH_TO_NAV[hash];
+    if (!mapped) return;
+    if (
+      pathname === `/${slug}/live-chat` ||
+      pathname === `/${slug}/live-chat/` ||
+      pathname === `/${slug}/floor` ||
+      pathname === `/${slug}/floor/` ||
+      pathname === `/${slug}/dashboard` ||
+      pathname === `/${slug}/dashboard/`
+    ) {
+      router.replace(dashHref(slug, mapped, hash), { scroll: false });
+    }
+  }, [pathname, slug, router]);
 
   useEffect(() => {
     try {
@@ -493,6 +350,14 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     runOp({ type: "hideClient", clientId, hidden });
   }
 
+  function updateScheduleStatus(id: string, status: ScheduleRequestStatus) {
+    runOp({ type: "updateScheduleStatus", id, status });
+  }
+
+  function updateFormStatus(id: string, status: FormSubmissionStatus) {
+    runOp({ type: "updateFormStatus", id, status });
+  }
+
   function toggleLive() {
     if (!space) return;
     runOp({
@@ -632,20 +497,65 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     if (!space) return;
     const remapped = LEGACY_NAV[nav];
     if (remapped) {
-      if (nav === "site:bubble" && !window.location.hash) {
-        window.history.replaceState(null, "", "#cf-bubble");
-      }
-      setNav(remapped);
+      const currentHash = window.location.hash.replace(/^#/, "");
+      const hash =
+        currentHash ||
+        (nav === "site:bubble"
+          ? "cf-bubble"
+          : nav === "pref:sounds"
+            ? "cf-sounds"
+            : "");
+      router.replace(dashHref(slug, remapped, hash), { scroll: false });
       return;
     }
-    if (nav === "client:page" && !isSolutionEnabled(space.settings, "preChat")) {
-      setNav("client:chat");
+    if (nav === "widget-builds") {
+      const chatHash = window.location.hash.replace(/^#/, "");
+      if (
+        WIDGET_BUILD_CHAT_HASHES.has(chatHash) &&
+        isNavEnabled(space.settings, "client:chat")
+      ) {
+        router.replace(
+          dashHref(
+            slug,
+            "client:chat",
+            chatHash === "chat" ? "" : chatHash,
+          ),
+          { scroll: false },
+        );
+        return;
+      }
+      if (
+        LIVE_CHAT_SETTINGS_HASHES.has(chatHash) &&
+        isNavEnabled(space.settings, "tools:live-chat")
+      ) {
+        router.replace(
+          dashHref(slug, "tools:live-chat", chatHash),
+          { scroll: false },
+        );
+        return;
+      }
+    }
+    if (!isNavEnabled(space.settings, nav)) {
+      router.replace(
+        dashHref(
+          slug,
+          isPublicSettingsNav(nav)
+            ? presenceHomeNav(space.settings)
+            : "dashboard",
+        ),
+        { scroll: false },
+      );
       return;
     }
     if (nav.startsWith("pref:")) {
-      const section = nav.slice(5);
-      if (!visiblePrefSections(space.settings).some((item) => item.id === section)) {
-        setNav("home");
+      const sectionId = nav.slice(5);
+      if (
+        !visiblePrefSections(space.settings).some((item) => item.id === sectionId)
+      ) {
+        router.replace(
+          dashHref(slug, workspaceHomeNav(space.settings)),
+          { scroll: false },
+        );
       }
       return;
     }
@@ -654,10 +564,10 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
       if (
         !visibleAccountSettingsTabs(space.settings).some((item) => item.id === tab)
       ) {
-        setNav("account:setup");
+        router.replace(dashHref(slug, "account:setup"), { scroll: false });
       }
     }
-  }, [space, nav]);
+  }, [space, nav, slug, router]);
 
   const openChats = clients.filter((c) => !c.chatEndedAt);
   const unreadTotal = clients.reduce((sum, c) => sum + (c.unread || 0), 0);
@@ -719,83 +629,6 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     shortcuts: space.settings.shortcuts ?? [],
   };
 
-  const brandIncomplete =
-    !space.settings.brandBannerUrl || !space.settings.logoUrl;
-
-  const publicPageOn = isSolutionEnabled(space.settings, "preChat");
-
-  function leafIncomplete(item: DashNavEntry) {
-    const brandAlert =
-      item.kind === "client" &&
-      brandIncomplete &&
-      ((item.id === "page" && publicPageOn) ||
-        (item.id === "chat" && !publicPageOn));
-    return (
-      brandAlert ||
-      (item.kind === "account" && item.id === "brand" && brandIncomplete)
-    );
-  }
-
-  function renderNavLeaf(item: DashNavEntry, nested = false) {
-    const id = dashNavId(item);
-    const incomplete = leafIncomplete(item);
-    return (
-      <button
-        key={id}
-        type="button"
-        className={`dashboard-nav-item is-child${nested ? " is-nested-child" : ""} ${nav === id ? "is-active" : ""}`}
-        onClick={() => setNav(id)}
-      >
-        <span>{item.label}</span>
-        {incomplete ? (
-          <span className="settings-tab-alert" aria-hidden>
-            !
-          </span>
-        ) : null}
-      </button>
-    );
-  }
-
-  function renderNavNode(node: DashNavNode, nested = false) {
-    if (!isNavNested(node)) return renderNavLeaf(node, nested);
-    const nestedOpen = openGroups[node.id] !== false;
-    const nestedIncomplete = flattenNavEntries(node.items).some(leafIncomplete);
-    const children = nestedOpen
-      ? node.items.map((item) => renderNavNode(item, true))
-      : null;
-    return (
-      <div key={node.id}>
-        <button
-          type="button"
-          className={`dashboard-nav-group-toggle is-child${nested ? " is-nested-child" : ""}`}
-          aria-expanded={nestedOpen}
-          onClick={() =>
-            setOpenGroups((current) => ({
-              ...current,
-              [node.id]: !nestedOpen,
-            }))
-          }
-        >
-          <span className="dashboard-nav-group-label">
-            {node.label}
-            {nestedIncomplete ? (
-              <span className="settings-tab-alert" aria-hidden>
-                !
-              </span>
-            ) : null}
-          </span>
-          <IconChevronDown
-            size={16}
-            className={nestedOpen ? "is-open" : undefined}
-          />
-        </button>
-        {nestedOpen ? (
-          <div className="dashboard-nav-nested">{children}</div>
-        ) : null}
-      </div>
-    );
-  }
-
   const overview = (
     <div className="dashboard-overview">
       <header className="dashboard-hero">
@@ -803,12 +636,12 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
           <p className="dashboard-kicker">Dashboard</p>
           <h1>{space.business.name}</h1>
           <p className="dashboard-lede">
-            Share your link, tune the space, and see who’s covering which chats
-            — then jump back to the floor to answer.
+            Share your link, see who’s covering chats, and jump to live chat
+            from the sidebar when a customer writes in.
           </p>
         </div>
-        <Link href={`/${slug}/floor`} className="btn-solid dashboard-open-floor">
-          Open Floor
+        <Link href={dashHref(slug, "floor")} className="btn-solid dashboard-open-floor">
+          Open Live Chat
         </Link>
       </header>
 
@@ -837,7 +670,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         <section className="dashboard-card is-recent-chats">
           <header className="dashboard-card-head">
             <h2>Recent Chats</h2>
-            <p>Jump back into the floor inbox</p>
+            <p>Jump back into live chat</p>
           </header>
           {recent.length === 0 ? (
             <p className="dashboard-empty">No customer chats yet.</p>
@@ -849,7 +682,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
                 );
                 return (
                   <li key={client.id}>
-                    <Link href={`/${slug}/floor`}>
+                    <Link href={dashHref(slug, "floor")}>
                       <div className="dashboard-recent-main">
                         <strong>{client.name}</strong>
                         <span className="dashboard-recent-preview">
@@ -956,7 +789,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         <section className="dashboard-card dashboard-share-card">
           <header className="dashboard-card-head">
             <h2>Share your link</h2>
-            <p>Customers scan this QR code or copy the URL to open your page.</p>
+            <p>Customers scan this QR code or copy the URL to open your micro-landing page.</p>
           </header>
           {clientUrl ? (
             <ShareQrCard
@@ -974,17 +807,73 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   );
 
   let main: ReactNode = overview;
-  if (nav === "client:page" || nav === "client:chat") {
+  if (nav === "dashboard" || nav === "online") {
+    main = (
+      <ComponentsDashboard
+        slug={slug}
+        settings={settingsPayload}
+        onChangeSettings={updateSettings}
+      />
+    );
+  } else if (nav === "client:page") {
     main = (
       <ClientFacingPanel
         slug={slug}
-        surface={nav === "client:page" ? "page" : "chat"}
+        surface="page"
         space={space}
         settings={settingsPayload}
         members={members}
         artifacts={space.artifacts ?? []}
+        hideTitle
         onChangeSettings={updateSettings}
         onChangeMembers={updateMembers}
+      />
+    );
+  } else if (nav === "client:chat") {
+    main = (
+      <ClientFacingPanel
+        slug={slug}
+        surface="widget"
+        space={space}
+        settings={settingsPayload}
+        members={members}
+        artifacts={space.artifacts ?? []}
+        hideTitle
+        onChangeSettings={updateSettings}
+        onChangeMembers={updateMembers}
+      />
+    );
+  } else if (nav === "tools:live-chat") {
+    main = (
+      <ClientFacingPanel
+        slug={slug}
+        surface="chat"
+        space={space}
+        settings={settingsPayload}
+        members={members}
+        artifacts={space.artifacts ?? []}
+        hideTitle
+        onChangeSettings={updateSettings}
+        onChangeMembers={updateMembers}
+      />
+    );
+  } else if (nav === "tools:referrals" || nav === "tools:affiliates") {
+    main = <GrowthToolsPanel key={nav} slug={slug} kind={nav === "tools:referrals" ? "referral" : "affiliate"} mode="setup" />;
+  } else if (nav === "tools:storytelling") {
+    main = (
+      <StoryTemplatePanel
+        settings={settingsPayload}
+        onChangeSettings={updateSettings}
+      />
+    );
+  } else if (nav === "tools:schedule") {
+    main = <ScheduleSettingsPanel slug={slug} settings={settingsPayload} onChangeSettings={updateSettings} />;
+  } else if (nav === "tools:forms") {
+    main = (
+      <FormsManagerPanel
+        slug={slug}
+        settings={settingsPayload}
+        onChangeSettings={updateSettings}
       />
     );
   } else if (nav === "offerings") {
@@ -1011,6 +900,31 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         onHideChat={hideCaseChat}
       />
     );
+  } else if (nav === "schedule") {
+    main = (
+      <SchedulePanel
+        requests={space.scheduleRequests ?? []}
+        onUpdateStatus={updateScheduleStatus}
+      />
+    );
+  } else if (nav === "forms") {
+    main = (
+      <FormsPanel
+        submissions={space.formSubmissions ?? []}
+        onUpdateStatus={updateFormStatus}
+      />
+    );
+  } else if (nav === "referrals") {
+    main = <GrowthToolsPanel slug={slug} kind="referral" mode="data" />;
+  } else if (nav === "affiliates") {
+    main = <GrowthToolsPanel slug={slug} kind="affiliate" mode="data" />;
+  } else if (nav === "storytelling") {
+    main = (
+      <StoryCasesPanel
+        slug={slug}
+        template={normalizeStoryTemplate(space.settings.storyTemplate)}
+      />
+    );
   } else if (nav === "ai") {
     main = (
       <AiSetupPanel
@@ -1020,6 +934,17 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         onToggleAutoAnswer={toggleAutoAnswer}
       />
     );
+  } else if (nav === "widget-builds") {
+    main = (
+      <QuickBuildsPanel
+        slug={slug}
+        hideTitle
+        settings={settingsPayload}
+        onChangeSettings={updateSettings}
+      />
+    );
+  } else if (nav === "insights") {
+    main = <InsightsPanel slug={slug} />;
   } else if (nav === "site:contact") {
     main = (
       <WebsiteInstallPanel
@@ -1035,6 +960,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         slug={slug}
         settings={settingsPayload}
         onChangeSettings={updateSettings}
+        hideTitle
         variant="page"
         section={section}
       />
@@ -1043,9 +969,11 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     const tab = nav.slice(8) as SettingsTab;
     main = (
       <FloorSettingsPanel
+        slug={slug}
         settings={settingsPayload}
         members={members}
         artifacts={space.artifacts ?? []}
+        hideTitle
         variant="page"
         activeTab={tab}
         loggingOut={loggingOut}
@@ -1053,6 +981,44 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         onChangeMembers={updateMembers}
         onLogOut={() => void logOut()}
       />
+    );
+  }
+
+  if (nav.startsWith("tools:")) {
+    main = (
+      <SettingsArea
+        slug={slug}
+        title="Tools"
+        help="Settings for tools you turned on."
+        tabs={visibleToolsLeaves(space.settings)}
+        active={canonicalNav(nav)}
+      >
+        {main}
+      </SettingsArea>
+    );
+  } else if (isPublicSettingsNav(nav)) {
+    main = (
+      <SettingsArea
+        slug={slug}
+        title="Platforms"
+        help="Settings for where customers find and connect with you."
+        tabs={visiblePresenceLeaves(space.settings)}
+        active={canonicalNav(nav)}
+      >
+        {main}
+      </SettingsArea>
+    );
+  } else if (isAccountSettingsNav(nav)) {
+    main = (
+      <SettingsArea
+        slug={slug}
+        title="Account"
+        help="Billing, email alerts, and your account."
+        tabs={ACCOUNT_SETTINGS_NAV_TABS}
+        active={canonicalNav(nav)}
+      >
+        {main}
+      </SettingsArea>
     );
   }
 
@@ -1078,98 +1044,13 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         members={members}
         floorMemberId={floorMemberId}
         onChooseMember={chooseFloorMember}
+        brandNav={workspaceHomeNav(space.settings)}
       />
 
       <div className="dashboard-layout">
-        <nav className="dashboard-nav" aria-label="Dashboard">
-          <button
-            type="button"
-            className={`dashboard-nav-item ${nav === "home" ? "is-active" : ""}`}
-            onClick={() => setNav("home")}
-          >
-            Dashboard
-          </button>
-          <div className="dashboard-nav-group">
-            <button
-              type="button"
-              className="dashboard-nav-group-toggle"
-              aria-expanded={openGroups["cases-menu"]}
-              onClick={() =>
-                setOpenGroups((current) => ({
-                  ...current,
-                  "cases-menu": !current["cases-menu"],
-                }))
-              }
-            >
-              <span className="dashboard-nav-group-label">Business data</span>
-              <IconChevronDown
-                size={14}
-                className={openGroups["cases-menu"] ? "is-open" : ""}
-              />
-            </button>
-            {openGroups["cases-menu"] ? (
-              <div className="dashboard-nav-children">
-                {renderNavLeaf({
-                  kind: "cases",
-                  id: "overview",
-                  label: "Case records",
-                })}
-                {renderNavLeaf({
-                  kind: "cases",
-                  id: "contacts",
-                  label: "Collected contacts",
-                })}
-              </div>
-            ) : null}
-          </div>
-
-          {DASH_NAV_GROUPS.map((group) => {
-            const items = visibleNavNodes(settingsPayload, group.items);
-            if (items.length === 0) return null;
-            const open = openGroups[group.id];
-            const groupIncomplete = flattenNavEntries(items).some(leafIncomplete);
-            return (
-              <div key={group.id} className="dashboard-nav-group">
-                <button
-                  type="button"
-                  className="dashboard-nav-group-toggle"
-                  aria-expanded={open}
-                  onClick={() =>
-                    setOpenGroups((current) => ({
-                      ...current,
-                      [group.id]: !current[group.id],
-                    }))
-                  }
-                >
-                  <span className="dashboard-nav-group-label">
-                    {group.label}
-                    {groupIncomplete ? (
-                      <span className="settings-tab-alert" aria-hidden>
-                        !
-                      </span>
-                    ) : null}
-                  </span>
-                  <IconChevronDown
-                    size={16}
-                    className={open ? "is-open" : undefined}
-                  />
-                </button>
-                {open ? (
-                  <div className="dashboard-nav-children">
-                    <div className="dashboard-nav-nested">
-                      {items.map((node) => renderNavNode(node, true))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </nav>
-
+        <WorkspaceSidebar slug={slug} settings={space.settings} />
         <div className="dashboard-main">{main}</div>
       </div>
-
-      <CornerTools />
 
       {popupClient && popupDraft ? (
         <div

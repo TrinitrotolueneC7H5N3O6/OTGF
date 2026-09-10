@@ -1,13 +1,75 @@
-import type { BusinessSpace, Message, PreChatLink, PreChatPage } from "./types";
+import type {
+  BusinessSpace,
+  FloorSettings,
+  Message,
+  PreChatLink,
+  PreChatPage,
+} from "./types";
 import { messageCreatedMs } from "./messageTime";
+import { isPublicLinkEnabled } from "./toolPublic";
 
-export function visiblePreChatLinks(page: PreChatPage): PreChatLink[] {
-  return page.links.filter((link) => {
-    if (!link.enabled || !link.label.trim()) return false;
-    if (link.kind === "chat") return true;
-    if (link.id === "pre-promo") return true;
-    return Boolean(link.href?.trim());
+function linkHasDestination(link: PreChatLink) {
+  if (link.kind === "chat" || link.quickBuild) return true;
+  if (link.id === "pre-promo") return true;
+  return Boolean(link.href?.trim());
+}
+
+function contactChannel(link: PreChatLink) {
+  if (link.id === "pre-call" || link.kind === "call") return "call";
+  if (
+    link.id === "pre-sms" ||
+    link.kind === "sms" ||
+    link.quickBuild?.type === "sms"
+  ) {
+    return "sms";
+  }
+  if (
+    link.id === "pre-email" ||
+    link.kind === "email" ||
+    link.quickBuild?.type === "email"
+  ) {
+    return "email";
+  }
+  return null;
+}
+
+function withoutDuplicateContacts(links: PreChatLink[]) {
+  const seen = new Set<string>();
+  return links.filter((link) => {
+    const channel = contactChannel(link);
+    if (!channel) return true;
+    if (seen.has(channel)) return false;
+    seen.add(channel);
+    return true;
   });
+}
+
+export function visiblePreChatLinks(
+  page: PreChatPage,
+  settings?: Partial<FloorSettings> | null,
+): PreChatLink[] {
+  return withoutDuplicateContacts(
+    page.links.filter((link) => {
+      if (!link.enabled || !link.label.trim()) return false;
+      if (settings && !isPublicLinkEnabled(settings, link)) return false;
+      return linkHasDestination(link);
+    }),
+  );
+}
+
+export function widgetPreChatLinks(
+  page: PreChatPage,
+  settings?: Partial<FloorSettings> | null,
+): PreChatLink[] {
+  return withoutDuplicateContacts(
+    page.links.filter((link) => {
+      if (!link.showInWidget || !link.label.trim()) return false;
+      if (link.kind === "chat") return false;
+      if (link.id === "pre-consult" || link.id === "pre-promo") return false;
+      if (settings && !isPublicLinkEnabled(settings, link)) return false;
+      return linkHasDestination(link);
+    }),
+  );
 }
 
 export function preChatHref(link: PreChatLink, slug: string): string | null {
@@ -21,10 +83,15 @@ export function preChatHref(link: PreChatLink, slug: string): string | null {
     const phone = value.replace(/[^\d+]/g, "");
     return phone ? `tel:${phone}` : null;
   }
+  if (link.kind === "sms") {
+    const phone = value.replace(/[^\d+]/g, "");
+    return phone ? `sms:${phone}` : null;
+  }
   if (link.kind === "email") {
     const email = value.replace(/^mailto:/i, "");
     return email.includes("@") ? `mailto:${email}` : null;
   }
+  if (value.startsWith("/")) return value;
   if (/^https?:\/\//i.test(value)) return value;
   return `https://${value}`;
 }
@@ -99,4 +166,3 @@ export function liveChatQueueStatus(
     queueLabel: `Your queue #${position}`,
   };
 }
-

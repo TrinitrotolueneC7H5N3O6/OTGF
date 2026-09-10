@@ -1,4 +1,4 @@
-import type { Business, BusinessSpace, ChatParticipant, Client, Message, Trade } from "./types";
+import type { Business, BusinessSpace, ChatParticipant, Client, Message, ScheduleRequest, Trade } from "./types";
 import type { ReactionActor } from "./messageSocial";
 import {
   createChatId,
@@ -408,6 +408,7 @@ export async function appendMessage(
     upsertClient?: boolean;
     clearDeleted?: boolean;
     bumpClient?: boolean;
+    scheduleRequest?: ScheduleRequest;
   },
 ): Promise<AppendMessageResult> {
   return api<AppendMessageResult>(
@@ -680,6 +681,12 @@ export function subscribeSpace(
       startFallbackPoll();
       return;
     }
+    // Cursor's Simple Browser (and other embedded webviews) sit in an iframe
+    // and treat a long-lived EventSource as the page still loading.
+    if (window.self !== window.top) {
+      startFallbackPoll();
+      return;
+    }
     source?.close();
     const es = new EventSource(
       `/api/spaces/${encodeURIComponent(slug)}/events`,
@@ -827,10 +834,21 @@ export async function readAttachmentFile(file: File): Promise<{
 export async function readMediaFile(file: File): Promise<{
   kind: "photo" | "video";
   url: string;
+}>;
+export async function readMediaFile(
+  file: File,
+  options: { imageMaxSize?: number; imageQuality?: number },
+): Promise<{
+  kind: "photo" | "video";
+  url: string;
+}>;
+export async function readMediaFile(
+  file: File,
+  options?: { imageMaxSize?: number; imageQuality?: number },
+): Promise<{
+  kind: "photo" | "video";
+  url: string;
 }> {
-  if (file.size > MAX_FILE_BYTES) {
-    throw new Error("Keep files under 4MB for this prototype.");
-  }
   const kind = file.type.startsWith("video/")
     ? "video"
     : file.type.startsWith("image/")
@@ -839,12 +857,18 @@ export async function readMediaFile(file: File): Promise<{
   if (!kind) throw new Error("Use a photo or video file.");
 
   if (kind === "photo") {
-    const blob = await compressImage(file);
+    const blob = await compressImage(file, options);
+    if (blob.size > MAX_FILE_BYTES) {
+      throw new Error("That photo is still too large after compression.");
+    }
     const uploaded = await uploadMediaBlob(blob, "photo.jpg");
     if (uploaded) return { kind, url: uploaded };
     return { kind, url: await blobToDataUrl(blob) };
   }
 
+  if (file.size > MAX_FILE_BYTES) {
+    throw new Error("Keep files under 4MB for this prototype.");
+  }
   const uploaded = await uploadMediaBlob(file, file.name || "video.mp4");
   if (uploaded) return { kind, url: uploaded };
   return { kind, url: await blobToDataUrl(file) };
@@ -859,12 +883,15 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-function compressImage(file: File): Promise<Blob> {
+function compressImage(
+  file: File,
+  options?: { imageMaxSize?: number; imageQuality?: number },
+): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
-      const max = 1200;
+      const max = options?.imageMaxSize ?? 1200;
       const scale = Math.min(1, max / Math.max(img.width, img.height));
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(img.width * scale);
@@ -886,7 +913,7 @@ function compressImage(file: File): Promise<Blob> {
           resolve(blob);
         },
         "image/jpeg",
-        0.82,
+        options?.imageQuality ?? 0.82,
       );
     };
     img.onerror = () => {

@@ -6,18 +6,35 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-const REVEAL_MAX = 92;
-const AXIS_LOCK = 6;
+const REVEAL_MAX = 72;
+const MOBILE_REVEAL = 56;
+const AXIS_LOCK = 4;
+/** Finger travel → UI travel. iMessage tracks well under 1:1. */
+const DRAG_GAIN = 0.45;
 
 interface SwipeTimeStreamProps {
   children: ReactNode;
   empty?: ReactNode;
   isEmpty?: boolean;
+}
+
+function maxRevealPx() {
+  return window.matchMedia("(max-width: 640px)").matches
+    ? Math.min(MOBILE_REVEAL, window.innerWidth * 0.15)
+    : REVEAL_MAX;
+}
+
+/** Damped follow, then iOS rubber-band once the column is fully open. */
+function mapDrag(fingerLeft: number, max: number) {
+  if (fingerLeft <= 0) return 0;
+  const followed = fingerLeft * DRAG_GAIN;
+  if (followed <= max) return followed;
+  const extra = followed - max;
+  return max + extra / (1 + extra / (max * 0.55));
 }
 
 /**
@@ -26,15 +43,16 @@ interface SwipeTimeStreamProps {
  */
 export const SwipeTimeStream = forwardRef<HTMLDivElement, SwipeTimeStreamProps>(
   function SwipeTimeStream({ children, empty, isEmpty }, ref) {
-    const [reveal, setReveal] = useState(0);
     const [dragging, setDragging] = useState(false);
     const scrollRef = useRef<HTMLDivElement | null>(null);
+    const paneRef = useRef<HTMLDivElement | null>(null);
     const revealRef = useRef(0);
+    const draggingRef = useRef(false);
     const dragRef = useRef<{
       id: number;
       x: number;
       y: number;
-      origin: number;
+      originFinger: number;
       axis: "pending" | "x" | "y";
     } | null>(null);
 
@@ -48,10 +66,31 @@ export const SwipeTimeStream = forwardRef<HTMLDivElement, SwipeTimeStreamProps>(
     );
 
     const applyReveal = useCallback((px: number, isDrag: boolean) => {
-      const next = Math.max(0, Math.min(REVEAL_MAX, px));
-      revealRef.current = next;
-      setReveal(next);
-      setDragging(isDrag);
+      const pane = paneRef.current;
+      const max = maxRevealPx();
+      revealRef.current = px;
+      if (isDrag && !draggingRef.current) {
+        draggingRef.current = true;
+        scrollRef.current?.classList.add("is-dragging");
+        setDragging(true);
+      }
+      if (pane) {
+        pane.style.setProperty("--time-col", `${max}px`);
+        pane.style.setProperty("--time-reveal", `${px}px`);
+      }
+    }, []);
+
+    const snapClosed = useCallback(() => {
+      const stream = scrollRef.current;
+      draggingRef.current = false;
+      stream?.classList.remove("is-dragging");
+      setDragging(false);
+      if (stream) void stream.offsetWidth;
+      revealRef.current = 0;
+      if (paneRef.current) {
+        paneRef.current.style.setProperty("--time-col", `${maxRevealPx()}px`);
+        paneRef.current.style.setProperty("--time-reveal", "0px");
+      }
     }, []);
 
     function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
@@ -61,7 +100,7 @@ export const SwipeTimeStream = forwardRef<HTMLDivElement, SwipeTimeStreamProps>(
         id: e.pointerId,
         x: e.clientX,
         y: e.clientY,
-        origin: revealRef.current,
+        originFinger: revealRef.current / DRAG_GAIN,
         axis: "pending",
       };
     }
@@ -75,7 +114,6 @@ export const SwipeTimeStream = forwardRef<HTMLDivElement, SwipeTimeStreamProps>(
 
       if (drag.axis === "pending") {
         if (Math.hypot(dx, dy) < AXIS_LOCK) return;
-        // Lock to horizontal when movement is mostly sideways (esp. left)
         if (Math.abs(dx) >= Math.abs(dy)) {
           drag.axis = "x";
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -87,8 +125,8 @@ export const SwipeTimeStream = forwardRef<HTMLDivElement, SwipeTimeStreamProps>(
 
       if (drag.axis !== "x") return;
 
-      // Drag left (dx < 0) opens the time column
-      applyReveal(drag.origin - dx, true);
+      e.preventDefault();
+      applyReveal(mapDrag(drag.originFinger - dx, maxRevealPx()), true);
     }
 
     function onPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
@@ -102,31 +140,25 @@ export const SwipeTimeStream = forwardRef<HTMLDivElement, SwipeTimeStreamProps>(
         } catch {
           /* ignore */
         }
-        applyReveal(0, false);
+        snapClosed();
       }
     }
 
     useEffect(() => {
-      applyReveal(0, false);
-    }, [isEmpty, applyReveal]);
+      snapClosed();
+    }, [isEmpty, snapClosed]);
 
-    // Non-passive touchmove so horizontal drag isn't stolen by scroll
     useEffect(() => {
       const root = scrollRef.current;
       if (!root || isEmpty) return;
 
       const onTouchMove = (e: TouchEvent) => {
-        const drag = dragRef.current;
-        if (drag?.axis === "x") e.preventDefault();
+        if (dragRef.current?.axis === "x") e.preventDefault();
       };
 
       root.addEventListener("touchmove", onTouchMove, { passive: false });
       return () => root.removeEventListener("touchmove", onTouchMove);
     }, [isEmpty]);
-
-    const paneStyle = {
-      ["--time-reveal" as string]: `${reveal}px`,
-    } as CSSProperties;
 
     return (
       <div
@@ -144,14 +176,7 @@ export const SwipeTimeStream = forwardRef<HTMLDivElement, SwipeTimeStreamProps>(
         {isEmpty ? (
           empty
         ) : (
-          <div
-            className={
-              reveal > 8
-                ? "client-chat-pane is-times-visible"
-                : "client-chat-pane"
-            }
-            style={paneStyle}
-          >
+          <div ref={paneRef} className="client-chat-pane">
             {children}
           </div>
         )}

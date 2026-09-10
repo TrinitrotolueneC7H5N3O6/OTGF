@@ -1,7 +1,7 @@
 import { FloorAuthGate } from "@/components/home/SpaceAuthForm";
-import { EmployeeDashboard } from "@/components/workspace/EmployeeDashboard";
+import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 
-export default async function DashboardPage({
+export default async function LiveChatPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
@@ -9,7 +9,7 @@ export default async function DashboardPage({
   const { slug } = await params;
   return (
     <FloorAuthGate slug={slug}>
-      <EmployeeDashboard slug={slug} />
+      <WorkspaceShell slug={slug} />
     </FloorAuthGate>
   );
 }

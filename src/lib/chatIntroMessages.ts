@@ -1,7 +1,6 @@
 import type { ChatIntroMessages, FloorSettings } from "./types";
 
 const DEFAULT_CONTACT_REASONS = [
-  "Book a consultation",
   "Pricing or quote",
   "Available services",
   "Before & after photos",
@@ -10,6 +9,14 @@ const DEFAULT_CONTACT_REASONS = [
   "Follow-up question",
   "Something else",
 ];
+
+const LEGACY_CONTACT_REASONS = [
+  "Book a consultation",
+  ...DEFAULT_CONTACT_REASONS,
+];
+
+const LEGACY_PROMO_FOLLOW_UP =
+  "While your beauty is loading, have a look at your daily promotions";
 
 function editableText(
   value: unknown,
@@ -26,8 +33,7 @@ export function defaultChatIntroMessages(): ChatIntroMessages {
   return {
     welcome:
       "Hi! Thank you for contacting us. Let us know what you are interested in, along with any inspiration pictures and current images if applicable. Looking forward to hearing from you soon!",
-    promoFollowUp:
-      "While your beauty is loading, have a look at your daily promotions",
+    promoFollowUp: "",
     extraMessages: [],
     specialtiesEnabled: true,
     specialtiesPrompt: "Are you reaching out for:",
@@ -70,16 +76,23 @@ export function normalizeChatIntroMessages(raw: unknown): ChatIntroMessages {
         .filter(Boolean)
         .slice(0, 20)
     : defaults.contactReasonOptions;
+  const reasonsMatchLegacy =
+    contactReasonOptions.length === LEGACY_CONTACT_REASONS.length &&
+    contactReasonOptions.every(
+      (item, index) => item === LEGACY_CONTACT_REASONS[index],
+    );
+  const promoFollowUp = editableText(
+    row.promoFollowUp,
+    defaults.promoFollowUp,
+    500,
+    { allowBlank: true },
+  );
   return {
     welcome: editableText(row.welcome, defaults.welcome, 2000, {
       allowBlank: true,
     }),
-    promoFollowUp: editableText(
-      row.promoFollowUp,
-      defaults.promoFollowUp,
-      500,
-      { allowBlank: true },
-    ),
+    promoFollowUp:
+      promoFollowUp === LEGACY_PROMO_FOLLOW_UP ? "" : promoFollowUp,
     extraMessages,
     specialtiesEnabled:
       typeof row.specialtiesEnabled === "boolean"
@@ -98,7 +111,9 @@ export function normalizeChatIntroMessages(raw: unknown): ChatIntroMessages {
     ),
     contactReasonDisplay:
       row.contactReasonDisplay === "list" ? "list" : "dropdown",
-    contactReasonOptions,
+    contactReasonOptions: reasonsMatchLegacy
+      ? defaults.contactReasonOptions
+      : contactReasonOptions,
     reconnectEnabled:
       typeof row.reconnectEnabled === "boolean"
         ? row.reconnectEnabled

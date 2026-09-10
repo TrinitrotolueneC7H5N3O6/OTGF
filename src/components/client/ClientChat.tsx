@@ -1,7 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { BusinessSpace, Client, DepartmentAttachment, DepartmentContent, FloorSettings, Message, MessageReplyRef, Offering } from "@/lib/types";
 import { rememberChat } from "@/lib/chatMemory";
 import {
@@ -36,11 +45,18 @@ import {
 import { clusterClassName, messageCluster } from "@/lib/messageCluster";
 import {
   IconArrowSend,
+  IconCamera,
+  IconMic,
   IconPaperclip,
+  IconPhoto,
+  IconPlusCircle,
+  IconThumbUp,
   IconX,
 } from "@/components/shared/Icons";
 import { SwipeTimeStream } from "./SwipeTimeStream";
 import { ChatMarketingCarousel } from "./ChatMarketingCarousel";
+import { MessageBodyText } from "@/components/shared/MessageBodyText";
+import { InAppLink, LinkSheetProvider } from "@/components/shared/LinkSheet";
 import {
   appendCustomerMessageWithAutoReply,
   ensureWelcomeMessages,
@@ -50,6 +66,7 @@ import {
 import { resolveChatIntroMessages } from "@/lib/chatIntroMessages";
 import { isSolutionEnabled } from "@/lib/setupSolutions";
 import { inquireMessageBody, inquireMessageId } from "@/lib/offerings";
+import { SpeechToTextModal } from "./SpeechToTextModal";
 
 interface ClientChatProps {
   slug: string;
@@ -60,10 +77,63 @@ interface ClientChatProps {
   previewEnded?: boolean;
   previewSpace?: BusinessSpace;
   inquireOfferingId?: string;
+  /** Changing this value forces a retained embedded chat back to its newest message. */
+  scrollToLatestSignal?: number;
+}
+
+type StaffOutIntakeStep = "contact" | "request" | "followup";
+
+const CUSTOMER_FAQS = [
+  "What services do you offer?",
+  "How much does a consultation cost?",
+  "What are your available appointment times?",
+  "Do you offer virtual consultations?",
+  "Where are you located?",
+  "What should I prepare before my visit?",
+];
+
+function isThumbsUpOnly(message: Message) {
+  return message.kind === "text" && message.body.trim() === "👍";
 }
 
 function isGuestName(name: string) {
   return /^Guest(?:\s+(?:\d+|[A-Z0-9]{4}))?$/i.test(name.trim());
+}
+
+function messageDate(message: Message) {
+  const value = message.createdAt || message.at;
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) return date;
+
+  const fallback = new Date(message.at);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+}
+
+function messageDayKey(message: Message) {
+  const date = messageDate(message);
+  if (!date) return message.at.split(/\s+at\s+|,\s*/i)[0] || message.at;
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function formatMessageDay(message: Message) {
+  const date = messageDate(message);
+  if (!date) return message.at.split(/\s+at\s+|,\s*/i)[0] || message.at;
+  return date.toLocaleDateString([], {
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function formatSwipeTime(message: Message) {
+  const date = messageDate(message);
+  if (date) {
+    return date.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  const parts = message.at.split(/\s+at\s+|,\s*/i);
+  return parts[1] || message.at;
 }
 
 function externalHref(value: string) {
@@ -80,12 +150,16 @@ export function ClientChat({
   previewEnded = false,
   previewSpace,
   inquireOfferingId,
+  scrollToLatestSignal,
 }: ClientChatProps) {
   const [space, setSpace] = useState<Awaited<
     ReturnType<typeof getSpace>
   > | null>(previewSpace ?? null);
   const [displayName, setDisplayName] = useState("");
   const [draft, setDraft] = useState("");
+  const [sendAnimationMessageId, setSendAnimationMessageId] = useState<
+    string | null
+  >(null);
   const [emailDraft, setEmailDraft] = useState("");
   const [contactNameDraft, setContactNameDraft] = useState("");
   const [contactEmailDraft, setContactEmailDraft] = useState("");
@@ -97,12 +171,19 @@ export function ClientChat({
   const [intakePreferredContact, setIntakePreferredContact] = useState<"email" | "phone" | "chat">("chat");
   const [intakeConsent, setIntakeConsent] = useState(false);
   const [intakeSaved, setIntakeSaved] = useState(false);
+  const [intakeStep, setIntakeStep] = useState(0);
+  const [awaySurfaceRoot, setAwaySurfaceRoot] =
+    useState<HTMLDivElement | null>(null);
   const [emailSaved, setEmailSaved] = useState(false);
   const [recordingSaved, setRecordingSaved] = useState(false);
   const [ready, setReady] = useState(() => Boolean(preview && previewSpace));
   const [attaching, setAttaching] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const [faqOpen, setFaqOpen] = useState(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
   const [numberMenuOpen, setNumberMenuOpen] = useState(false);
   const [specialtiesMenuOpen, setSpecialtiesMenuOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
@@ -118,13 +199,60 @@ export function ClientChat({
   const [replyTo, setReplyTo] = useState<MessageReplyRef | null>(null);
   const [contactReason, setContactReason] = useState<string | null>(null);
   const [actionsFor, setActionsFor] = useState<string | null>(null);
+  const [speechModalOpen, setSpeechModalOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerWrapRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLInputElement>(null);
   const departmentImageRef = useRef<HTMLInputElement>(null);
   const departmentDocRef = useRef<HTMLInputElement>(null);
   const numberMenuRef = useRef<HTMLDivElement>(null);
   const specialtiesMenuRef = useRef<HTMLDivElement>(null);
   const inquireSent = useRef(false);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef({ x: 0, y: 0 });
+  const longPressOpenedRef = useRef(false);
+  const actionsForRef = useRef<string | null>(null);
+  const focusDismissPointerRef = useRef<{
+    x: number;
+    y: number;
+    until: number;
+  } | null>(null);
+  const lastMessagePointerRef = useRef<string | null>(null);
+  const scrollDismissStartRef = useRef<{ x: number; y: number } | null>(null);
+  const actionFocusTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const isNearLatestRef = useRef(true);
+  const previousThreadRef = useRef({ length: 0, latestId: "" });
+  const pendingSendScrollRef = useRef(false);
+
+  actionsForRef.current = actionsFor;
+
+  function isMobileClientChat() {
+    return !embedded && !preview && window.matchMedia("(max-width: 640px)").matches;
+  }
+
+  function isMobileComposerSession() {
+    return !preview && window.matchMedia("(max-width: 640px)").matches;
+  }
+
+  function clampMobileOverscrollGap() {
+    if (!isMobileClientChat()) return;
+    const page = document.documentElement;
+    const viewportHeight = page.clientHeight || window.innerHeight;
+    const maxTop = Math.max(0, page.scrollHeight - viewportHeight);
+    if (window.scrollY > maxTop) {
+      window.scrollTo({ top: maxTop, behavior: "auto" });
+    }
+  }
+
+  function settleMobileOverscrollGap() {
+    if (!isMobileClientChat()) return;
+    window.requestAnimationFrame(clampMobileOverscrollGap);
+    window.setTimeout(clampMobileOverscrollGap, 60);
+    window.setTimeout(clampMobileOverscrollGap, 160);
+    window.setTimeout(clampMobileOverscrollGap, 320);
+  }
 
   useEffect(() => {
     if (preview) {
@@ -243,6 +371,7 @@ export function ClientChat({
       introMessages,
     );
   }, [space, chatId, slug, introMessages]);
+  const latestMessageId = thread.at(-1)?.id ?? "";
 
   const storedClient = space?.clients.find((c) => c.id === chatId);
   const client =
@@ -260,17 +389,241 @@ export function ClientChat({
         }
       : storedClient;
 
-  useEffect(() => {
+  function isNearLatestMessage() {
+    if (typeof window === "undefined") return true;
+    if (isMobileClientChat()) {
+      const doc = document.scrollingElement ?? document.documentElement;
+      return doc.scrollHeight - window.scrollY - window.innerHeight < 140;
+    }
+
+    const el = scrollRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }
+
+  function scrollToLatestMessages(behavior: ScrollBehavior = "smooth") {
+    if (typeof window === "undefined") return;
+    if (isMobileClientChat()) {
+      window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior,
+      });
+      return;
+    }
+
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [thread.length]);
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }
+
+  function scrollLatestMessageAboveComposer(behavior: ScrollBehavior = "smooth") {
+    if (typeof window === "undefined") return;
+    const rows = document.querySelectorAll<HTMLElement>(".chat-row[data-message-id]");
+    const latestRow = rows[rows.length - 1];
+    if (!latestRow) {
+      scrollToLatestMessages(behavior);
+      return;
+    }
+
+    const composerHeight = composerWrapRef.current?.getBoundingClientRect().height ?? 0;
+    const visualViewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const rowBottom = latestRow.getBoundingClientRect().bottom + window.scrollY;
+    const targetTop = Math.max(
+      0,
+      rowBottom - visualViewportHeight + composerHeight + 14,
+    );
+    window.scrollTo({ top: targetTop, behavior });
+  }
+
+  function jumpToLatestMessages() {
+    scrollToLatestMessages("smooth");
+    isNearLatestRef.current = true;
+    setNewMessageCount(0);
+  }
+
+  useEffect(() => {
+    if (!ready || scrollToLatestSignal == null) return;
+
+    let secondFrame = 0;
+    const revealLatest = () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+      isNearLatestRef.current = true;
+      setNewMessageCount(0);
+    };
+    const firstFrame = window.requestAnimationFrame(() => {
+      revealLatest();
+      secondFrame = window.requestAnimationFrame(revealLatest);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [ready, scrollToLatestSignal]);
+
+  useEffect(() => {
+    let frame = 0;
+    function updateNearLatest() {
+      frame = 0;
+      const near = isNearLatestMessage();
+      isNearLatestRef.current = near;
+      if (near) setNewMessageCount(0);
+    }
+
+    function scheduleUpdate() {
+      if (frame) return;
+      frame = window.requestAnimationFrame(updateNearLatest);
+    }
+
+    updateNearLatest();
+    const el = scrollRef.current;
+    el?.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate, { passive: true });
+
+    return () => {
+      el?.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [embedded, preview]);
+
+  useEffect(() => {
+    const previous = previousThreadRef.current;
+    const added = Math.max(0, thread.length - previous.length);
+    const grew = added > 0 && latestMessageId !== previous.latestId;
+    const firstLoad = previous.length === 0;
+    previousThreadRef.current = { length: thread.length, latestId: latestMessageId };
+
+    if (!thread.length) {
+      setNewMessageCount(0);
+      return;
+    }
+
+    if (pendingSendScrollRef.current && isMobileClientChat()) {
+      pendingSendScrollRef.current = false;
+      isNearLatestRef.current = true;
+      setNewMessageCount(0);
+      window.requestAnimationFrame(() => {
+        scrollLatestMessageAboveComposer("smooth");
+        window.setTimeout(() => scrollLatestMessageAboveComposer("auto"), 120);
+      });
+      return;
+    }
+
+    if (
+      firstLoad ||
+      (isNearLatestRef.current &&
+        !(isMobileClientChat() && document.activeElement === messageInputRef.current))
+    ) {
+      window.requestAnimationFrame(() => scrollToLatestMessages("auto"));
+      setNewMessageCount(0);
+      return;
+    }
+
+    if (grew) {
+      setNewMessageCount((count) => Math.min(99, count + added));
+    }
+  }, [latestMessageId, thread.length]);
+
+  useEffect(() => {
+    if (embedded || preview) return;
+
+    function onTouchStart(event: TouchEvent) {
+      if (!isMobileClientChat()) return;
+      if (document.activeElement !== messageInputRef.current) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      scrollDismissStartRef.current = { x: touch.clientX, y: touch.clientY };
+    }
+
+    function onTouchMove(event: TouchEvent) {
+      const start = scrollDismissStartRef.current;
+      if (!start || document.activeElement !== messageInputRef.current) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      if (Math.abs(dy) <= 10 || Math.abs(dy) <= Math.abs(dx)) return;
+      messageInputRef.current?.blur();
+      scrollDismissStartRef.current = null;
+    }
+
+    function onTouchEnd() {
+      scrollDismissStartRef.current = null;
+    }
+
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    document.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
+      document.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [embedded, preview]);
+
+  useEffect(() => {
+    function onFocusedImagePointerDown(event: PointerEvent) {
+      const focusedId = actionsForRef.current;
+      const target = event.target;
+      if (!focusedId || !(target instanceof Element)) return;
+
+      const focusedRow = target.closest(".chat-row[data-message-id]");
+      const insideFocusedRow =
+        focusedRow?.getAttribute("data-message-id") === focusedId;
+      const onFocusedPhoto =
+        insideFocusedRow &&
+        Boolean(target.closest(".bubble-image-open, .bubble-fan-open"));
+      const onFocusedActions =
+        insideFocusedRow && Boolean(target.closest(".msg-action-bar"));
+      if (onFocusedPhoto || onFocusedActions) return;
+
+      focusDismissPointerRef.current = {
+        x: event.clientX,
+        y: event.clientY,
+        until: Date.now() + 800,
+      };
+      clearLongPressTimer();
+      setActionsFor(null);
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    function onFocusedImageClick(event: globalThis.MouseEvent) {
+      const dismissPointer = focusDismissPointerRef.current;
+      focusDismissPointerRef.current = null;
+      if (!dismissPointer || Date.now() > dismissPointer.until) return;
+      const sameGesture =
+        Math.hypot(
+          event.clientX - dismissPointer.x,
+          event.clientY - dismissPointer.y,
+        ) < 12;
+      if (!sameGesture) return;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    document.addEventListener("pointerdown", onFocusedImagePointerDown, true);
+    document.addEventListener("click", onFocusedImageClick, true);
+    return () => {
+      document.removeEventListener("pointerdown", onFocusedImagePointerDown, true);
+      document.removeEventListener("click", onFocusedImageClick, true);
+    };
+  }, []);
 
   useEffect(() => {
     if (!numberMenuOpen && !specialtiesMenuOpen) return;
 
     function onPointerDown(event: PointerEvent) {
-      const target = event.target as Node;
+      const target = event.target;
+      if (!(target instanceof Node)) return;
       if (!numberMenuRef.current?.contains(target)) {
         setNumberMenuOpen(false);
       }
@@ -282,6 +635,51 @@ export function ClientChat({
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [numberMenuOpen, specialtiesMenuOpen]);
+
+  useEffect(() => {
+    if (!actionsFor || !mobileActionsOnly()) return;
+    const focusedMessage = thread.find((message) => message.id === actionsFor);
+    const imageFocused =
+      focusedMessage?.kind === "image" ||
+      Boolean(focusedMessage?.imageUrl || focusedMessage?.imageUrls?.length);
+    if (!imageFocused) return;
+
+    function onTouchStart(event: TouchEvent) {
+      const touch = event.touches[0];
+      if (!touch) return;
+      actionFocusTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    }
+
+    function onTouchMove(event: TouchEvent) {
+      const touch = event.touches[0];
+      const start = actionFocusTouchStartRef.current;
+      event.preventDefault();
+      if (!touch || !start) return;
+
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      if (dy > 18 && Math.abs(dy) > Math.abs(dx)) {
+        actionFocusTouchStartRef.current = null;
+        setActionsFor(null);
+      }
+    }
+
+    function onTouchEnd() {
+      actionFocusTouchStartRef.current = null;
+    }
+
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: false });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    document.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
+      document.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [actionsFor, thread]);
 
   // Tell the floor when this customer tab is open / interacting.
   useEffect(() => {
@@ -320,6 +718,8 @@ export function ClientChat({
       window.removeEventListener("focus", schedule);
     };
   }, [slug, chatId, preview]);
+
+  useEffect(() => clearLongPressTimer, []);
 
   const guestLabel = client?.name ?? "Guest";
 
@@ -418,15 +818,14 @@ export function ClientChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, space, inquireOfferingId, chatId, preview]);
 
-  async function send(e: FormEvent) {
-    e.preventDefault();
+  async function sendTextMessage(body: string, keepKeyboard = false) {
     if (preview) return;
     if (sending) return;
-    if (!draft.trim()) return;
+    if (!body.trim()) return;
     if (client?.chatEndedAt) return;
     if (!space) return;
 
-    const body = draft.trim();
+    const trimmedBody = body.trim();
     const name = displayName.trim();
     const presentAt = new Date().toISOString();
     const selectedReason = contactReason?.trim() || "";
@@ -438,7 +837,7 @@ export function ClientChat({
       clientId: chatId,
       from: "client",
       kind: "text",
-      body,
+      body: trimmedBody,
       ...(replyTo
         ? { replyTo }
         : selectedReason
@@ -454,13 +853,15 @@ export function ClientChat({
       ...messageTimeStamp(),
     };
 
+    if (keepKeyboard) setSendAnimationMessageId(message.id);
+
     const existing = space.clients.find((c) => c.id === chatId);
     const nextClient: Client = existing
       ? {
           ...existing,
           name: name || existing.name,
           status: existing.status === "client" ? "client" : "unknown",
-          preview: body,
+          preview: trimmedBody,
           lastActive: "Just now",
           unread: existing.unread + 1,
           presentAt,
@@ -470,7 +871,7 @@ export function ClientChat({
           name: name || nextGuestName(space.clients),
           status: "unknown",
           channel: "web",
-          preview: body,
+          preview: trimmedBody,
           unread: 1,
           trade: space.business.trade,
           lastActive: "Just now",
@@ -499,42 +900,21 @@ export function ClientChat({
     setDraft("");
     setReplyTo(null);
     setContactReason(null);
+    if (keepKeyboard && isMobileComposerSession()) {
+      pendingSendScrollRef.current = isMobileClientChat();
+      setMobileComposerExpanded(true);
+      requestAnimationFrame(() => messageInputRef.current?.focus());
+    } else {
+      setMobileComposerExpanded(false);
+      messageInputRef.current?.blur();
+    }
 
     try {
-      const next = await patchSpace(slug, (latest) => {
-        const latestExisting = latest.clients.find((c) => c.id === chatId);
-        const savedClient: Client = latestExisting
-          ? {
-              ...latestExisting,
-              name: name || latestExisting.name,
-              status:
-                latestExisting.status === "client" ? "client" : "unknown",
-              preview: body,
-              lastActive: "Just now",
-              unread: latestExisting.unread + 1,
-              presentAt,
-            }
-          : nextClient;
-
-        return {
-          ...latest,
-          deletedClientIds: (latest.deletedClientIds ?? []).filter(
-            (id) => id !== chatId,
-          ),
-          clients: latestExisting
-            ? [savedClient, ...latest.clients.filter((c) => c.id !== chatId)]
-            : [savedClient, ...latest.clients],
-          messages: appendCustomerMessageWithAutoReply(
-            latest.messages,
-            chatId,
-            message,
-            latest.business.name,
-            latest.business.slug,
-            resolveChatIntroMessages(latest.settings),
-          ),
-        };
+      await appendMessage(slug, {
+        message,
+        client: nextClient,
+        clearDeleted: true,
       });
-      setSpace(next);
     } catch (err) {
       setSendError(
         err instanceof Error ? err.message : "Could not send. Try again.",
@@ -544,12 +924,26 @@ export function ClientChat({
     }
   }
 
-  async function sendImage(file: File) {
+  async function send(e: FormEvent) {
+    e.preventDefault();
+    await sendTextMessage(draft, true);
+  }
+
+  async function sendFaqQuestion(question: string) {
+    setPlusMenuOpen(false);
+    setFaqOpen(false);
+    await sendTextMessage(question);
+  }
+
+  async function sendImage(file: File, source: "upload" | "camera" = "upload") {
     if (client?.chatEndedAt || sending) return;
     setAttaching(true);
     setSendError(null);
     try {
-      const media = await readMediaFile(file);
+      const media =
+        source === "camera"
+          ? await readMediaFile(file, { imageMaxSize: 960, imageQuality: 0.58 })
+          : await readMediaFile(file);
       if (media.kind !== "photo") {
         throw new Error("Pick an image file.");
       }
@@ -582,52 +976,61 @@ export function ClientChat({
         ...messageTimeStamp(),
       };
 
-      const next = await patchSpace(slug, (latest) => {
-        const existing = latest.clients.find((c) => c.id === chatId);
-        const preview = caption || "Photo";
-        const nextClient: Client = existing
+      const existing = space?.clients.find((c) => c.id === chatId);
+      const preview = caption || "Photo";
+      const nextClient: Client = existing
+        ? {
+            ...existing,
+            name: name || existing.name,
+            status: existing.status === "client" ? "client" : "unknown",
+            preview,
+            lastActive: "Just now",
+            unread: existing.unread + 1,
+            presentAt,
+          }
+        : {
+            id: chatId,
+            name: name || nextGuestName(space?.clients ?? []),
+            status: "unknown",
+            channel: "web",
+            preview,
+            unread: 1,
+            trade: space?.business.trade ?? "salon",
+            lastActive: "Just now",
+            note: "Unique chat link",
+            presentAt,
+          };
+
+      setSpace((current) =>
+        current
           ? {
-              ...existing,
-              name: name || existing.name,
-              status: existing.status === "client" ? "client" : "unknown",
-              preview,
-              lastActive: "Just now",
-              unread: existing.unread + 1,
-              presentAt,
+              ...current,
+              deletedClientIds: (current.deletedClientIds ?? []).filter(
+                (id) => id !== chatId,
+              ),
+              clients: current.clients.some((c) => c.id === chatId)
+                ? [
+                    nextClient,
+                    ...current.clients.filter((c) => c.id !== chatId),
+                  ]
+                : [nextClient, ...current.clients],
+              messages: appendCustomerMessageWithAutoReply(
+                current.messages,
+                chatId,
+                message,
+                current.business.name,
+                current.business.slug,
+                resolveChatIntroMessages(current.settings),
+              ),
             }
-          : {
-              id: chatId,
-              name: name || nextGuestName(latest.clients),
-              status: "unknown",
-              channel: "web",
-              preview,
-              unread: 1,
-              trade: latest.business.trade,
-              lastActive: "Just now",
-              note: "Unique chat link",
-              presentAt,
-            };
+          : current,
+      );
 
-        return {
-          ...latest,
-          deletedClientIds: (latest.deletedClientIds ?? []).filter(
-            (id) => id !== chatId,
-          ),
-          clients: existing
-            ? [nextClient, ...latest.clients.filter((c) => c.id !== chatId)]
-            : [nextClient, ...latest.clients],
-          messages: appendCustomerMessageWithAutoReply(
-            latest.messages,
-            chatId,
-            message,
-            latest.business.name,
-            latest.business.slug,
-            resolveChatIntroMessages(latest.settings),
-          ),
-        };
+      await appendMessage(slug, {
+        message,
+        client: nextClient,
+        clearDeleted: true,
       });
-
-      setSpace(next);
       setDraft("");
       setReplyTo(null);
       setContactReason(null);
@@ -639,6 +1042,7 @@ export function ClientChat({
       setAttaching(false);
       setSending(false);
       if (fileRef.current) fileRef.current.value = "";
+      if (cameraRef.current) cameraRef.current.value = "";
     }
   }
 
@@ -667,60 +1071,115 @@ export function ClientChat({
     });
   }
 
+  function clearLongPressTimer() {
+    if (longPressTimerRef.current == null) return;
+    window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  }
+
+  function mobileActionsOnly() {
+    return window.matchMedia("(max-width: 640px) and ((hover: none) or (pointer: coarse))").matches;
+  }
+
+  function startMessageLongPress(
+    e: ReactPointerEvent,
+    messageId: string,
+    interactive: boolean,
+  ) {
+    if (client?.chatEndedAt || !interactive) return;
+    lastMessagePointerRef.current = e.pointerType;
+    if (!mobileActionsOnly()) return;
+    const target = e.target;
+    if (
+      target instanceof Element &&
+      target.closest("a, button, input, textarea, select") &&
+      !target.closest(".bubble-image-open, .bubble-fan-open")
+    ) {
+      return;
+    }
+    clearLongPressTimer();
+    longPressOpenedRef.current = false;
+    longPressStartRef.current = { x: e.clientX, y: e.clientY };
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null;
+      longPressOpenedRef.current = true;
+      setActionsFor(messageId);
+      navigator.vibrate?.(8);
+    }, 430);
+  }
+
+  function moveMessageLongPress(e: ReactPointerEvent) {
+    if (longPressTimerRef.current == null) return;
+    const dx = Math.abs(e.clientX - longPressStartRef.current.x);
+    const dy = Math.abs(e.clientY - longPressStartRef.current.y);
+    if (dx > 10 || dy > 10) clearLongPressTimer();
+  }
+
   async function requestLive() {
-    const next = await patchSpace(slug, (latest) => {
-      const existing = latest.clients.find((c) => c.id === chatId);
-      const body = "Looking for a live response";
-      const message: Message = {
-        id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        clientId: chatId,
-        from: "client",
-        kind: "text",
-        body,
-        ...messageTimeStamp(),
-      };
+    if (!space || sending) return;
+    const body = "Looking for a live response";
+    const message: Message = {
+      id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      clientId: chatId,
+      from: "client",
+      kind: "text",
+      body,
+      ...messageTimeStamp(),
+    };
+    const existing = space.clients.find((c) => c.id === chatId);
+    const nextClient: Client = existing
+      ? {
+          ...existing,
+          preview: body,
+          lastActive: "Just now",
+          unread: existing.unread + 1,
+          note: existing.note?.includes("Live")
+            ? existing.note
+            : "Live request",
+          presentAt: new Date().toISOString(),
+        }
+      : {
+          id: chatId,
+          name: displayName.trim() || nextGuestName(space.clients),
+          status: "unknown",
+          channel: "web",
+          preview: body,
+          unread: 1,
+          trade: space.business.trade,
+          lastActive: "Just now",
+          note: "Live request",
+          presentAt: new Date().toISOString(),
+        };
 
-      const nextClient: Client = existing
-        ? {
-            ...existing,
-            preview: body,
-            lastActive: "Just now",
-            unread: existing.unread + 1,
-            note: existing.note?.includes("Live")
-              ? existing.note
-              : "Live request",
-          }
-        : {
-            id: chatId,
-            name: displayName.trim() || nextGuestName(latest.clients),
-            status: "unknown",
-            channel: "web",
-            preview: body,
-            unread: 1,
-            trade: latest.business.trade,
-            lastActive: "Just now",
-            note: "Live request",
-          };
-
-      return {
-        ...latest,
-        deletedClientIds: (latest.deletedClientIds ?? []).filter(
-          (id) => id !== chatId,
-        ),
-        clients: existing
-          ? latest.clients.map((c) => (c.id === chatId ? nextClient : c))
-          : [nextClient, ...latest.clients],
-        messages: appendCustomerMessageWithAutoReply(
-          latest.messages,
-          chatId,
-          message,
-          latest.business.name,
-          latest.business.slug,
-          resolveChatIntroMessages(latest.settings),
-        ),
-      };
+    setSpace({
+      ...space,
+      deletedClientIds: (space.deletedClientIds ?? []).filter(
+        (id) => id !== chatId,
+      ),
+      clients: existing
+        ? [nextClient, ...space.clients.filter((c) => c.id !== chatId)]
+        : [nextClient, ...space.clients],
+      messages: appendCustomerMessageWithAutoReply(
+        space.messages,
+        chatId,
+        message,
+        space.business.name,
+        space.business.slug,
+        resolveChatIntroMessages(space.settings),
+      ),
     });
-    setSpace(next);
+
+    try {
+      await appendMessage(slug, {
+        message,
+        client: nextClient,
+        clearDeleted: true,
+      });
+    } catch (err) {
+      setSendError(
+        err instanceof Error ? err.message : "Could not send request.",
+      );
+    }
   }
 
   async function requestPromo() {
@@ -1051,62 +1510,65 @@ export function ClientChat({
   }
 
   async function sendQuickRequest(body: string, note: string) {
-    if (client?.chatEndedAt || sending) return;
+    if (client?.chatEndedAt || sending || !space) return;
     setSending(true);
     setSendError(null);
     try {
-      const next = await patchSpace(slug, (latest) => {
-        const existing = latest.clients.find((c) => c.id === chatId);
-        const message: Message = {
-          id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          clientId: chatId,
-          from: "client",
-          kind: "text",
-          body,
-          ...messageTimeStamp(),
-        };
-        const nextClient: Client = existing
-          ? {
-              ...existing,
-              name: displayName.trim() || existing.name,
-              preview: body,
-              lastActive: "Just now",
-              unread: existing.unread + 1,
-              note: existing.note?.includes(note) ? existing.note : note,
-              presentAt: new Date().toISOString(),
-            }
-          : {
-              id: chatId,
-              name: displayName.trim() || nextGuestName(latest.clients),
-              status: "unknown",
-              channel: "web",
-              preview: body,
-              unread: 1,
-              trade: latest.business.trade,
-              lastActive: "Just now",
-              note,
-              presentAt: new Date().toISOString(),
-            };
+      const existing = space.clients.find((c) => c.id === chatId);
+      const message: Message = {
+        id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        clientId: chatId,
+        from: "client",
+        kind: "text",
+        body,
+        ...messageTimeStamp(),
+      };
+      const nextClient: Client = existing
+        ? {
+            ...existing,
+            name: displayName.trim() || existing.name,
+            preview: body,
+            lastActive: "Just now",
+            unread: existing.unread + 1,
+            note: existing.note?.includes(note) ? existing.note : note,
+            presentAt: new Date().toISOString(),
+          }
+        : {
+            id: chatId,
+            name: displayName.trim() || nextGuestName(space.clients),
+            status: "unknown",
+            channel: "web",
+            preview: body,
+            unread: 1,
+            trade: space.business.trade,
+            lastActive: "Just now",
+            note,
+            presentAt: new Date().toISOString(),
+          };
 
-        return {
-          ...latest,
-          deletedClientIds: (latest.deletedClientIds ?? []).filter(
-            (id) => id !== chatId,
-          ),
-          clients: existing
-            ? latest.clients.map((c) => (c.id === chatId ? nextClient : c))
-            : [nextClient, ...latest.clients],
-          messages: appendCustomerMessageWithAutoReply(
-            latest.messages,
-            chatId,
-            message,
-            latest.business.name,
-            latest.business.slug,
-            resolveChatIntroMessages(latest.settings),
-          ),
-        };
+      setSpace({
+        ...space,
+        deletedClientIds: (space.deletedClientIds ?? []).filter(
+          (id) => id !== chatId,
+        ),
+        clients: existing
+          ? [nextClient, ...space.clients.filter((c) => c.id !== chatId)]
+          : [nextClient, ...space.clients],
+        messages: appendCustomerMessageWithAutoReply(
+          space.messages,
+          chatId,
+          message,
+          space.business.name,
+          space.business.slug,
+          resolveChatIntroMessages(space.settings),
+        ),
       });
-      setSpace(next);
+
+      await appendMessage(slug, {
+        message,
+        client: nextClient,
+        clearDeleted: true,
+      });
     } catch (err) {
       setSendError(
         err instanceof Error ? err.message : "Could not send request.",
@@ -1485,6 +1947,22 @@ export function ClientChat({
     : [];
   const endScreen = settings.endScreenBehavior;
   const staffOutIntake = settings.staffOutIntake;
+  const intakeSteps: StaffOutIntakeStep[] = ["contact"];
+  if (staffOutIntake.askReason || staffOutIntake.askDetails) {
+    intakeSteps.push("request");
+  }
+  if (
+    staffOutIntake.askUrgency ||
+    staffOutIntake.askPreferredContact ||
+    staffOutIntake.askConsent
+  ) {
+    intakeSteps.push("followup");
+  }
+  const intakeStepIndex = Math.min(intakeStep, intakeSteps.length - 1);
+  const currentIntakeStep = intakeSteps[intakeStepIndex];
+  const intakeContactComplete = Boolean(
+    displayName.trim() && (emailDraft.trim() || intakePhoneDraft.trim()),
+  );
   const introText = isSolutionEnabled(settings, "intro")
     ? (settings.intro ?? "").trim()
     : "";
@@ -1493,6 +1971,9 @@ export function ClientChat({
   );
   const showSpecialties = isSolutionEnabled(settings, "specialties");
   const showPromos = isSolutionEnabled(settings, "promos");
+  const showDepartmentActions =
+    showSpecialties && currentDepartments(settings).some(departmentHasContent);
+  const showPromoActions = showPromos && banners.length > 0;
   const chatEnded = Boolean(client?.chatEndedAt);
   const isAway = !settings.live && !chatEnded;
   const chatLinkEmailOn = settings.emailAlerts?.customerChatLink !== false;
@@ -1577,10 +2058,35 @@ export function ClientChat({
     </header>
   );
 
-  const quickActions = !chatEnded && (showSpecialties || showPromos) ? (
+  const profileBlock = introText || profileLinks.length > 0 ? (
+    <div className="client-profile-block">
+      {introText ? <p className="client-chat-intro">{introText}</p> : null}
+      {profileLinks.length > 0 ? (
+        <nav className="client-profile-links" aria-label="Links">
+          {profileLinks.map((link) =>
+            preview ? (
+              <span key={link.id} className="client-profile-link">
+                {link.label}
+              </span>
+            ) : (
+              <InAppLink
+                key={link.id}
+                className="client-profile-link"
+                href={link.url}
+              >
+                {link.label}
+              </InAppLink>
+            ),
+          )}
+        </nav>
+      ) : null}
+    </div>
+  ) : null;
+
+  const quickActions = !chatEnded && (showDepartmentActions || showPromoActions) ? (
     <div className="client-quick-actions">
       <div className="client-away-actions">
-        {showSpecialties ? (
+        {showDepartmentActions ? (
         <div className="client-number-dropdown" ref={numberMenuRef}>
           <button
             type="button"
@@ -1622,7 +2128,7 @@ export function ClientChat({
                     >
                       {n}
                     </button>
-                    {n === 1 && showPromos ? (
+                    {n === 1 && showPromoActions ? (
                       <button
                         type="button"
                         className="client-promo-btn"
@@ -1639,7 +2145,7 @@ export function ClientChat({
           ) : null}
         </div>
         ) : null}
-        {showPromos && !showSpecialties ? (
+        {showPromoActions && !showDepartmentActions ? (
           <button
             type="button"
             className="client-book-consult-btn"
@@ -1650,7 +2156,7 @@ export function ClientChat({
           </button>
         ) : null}
       </div>
-      {showSpecialties && selectedNumber != null ? (
+      {showDepartmentActions && selectedNumber != null ? (
         <form
           className="client-department-attach"
           onSubmit={(e) => {
@@ -1741,10 +2247,11 @@ export function ClientChat({
   ) : null;
 
   return (
+    <LinkSheetProvider>
     <div
       className={`client-chat${embedded || preview ? " is-embedded" : ""}${
         preview ? " is-preview" : ""
-      }`}
+      }${actionsFor ? " has-message-focus" : ""}${isAway ? " is-away" : ""}`}
     >
       <div
         className={`client-chat-top ${settings.brandBannerUrl ? "has-brand-banner" : ""}`}
@@ -1760,35 +2267,6 @@ export function ClientChat({
         ) : (
           head
         )}
-
-        {introText || profileLinks.length > 0 ? (
-          <div className="client-profile-block">
-            {introText ? (
-              <p className="client-chat-intro">{introText}</p>
-            ) : null}
-            {profileLinks.length > 0 ? (
-              <nav className="client-profile-links" aria-label="Links">
-                {profileLinks.map((link) =>
-                  preview ? (
-                    <span key={link.id} className="client-profile-link">
-                      {link.label}
-                    </span>
-                  ) : (
-                    <a
-                      key={link.id}
-                      className="client-profile-link"
-                      href={link.url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {link.label}
-                    </a>
-                  ),
-                )}
-              </nav>
-            ) : null}
-          </div>
-        ) : null}
 
         {chatEnded && endScreen.kind !== "none" ? (
           <div className="client-away-panel client-ended-panel" role="status">
@@ -1864,27 +2342,25 @@ export function ClientChat({
               endScreen.kind === "book_follow_up" ||
               endScreen.kind === "review") &&
             endScreenCtaHref ? (
-              <a
+              <InAppLink
                 className="btn-solid client-end-cta"
                 href={endScreenCtaHref}
-                target="_blank"
-                rel="noreferrer"
               >
                 {endScreen.ctaLabel}
-              </a>
+              </InAppLink>
             ) : null}
           </div>
-        ) : isAway ? (
-          <div className="client-away-panel" role="status">
+        ) : isAway && awaySurfaceRoot ? createPortal(
+          <section
+            className={`client-away-panel${staffOutIntake.enabled ? " is-intake-flow" : ""}`}
+            aria-label="Away message"
+          >
             {staffOutIntake.enabled ? (
               <>
-                <p className="client-away-title">{staffOutIntake.title}</p>
+                <h2 className="client-away-title">{staffOutIntake.title}</h2>
                 <p className="client-away-copy">{staffOutIntake.reassurance}</p>
                 {staffOutIntake.responseTime ? (
                   <p className="client-away-meta">{staffOutIntake.responseTime}</p>
-                ) : null}
-                {staffOutIntake.emergencyNote ? (
-                  <p className="client-away-warning">{staffOutIntake.emergencyNote}</p>
                 ) : null}
                 {savedIntakeName ? (
                   <p className="client-away-saved">
@@ -1892,7 +2368,10 @@ export function ClientChat({
                     <button
                       type="button"
                       className="client-away-edit"
-                      onClick={() => setIntakeSaved(false)}
+                      onClick={() => {
+                        setIntakeStep(0);
+                        setIntakeSaved(false);
+                      }}
                     >
                       Change
                     </button>
@@ -1900,125 +2379,207 @@ export function ClientChat({
                 ) : (
                   <form
                     className="client-away-form client-intake-form"
-                    onSubmit={(e) => void saveStaffOutIntake(e)}
+                    onSubmit={(event) => {
+                      if (intakeStepIndex < intakeSteps.length - 1) {
+                        event.preventDefault();
+                        setIntakeStep((step) =>
+                          Math.min(step + 1, intakeSteps.length - 1),
+                        );
+                        return;
+                      }
+                      void saveStaffOutIntake(event);
+                    }}
                   >
-                    <label className="composer-field">
-                      <span className="sr-only">Name</span>
-                      <input
-                        type="text"
-                        value={displayName}
-                        onChange={(e) => setDisplayName(e.target.value)}
-                        placeholder="Name"
-                        required
-                        autoComplete="name"
-                      />
-                    </label>
-                    <div className="client-intake-contact-row">
-                      <label className="composer-field">
-                        <span className="sr-only">Email</span>
-                        <input
-                          type="email"
-                          value={emailDraft ?? ""}
-                          onChange={(e) => setEmailDraft(e.target.value)}
-                          placeholder="Email"
-                          autoComplete="email"
-                        />
-                      </label>
-                      <label className="composer-field">
-                        <span className="sr-only">Phone</span>
-                        <input
-                          type="tel"
-                          value={intakePhoneDraft}
-                          onChange={(e) => setIntakePhoneDraft(e.target.value)}
-                          placeholder="Phone"
-                          autoComplete="tel"
-                        />
-                      </label>
+                    <div
+                      className="client-intake-progress"
+                      aria-label={`Step ${intakeStepIndex + 1} of ${intakeSteps.length}`}
+                    >
+                      <span>
+                        Step {intakeStepIndex + 1} of {intakeSteps.length}
+                      </span>
+                      <div aria-hidden>
+                        {intakeSteps.map((step, index) => (
+                          <i
+                            key={step}
+                            className={index <= intakeStepIndex ? "is-active" : ""}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    <p className="client-away-mini">Add email or phone so we can follow up.</p>
-                    {staffOutIntake.askReason ? (
-                      <label className="composer-field">
-                        <span className="sr-only">Reason</span>
-                        <input
-                          type="text"
-                          value={intakeReasonDraft}
-                          onChange={(e) => setIntakeReasonDraft(e.target.value)}
-                          placeholder="What are you reaching out about?"
-                          required
-                        />
-                      </label>
+
+                    {currentIntakeStep === "contact" ? (
+                      <div className="client-intake-step">
+                        <div className="client-intake-step-head">
+                          <h3>How can we reach you?</h3>
+                          <p>Start with your name and one way to follow up.</p>
+                        </div>
+                        <label className="composer-field client-intake-field">
+                          <span>Name</span>
+                          <input
+                            type="text"
+                            value={displayName}
+                            onChange={(e) => setDisplayName(e.target.value)}
+                            placeholder="Your name"
+                            required
+                            autoComplete="name"
+                          />
+                        </label>
+                        <div className="client-intake-contact-row">
+                          <label className="composer-field client-intake-field">
+                            <span>Email</span>
+                            <input
+                              type="email"
+                              value={emailDraft ?? ""}
+                              onChange={(e) => setEmailDraft(e.target.value)}
+                              placeholder="you@example.com"
+                              autoComplete="email"
+                            />
+                          </label>
+                          <label className="composer-field client-intake-field">
+                            <span>Phone</span>
+                            <input
+                              type="tel"
+                              value={intakePhoneDraft}
+                              onChange={(e) => setIntakePhoneDraft(e.target.value)}
+                              placeholder="(555) 000-0000"
+                              autoComplete="tel"
+                            />
+                          </label>
+                        </div>
+                        <p className="client-away-mini">
+                          Only one contact method is needed.
+                        </p>
+                      </div>
                     ) : null}
-                    {staffOutIntake.askUrgency ? (
-                      <label className="composer-field">
-                        <span className="sr-only">Urgency</span>
-                        <select
-                          value={intakeUrgency}
-                          onChange={(e) =>
-                            setIntakeUrgency(
-                              e.target.value as "low" | "normal" | "high",
-                            )
+
+                    {currentIntakeStep === "request" ? (
+                      <div className="client-intake-step">
+                        <div className="client-intake-step-head">
+                          <h3>What can we help with?</h3>
+                          <p>A little context helps the team respond usefully.</p>
+                        </div>
+                        {staffOutIntake.askReason ? (
+                          <label className="composer-field client-intake-field">
+                            <span>Topic</span>
+                            <input
+                              type="text"
+                              value={intakeReasonDraft}
+                              onChange={(e) => setIntakeReasonDraft(e.target.value)}
+                              placeholder="What are you reaching out about?"
+                              required
+                              autoFocus
+                            />
+                          </label>
+                        ) : null}
+                        {staffOutIntake.askDetails ? (
+                          <label className="composer-field client-intake-field">
+                            <span>Details</span>
+                            <textarea
+                              rows={4}
+                              value={intakeDetailsDraft}
+                              onChange={(e) => setIntakeDetailsDraft(e.target.value)}
+                              placeholder="Anything that would help us understand your situation"
+                              required
+                              autoFocus={!staffOutIntake.askReason}
+                            />
+                          </label>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {currentIntakeStep === "followup" ? (
+                      <div className="client-intake-step">
+                        <div className="client-intake-step-head">
+                          <h3>Last step</h3>
+                          <p>Tell us how you’d like the team to respond.</p>
+                        </div>
+                        {staffOutIntake.askUrgency ? (
+                          <label className="composer-field client-intake-field">
+                            <span>Timing</span>
+                            <select
+                              value={intakeUrgency}
+                              onChange={(e) =>
+                                setIntakeUrgency(
+                                  e.target.value as "low" | "normal" | "high",
+                                )
+                              }
+                            >
+                              <option value="normal">Reply when available</option>
+                              <option value="high">Please prioritize</option>
+                              <option value="low">Just planning ahead</option>
+                            </select>
+                          </label>
+                        ) : null}
+                        {staffOutIntake.askPreferredContact ? (
+                          <label className="composer-field client-intake-field">
+                            <span>Preferred reply</span>
+                            <select
+                              value={intakePreferredContact}
+                              onChange={(e) =>
+                                setIntakePreferredContact(
+                                  e.target.value as "email" | "phone" | "chat",
+                                )
+                              }
+                            >
+                              <option value="email">Email</option>
+                              <option value="phone">Phone</option>
+                              <option value="chat">This chat</option>
+                            </select>
+                          </label>
+                        ) : null}
+                        {staffOutIntake.askConsent ? (
+                          <label className="client-intake-consent">
+                            <input
+                              type="checkbox"
+                              checked={intakeConsent}
+                              onChange={(e) => setIntakeConsent(e.target.checked)}
+                              required
+                            />
+                            <span>You can contact me about this request.</span>
+                          </label>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <div className="client-intake-navigation">
+                      {intakeStepIndex > 0 ? (
+                        <button
+                          type="button"
+                          className="btn-ghost client-intake-back"
+                          onClick={() =>
+                            setIntakeStep((step) => Math.max(0, step - 1))
                           }
                         >
-                          <option value="normal">Normal — reply when available</option>
-                          <option value="high">Urgent — please prioritize</option>
-                          <option value="low">Low urgency — just planning ahead</option>
-                        </select>
-                      </label>
-                    ) : null}
-                    {staffOutIntake.askPreferredContact ? (
-                      <label className="composer-field">
-                        <span className="sr-only">Preferred contact</span>
-                        <select
-                          value={intakePreferredContact}
-                          onChange={(e) =>
-                            setIntakePreferredContact(
-                              e.target.value as "email" | "phone" | "chat",
-                            )
-                          }
-                        >
-                          <option value="email">Email</option>
-                          <option value="phone">Phone</option>
-                          <option value="chat">Talk on this chat</option>
-                        </select>
-                      </label>
-                    ) : null}
-                    {staffOutIntake.askDetails ? (
-                      <label className="composer-field">
-                        <span className="sr-only">Details</span>
-                        <textarea
-                          rows={3}
-                          value={intakeDetailsDraft}
-                          onChange={(e) => setIntakeDetailsDraft(e.target.value)}
-                          placeholder="Add details that would help the team understand your situation…"
-                          required
-                        />
-                      </label>
-                    ) : null}
-                    {staffOutIntake.askConsent ? (
-                      <label className="client-intake-consent">
-                        <input
-                          type="checkbox"
-                          checked={intakeConsent}
-                          onChange={(e) => setIntakeConsent(e.target.checked)}
-                          required
-                        />
-                        <span>You can contact me about this request.</span>
-                      </label>
-                    ) : null}
-                    <button type="submit" className="btn-solid client-away-submit">
-                      Send details
-                    </button>
+                          Back
+                        </button>
+                      ) : (
+                        <span />
+                      )}
+                      <button
+                        type="submit"
+                        className="btn-solid client-away-submit"
+                        disabled={
+                          currentIntakeStep === "contact" &&
+                          !intakeContactComplete
+                        }
+                      >
+                        {intakeStepIndex === intakeSteps.length - 1
+                          ? "Send request"
+                          : "Continue"}
+                      </button>
+                    </div>
                   </form>
                 )}
+                {staffOutIntake.emergencyNote ? (
+                  <p className="client-away-warning">{staffOutIntake.emergencyNote}</p>
+                ) : null}
                 {staffOutNextStepHref ? (
-                  <a
+                  <InAppLink
                     className="btn-ghost client-away-secondary"
                     href={staffOutNextStepHref}
-                    target="_blank"
-                    rel="noreferrer"
                   >
                     {staffOutIntake.nextStepLabel}
-                  </a>
+                  </InAppLink>
                 ) : null}
               </>
             ) : (
@@ -2058,10 +2619,9 @@ export function ClientChat({
                 )}
               </>
             )}
-          </div>
+          </section>,
+          awaySurfaceRoot,
         ) : null}
-
-        {quickActions}
 
         {banners.length > 0 ? (
           <div className="client-chat-banners">
@@ -2071,6 +2631,18 @@ export function ClientChat({
           </div>
         ) : null}
       </div>
+
+      {profileBlock}
+
+      {quickActions}
+
+      {isAway ? (
+        <div
+          ref={setAwaySurfaceRoot}
+          className="client-away-surface"
+          aria-live="polite"
+        />
+      ) : null}
 
       <SwipeTimeStream
         ref={scrollRef}
@@ -2103,31 +2675,63 @@ export function ClientChat({
           const reconnectPath = message.linkUrl || `/${slug}/c/${chatId}`;
           const interactive = !specialties && !reconnect;
           const actionsOpen = actionsFor === message.id;
+          const thumbsUpOnly = isThumbsUpOnly(message);
+          const mediaOnly =
+            (message.kind === "image" || message.kind === "video") &&
+            !message.body?.trim();
+          const dayKey = messageDayKey(message);
+          const previousDayKey =
+            index > 0 ? messageDayKey(thread[index - 1]) : "";
+          const showDaySeparator = dayKey !== previousDayKey;
           return (
-            <div
-              key={message.id}
-              className={`chat-row ${clusterClassName(role, continued)}${
-                actionsOpen ? " is-actions-open" : ""
-              }`}
-              data-message-id={message.id}
-              onClick={(e) => {
-                if (client?.chatEndedAt || !interactive) return;
-                const target = e.target;
-                if (!(target instanceof Element)) return;
-                if (target.closest("a, button, input, textarea, select")) {
-                  return;
+            <Fragment key={message.id}>
+              {showDaySeparator ? (
+                <div className="chat-day-separator">
+                  <span>{formatMessageDay(message)}</span>
+                </div>
+              ) : null}
+              <div
+                className={`chat-row msg-wrap ${fromCustomer ? "is-mine" : "is-theirs"} ${clusterClassName(role, continued)}${
+                  actionsOpen ? " is-actions-open" : ""
+                }${
+                  sendAnimationMessageId === message.id
+                    ? " is-send-animating"
+                    : ""
+                }`}
+                data-message-id={message.id}
+                onAnimationEnd={(event) => {
+                  if (
+                    event.animationName === "messageBubblePop" &&
+                    sendAnimationMessageId === message.id
+                  ) {
+                    setSendAnimationMessageId(null);
+                  }
+                }}
+                onClick={(e) => {
+                  if (client?.chatEndedAt || !interactive) return;
+                  if (longPressOpenedRef.current) {
+                    longPressOpenedRef.current = false;
+                    lastMessagePointerRef.current = null;
+                    return;
+                  }
+                  lastMessagePointerRef.current = null;
+                }}
+                onPointerDown={(e) =>
+                  startMessageLongPress(e, message.id, interactive)
                 }
-                setActionsFor((cur) =>
-                  cur === message.id ? null : message.id,
-                );
-              }}
-            >
-              <div className="chat-row-main">
-                <article
-                  className={`bubble bubble-${fromCustomer ? "business" : "client"} ${
-                    reconnect ? "bubble-reconnect" : `bubble-${message.kind}`
-                  }`}
-                >
+                onPointerMove={moveMessageLongPress}
+                onPointerUp={clearLongPressTimer}
+                onPointerCancel={clearLongPressTimer}
+                onContextMenu={(e) => {
+                  if (interactive && mobileActionsOnly()) e.preventDefault();
+                }}
+              >
+                <div className="chat-row-main">
+                  <article
+                    className={`bubble bubble-${fromCustomer ? "business" : "client"} ${
+                      reconnect ? "bubble-reconnect" : `bubble-${message.kind}`
+                    }${mediaOnly ? " is-media-only" : ""}${thumbsUpOnly ? " bubble-like-only" : ""}`}
+                  >
                   {staffName ? (
                     <span className="bubble-speaker">{staffName}</span>
                   ) : null}
@@ -2278,9 +2882,12 @@ export function ClientChat({
                     </div>
                   ) : (
                     <>
-                      <MessageMedia message={message} />
+                      <MessageMedia
+                        message={message}
+                        suppressOpen={actionsOpen}
+                      />
                       {message.body && message.kind !== "link" ? (
-                        <p>{message.body}</p>
+                        <MessageBodyText text={message.body} />
                       ) : null}
                     </>
                   )}
@@ -2290,27 +2897,43 @@ export function ClientChat({
                     disabled={Boolean(client?.chatEndedAt)}
                     onToggle={(emoji) => reactToMessage(message.id, emoji)}
                   />
-                </article>
-                {interactive ? (
-                  <MessageActionBar
-                    align={fromCustomer ? "end" : "start"}
-                    disabled={Boolean(client?.chatEndedAt)}
-                    onReply={() => setReplyTo(buildReplyRef(message))}
-                    onReact={(emoji) => reactToMessage(message.id, emoji)}
-                  />
-                ) : null}
+                  </article>
+                  {interactive ? (
+                    <MessageActionBar
+                      align={fromCustomer ? "end" : "start"}
+                      disabled={Boolean(client?.chatEndedAt)}
+                      onReply={() => setReplyTo(buildReplyRef(message))}
+                      onReact={(emoji) => reactToMessage(message.id, emoji)}
+                    />
+                  ) : null}
+                </div>
+                <time className="chat-row-time" dateTime={message.createdAt ?? message.at}>
+                  <span className="chat-row-time-inner">
+                    {formatSwipeTime(message)}
+                  </span>
+                </time>
               </div>
-              <time className="chat-row-time" dateTime={message.at}>
-                <span className="chat-row-time-inner">
-                  {message.at.replace(", ", "\n")}
-                </span>
-              </time>
-            </div>
+            </Fragment>
           );
         })}
       </SwipeTimeStream>
 
-      <div className="client-chat-end-wrap">
+      {newMessageCount > 0 ? (
+        <div className="client-new-message-wrap">
+          <button
+            type="button"
+            className="client-new-message-pill"
+            onClick={jumpToLatestMessages}
+          >
+            {newMessageCount === 1
+              ? "New message"
+              : `${newMessageCount} new messages`}{" "}
+            ↓
+          </button>
+        </div>
+      ) : null}
+
+      <div className="client-chat-end-wrap" ref={composerWrapRef}>
         {chatEndImages.length > 0 ? (
           <ChatMarketingCarousel images={chatEndImages} />
         ) : null}
@@ -2319,7 +2942,10 @@ export function ClientChat({
             <p>Chat ended</p>
           </div>
         ) : (
-          <form className="client-composer" onSubmit={(e) => void send(e)}>
+          <form
+            className={`client-composer ${mobileComposerExpanded ? "is-mobile-expanded" : ""}`}
+            onSubmit={(e) => void send(e)}
+          >
             {replyTo ? (
               <div className="composer-reply" role="status">
                 <div className="composer-reply-body">
@@ -2367,16 +2993,128 @@ export function ClientChat({
                 {sendError}
               </p>
             ) : null}
+            {plusMenuOpen || faqOpen ? (
+              <div className="client-mobile-plus-panel">
+                {plusMenuOpen ? (
+                  <div className="client-plus-menu-row">
+                    <button
+                      type="button"
+                      className="client-plus-option"
+                      onClick={() => {
+                        setPlusMenuOpen(false);
+                        setFaqOpen(true);
+                      }}
+                    >
+                      FAQ
+                    </button>
+                    <button
+                      type="button"
+                      className="client-plus-menu-close"
+                      aria-label="Close options"
+                      onClick={() => {
+                        setPlusMenuOpen(false);
+                        setFaqOpen(false);
+                      }}
+                    >
+                      <IconX size={14} />
+                    </button>
+                  </div>
+                ) : null}
+                {faqOpen ? (
+                  <div className="client-faq-box" aria-label="Frequently asked questions">
+                    <div className="client-faq-box-head">
+                      <span>Ask a common question</span>
+                      <button
+                        type="button"
+                        aria-label="Close FAQ"
+                        onClick={() => setFaqOpen(false)}
+                      >
+                        <IconX size={14} />
+                      </button>
+                    </div>
+                    <div className="client-faq-list">
+                      {CUSTOMER_FAQS.map((question) => (
+                        <button
+                          key={question}
+                          type="button"
+                          disabled={sending || preview}
+                          onClick={() => void sendFaqQuestion(question)}
+                        >
+                          {question}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="client-composer-row">
+              <div className="client-mobile-composer-icons">
+                <button
+                  type="button"
+                  className="mobile-composer-icon"
+                  aria-label="More options"
+                  aria-expanded={plusMenuOpen || faqOpen}
+                  onClick={() => {
+                    setFaqOpen(false);
+                    setPlusMenuOpen((open) => !open);
+                  }}
+                >
+                  <IconPlusCircle />
+                </button>
+                <button
+                  type="button"
+                  className="mobile-composer-icon"
+                  aria-label="Camera"
+                  disabled={attaching || sending}
+                  onClick={() => cameraRef.current?.click()}
+                >
+                  <IconCamera />
+                </button>
+                <button
+                  type="button"
+                  className="mobile-composer-icon"
+                  aria-label="Photo library"
+                  disabled={attaching || sending}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <IconPhoto />
+                </button>
+                <button
+                  type="button"
+                  className="mobile-composer-icon"
+                  aria-label="Speech to text"
+                  disabled={sending || preview}
+                  onClick={() => {
+                    setPlusMenuOpen(false);
+                    setFaqOpen(false);
+                    setSpeechModalOpen(true);
+                  }}
+                >
+                  <IconMic />
+                </button>
+              </div>
               <input
                 ref={fileRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
                 className="sr-only"
                 id="client-attach-image"
                 onChange={(e) => {
                   const file = e.target.files?.[0] ?? null;
                   if (file) void sendImage(file);
+                }}
+              />
+              <input
+                ref={cameraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                id="client-capture-image"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  if (file) void sendImage(file, "camera");
                 }}
               />
               <label
@@ -2387,10 +3125,30 @@ export function ClientChat({
               >
                 <IconPaperclip />
               </label>
+              <button
+                type="button"
+                className="mobile-composer-collapse"
+                aria-label="Show message actions"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setMobileComposerExpanded(false);
+                  requestAnimationFrame(() => messageInputRef.current?.focus());
+                }}
+              >
+                &gt;
+              </button>
               <label className="composer-field">
                 <span className="sr-only">Message</span>
                 <input
+                  ref={messageInputRef}
                   value={draft ?? ""}
+                  onFocus={() => {
+                    setMobileComposerExpanded(true);
+                  }}
+                  onBlur={() => {
+                    setMobileComposerExpanded(false);
+                    settleMobileOverscrollGap();
+                  }}
                   onChange={(e) => {
                     setDraft(e.target.value);
                     if (sendError) setSendError(null);
@@ -2402,22 +3160,44 @@ export function ClientChat({
                         ? "Add details so the team can understand your situation…"
                         : "Message…"
                   }
-                  autoFocus={!preview}
-                  disabled={sending || preview}
+                  disabled={preview}
                 />
               </label>
               <button
-                type="submit"
-                className="composer-send"
-                aria-label="Send"
-                disabled={sending || preview || !draft.trim()}
+                type={draft.trim() ? "submit" : "button"}
+                className={`composer-send ${draft.trim() ? "has-message" : "is-empty"}`}
+                aria-label={draft.trim() ? "Send" : "Send thumbs up"}
+                disabled={sending || preview}
+                onPointerDown={(event) => {
+                  if (draft.trim()) event.preventDefault();
+                }}
+                onClick={() => {
+                  if (!draft.trim()) void sendTextMessage("👍");
+                }}
               >
-                <IconArrowSend />
+                <span className="composer-send-icon composer-send-icon-like">
+                  <IconThumbUp />
+                </span>
+                <span className="composer-send-icon composer-send-icon-arrow">
+                  <IconArrowSend />
+                </span>
               </button>
             </div>
           </form>
         )}
       </div>
+      {speechModalOpen ? (
+        <SpeechToTextModal
+          initialText={draft}
+          sending={sending}
+          onClose={() => setSpeechModalOpen(false)}
+          onSend={async (text) => {
+            await sendTextMessage(text);
+            setSpeechModalOpen(false);
+          }}
+        />
+      ) : null}
     </div>
+    </LinkSheetProvider>
   );
 }

@@ -7,6 +7,7 @@ import { createBusiness, listBusinesses } from "@/lib/store";
 import { IconChevronDown } from "@/components/shared/Icons";
 import { HOW_STEPS, HowDemoFrame } from "./HowDemo";
 import { SpaceAuthForm } from "./SpaceAuthForm";
+import { dashHref } from "@/lib/workspaceNav";
 
 type Step = "loading" | "form" | "auth" | "login" | "ready" | "owned";
 
@@ -215,10 +216,10 @@ export function HomeSetup() {
           {step === "owned" && owned ? (
             <div className="setup-done home-owned">
               <Link
-                href={`/${owned.slug}/floor`}
+                href={dashHref(owned.slug, "floor")}
                 className="btn-solid setup-go home-access-floor"
               >
-                Access {possessive(owned.name)} Floor
+                Access {possessive(owned.name)} Live Chat
               </Link>
             </div>
           ) : null}
@@ -237,8 +238,8 @@ export function HomeSetup() {
                 </button>
               </div>
               <div className="setup-actions">
-                <Link href={`/${created.slug}/floor`} className="btn-solid">
-                  Access {possessive(created.name)} Floor
+                <Link href={dashHref(created.slug, "floor")} className="btn-solid">
+                  Access {possessive(created.name)} Live Chat
                 </Link>
                 <Link href={`/${created.slug}`} className="btn-ghost">
                   Preview chat

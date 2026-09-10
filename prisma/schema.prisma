@@ -38,10 +38,15 @@ model Space {
   owner     User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+  growthRecords   GrowthRecord[]
   chats           Chat[]
   offerings       Offering[]
   knowledgeNotes  KnowledgeNote[]
   cases           CustomerCase[]
+  scheduleRequests ScheduleRequest[]
+  formSubmissions  FormSubmission[]
+  insightSessions InsightSession[]
+  insightSnapshots InsightSnapshot[]
 }
 
 /// Product or service a customer can inquire about in chat.
@@ -113,6 +118,47 @@ model CustomerCase {
   @@index([spaceSlug, updatedAt])
 }
 
+/// Appointment request from a scheduler quick build.
+model ScheduleRequest {
+  id              String   @id
+  spaceSlug       String
+  space           Space    @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)
+  chatId          String   @default("")
+  name            String
+  email           String   @default("")
+  phone           String   @default("")
+  date            String
+  time            String
+  durationMinutes Int      @default(30)
+  notes           String   @default("")
+  title           String   @default("")
+  status          String   @default("requested")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([spaceSlug, date])
+  @@index([spaceSlug, status])
+  @@index([spaceSlug, createdAt])
+}
+
+/// Intake submitted from a public form.
+model FormSubmission {
+  id        String   @id
+  spaceSlug String
+  space     Space    @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)
+  name      String
+  email     String   @default("")
+  phone     String   @default("")
+  title     String   @default("")
+  fields    Json     @default("[]")
+  status    String   @default("new")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([spaceSlug, createdAt])
+  @@index([spaceSlug, status])
+}
+
 model Feedback {
   id        String   @id
   message   String
@@ -130,4 +176,56 @@ model SpacePresence {
 
   @@id([slug, clientId])
   @@index([slug])
+}
+
+/// On-site visitor sessions from watch.js (Hotjar-style trails, no keystrokes).
+model InsightSession {
+  id          String   @id
+  spaceSlug   String
+  space       Space    @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)
+  startedAt   DateTime
+  lastSeenAt  DateTime
+  landingPath String   @default("/")
+  referrer    String   @default("")
+  device      String   @default("desktop")
+  viewportW   Int      @default(0)
+  viewportH   Int      @default(0)
+  pageCount   Int      @default(1)
+  durationMs  Int      @default(0)
+  maxScroll   Int      @default(0)
+  rageClicks  Int      @default(0)
+  deadClicks  Int      @default(0)
+  events      Json     @default("[]")
+
+  @@index([spaceSlug, lastSeenAt])
+}
+
+/// Frozen page capture used as the heatmap background.
+model InsightSnapshot {
+  id         String   @id
+  spaceSlug  String
+  space      Space    @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)
+  path       String
+  pageUrl    String   @default("")
+  image      String
+  width      Int      @default(0)
+  height     Int      @default(0)
+  capturedAt DateTime @default(now())
+
+  @@unique([spaceSlug, path])
+  @@index([spaceSlug])
+}
+
+/// Private program, partner, conversion, and story records. Public routes expose only published fields.
+model GrowthRecord {
+  id        String @id
+  spaceSlug String
+  space     Space @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)
+  kind      String
+  data      String
+  visits    Int @default(0)
+  version   Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([spaceSlug, kind])
 }

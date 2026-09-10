@@ -5,6 +5,7 @@ import {
   paymentKindLabel,
   receiptListingStyle,
 } from "@/lib/spaceNormalize";
+import { InAppLink } from "@/components/shared/LinkSheet";
 
 interface ReceiptCardProps {
   receipt: ReceiptPayload;
@@ -63,14 +64,14 @@ export function ReceiptCard({ receipt, linkUrl, compact }: ReceiptCardProps) {
           <>
             <p className="receipt-card-pay-label">{payName}</p>
             {payUrl ? (
-              <a
+              <InAppLink
                 className="receipt-card-pay-link"
                 href={payUrl}
                 target="_blank"
                 rel="noreferrer"
               >
                 Pay now
-              </a>
+              </InAppLink>
             ) : (
               <p className="receipt-card-pay-detail">
                 Pay link set per product

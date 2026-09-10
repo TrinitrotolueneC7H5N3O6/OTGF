@@ -45,8 +45,8 @@ export interface IndustryInfo {
 export const SOLUTION_CATALOG: SolutionInfo[] = [
   {
     id: "preChat",
-    label: "Public page",
-    blurb: "The page people hit from your link, before live chat.",
+    label: "Micro-landing page",
+    blurb: "The Linktree-style page behind your shared link.",
   },
   {
     id: "chatInterface",
@@ -101,7 +101,7 @@ export const SOLUTION_CATALOG: SolutionInfo[] = [
   {
     id: "hours",
     label: "Hours",
-    blurb: "Show when you usually reply, on chat and the public page.",
+    blurb: "Show when you usually reply, on chat and the micro-landing page.",
   },
 ];
 

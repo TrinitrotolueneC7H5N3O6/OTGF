@@ -20,14 +20,22 @@ import type {
   LibraryItem,
   Message,
   PaymentMethodKind,
+  PhoneAlerts,
   PreChatLink,
   PreChatLinkKind,
   PreChatPage,
+  QuickBuildConfig,
+  QuickBuildFieldType,
   ProfileLink,
   ReceiptPayment,
   ReceiptPayload,
   ReceiptProduct,
   ResponseWindow,
+  ScheduleRequest,
+  ScheduleRequestStatus,
+  FormSubmission,
+  FormSubmissionStatus,
+  FormSubmissionField,
   StaffOutIntake,
   Weekday,
 } from "./types";
@@ -48,9 +56,15 @@ import {
   normalizeEnabledSolutions,
   normalizeSetupIndustry,
 } from "./setupSolutions";
+import {
+  allWorkspaceComponentIds,
+  normalizeEnabledWorkspace,
+} from "./workspaceComponents";
 import { normalizeOfferings } from "./offerings";
 import { normalizeKnowledgeNotes } from "./knowledge";
 import { EMAIL_ALERT_DEFAULTS } from "./emailAlertOptions";
+import { defaultQuickBuildConfig } from "./quickBuilds";
+import { defaultStoryTemplate, normalizeStoryTemplate } from "./storytelling";
 
 const WEEKDAYS: Weekday[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -128,6 +142,7 @@ export function defaultFloorSettings(): FloorSettings {
     endScreenBehavior: defaultChatEndScreenBehavior(),
     notifyEmails: [],
     emailAlerts: defaultEmailAlerts(),
+    phoneAlerts: undefined,
     assistBehavior: "",
     autoAnswer: false,
     autoAnswerMessage: "",
@@ -137,6 +152,8 @@ export function defaultFloorSettings(): FloorSettings {
     preChat: defaultPreChat(),
     setupIndustry: "custom",
     enabledSolutions: allSolutionIds(),
+    enabledWorkspace: allWorkspaceComponentIds(),
+    storyTemplate: defaultStoryTemplate(),
   };
 }
 
@@ -429,6 +446,23 @@ export function normalizeEmailAlerts(raw: unknown): EmailAlerts {
   return next;
 }
 
+function normalizePhoneAlerts(raw: unknown): PhoneAlerts | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const row = raw as Partial<Record<keyof PhoneAlerts, unknown>>;
+  const phoneNumber =
+    typeof row.phoneNumber === "string" ? row.phoneNumber.trim().slice(0, 24) : "";
+  const verificationToken =
+    typeof row.verificationToken === "string"
+      ? row.verificationToken.trim().slice(0, 128)
+      : "";
+  if (!phoneNumber || !verificationToken) return undefined;
+  return {
+    enabled: row.enabled !== false,
+    phoneNumber,
+    verificationToken,
+  };
+}
+
 function normalizeNotifyEmails(emails: unknown): string[] {
   if (!Array.isArray(emails)) return [];
   const seen = new Set<string>();
@@ -526,24 +560,50 @@ function emptyDepartment(): DepartmentContent {
 
 export const DEFAULT_CALL_PHONE = "+1(669)-240-8911";
 
+export const CONTACT_LINK_IDS = ["pre-call", "pre-sms", "pre-email"] as const;
+
+function defaultContactLinks(): PreChatLink[] {
+  return [
+    {
+      id: "pre-call",
+      kind: "call",
+      label: "Call",
+      enabled: true,
+      showInWidget: true,
+      href: DEFAULT_CALL_PHONE,
+    },
+    {
+      id: "pre-sms",
+      kind: "sms",
+      label: "Text",
+      enabled: true,
+      showInWidget: true,
+      href: DEFAULT_CALL_PHONE,
+    },
+    {
+      id: "pre-email",
+      kind: "email",
+      label: "Email",
+      enabled: true,
+      showInWidget: true,
+      href: "",
+    },
+  ];
+}
+
 export function defaultPreChat(): PreChatPage {
   return {
     headline: "",
     bio: "",
     links: [
-      {
-        id: "pre-call",
-        kind: "call",
-        label: "Call Us",
-        enabled: true,
-        href: DEFAULT_CALL_PHONE,
-      },
+      ...defaultContactLinks(),
       { id: "pre-live-chat", kind: "chat", label: "Live Chat", enabled: true },
       {
         id: "pre-consult",
         kind: "url",
         label: "Book Consultation",
         enabled: true,
+        showInWidget: false,
         href: "",
       },
       {
@@ -551,13 +611,89 @@ export function defaultPreChat(): PreChatPage {
         kind: "url",
         label: "Daily Promotions",
         enabled: true,
+        showInWidget: false,
         href: "",
       },
     ],
   };
 }
 
-const PRE_CHAT_KINDS: PreChatLinkKind[] = ["chat", "call", "url", "email"];
+const PRE_CHAT_KINDS: PreChatLinkKind[] = ["chat", "call", "sms", "url", "email"];
+const QUICK_FIELD_TYPES: QuickBuildFieldType[] = ["text", "email", "tel", "textarea"];
+
+function normalizeQuickBuild(raw: unknown): QuickBuildConfig | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const row = raw as Record<string, unknown>;
+  const type = row.type;
+  if (type !== "form" && type !== "scheduler" && type !== "sms" && type !== "email") {
+    return undefined;
+  }
+  const fallback = defaultQuickBuildConfig(type);
+  const title =
+    typeof row.title === "string" && row.title.trim()
+      ? row.title.trim().slice(0, 100)
+      : fallback.title;
+  const description =
+    typeof row.description === "string" && row.description.trim()
+      ? row.description.trim().slice(0, 240)
+      : fallback.description;
+  if (type === "form") {
+    const fallbackForm = fallback as Extract<QuickBuildConfig, { type: "form" }>;
+    const fields = Array.isArray(row.fields)
+      ? row.fields.slice(0, 12).flatMap((rawField, index) => {
+          if (!rawField || typeof rawField !== "object") return [];
+          const field = rawField as Record<string, unknown>;
+          const label = typeof field.label === "string" ? field.label.trim().slice(0, 80) : "";
+          if (!label) return [];
+          const fieldType = QUICK_FIELD_TYPES.includes(field.type as QuickBuildFieldType)
+            ? (field.type as QuickBuildFieldType)
+            : "text";
+          return [{
+            id: typeof field.id === "string" && field.id.trim()
+              ? field.id.trim().slice(0, 80)
+              : `field-${index}`,
+            label,
+            type: fieldType,
+            required: field.required !== false,
+          }];
+        })
+      : [];
+    return {
+      type,
+      title,
+      description,
+      fields: fields.length ? fields : fallbackForm.fields,
+      shareEmbed: row.shareEmbed !== false,
+      sharePage: row.sharePage !== false,
+    };
+  }
+  if (type === "scheduler") {
+    const fallbackSchedule = fallback as Extract<QuickBuildConfig, { type: "scheduler" }>;
+    const duration = Number(row.durationMinutes);
+    const daysAhead = Number(row.daysAhead);
+    const validTime = (value: unknown, defaultValue: string) =>
+      typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
+        ? value
+        : defaultValue;
+    return {
+      type,
+      title,
+      description,
+      durationMinutes: [15, 30, 45, 60, 90].includes(duration) ? duration : fallbackSchedule.durationMinutes,
+      startTime: validTime(row.startTime, fallbackSchedule.startTime),
+      endTime: validTime(row.endTime, fallbackSchedule.endTime),
+      sharePage: row.sharePage !== false,
+      shareEmbed: row.shareEmbed !== false,
+      weekdays: Array.isArray(row.weekdays) ? [...new Set(row.weekdays.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))] : [0, 1, 2, 3, 4, 5, 6],
+      minimumNoticeHours: Number.isFinite(Number(row.minimumNoticeHours)) ? Math.min(168, Math.max(0, Number(row.minimumNoticeHours))) : 0,
+      timeZone: (() => { try { const zone = typeof row.timeZone === "string" && row.timeZone ? row.timeZone : "UTC"; new Intl.DateTimeFormat("en", { timeZone: zone }); return zone; } catch { return "UTC"; } })(),
+      location: typeof row.location === "string" ? row.location.trim().slice(0, 240) : "",
+      requirePhone: row.requirePhone === true,
+      daysAhead: Number.isFinite(daysAhead) ? Math.min(180, Math.max(7, Math.round(daysAhead))) : fallbackSchedule.daysAhead,
+    };
+  }
+  return { type, title, description };
+}
 
 function normalizePreChatLink(raw: unknown, index: number): PreChatLink | null {
   if (!raw || typeof raw !== "object") return null;
@@ -565,33 +701,51 @@ function normalizePreChatLink(raw: unknown, index: number): PreChatLink | null {
   const kind = PRE_CHAT_KINDS.includes(row.kind as PreChatLinkKind)
     ? (row.kind as PreChatLinkKind)
     : "url";
+  const id =
+    typeof row.id === "string" && row.id.trim()
+      ? row.id.trim()
+      : `pre-${index}-${kind}`;
+  const legacyQuickType = /^pre-quick-(form|scheduler|sms|email)-/.exec(id)?.[1] as
+    | QuickBuildConfig["type"]
+    | undefined;
   const label =
     typeof row.label === "string" && row.label.trim()
       ? row.label.trim().slice(0, 80)
       : kind === "chat"
         ? "Live Chat"
         : kind === "call"
-          ? "Call Us"
+          ? "Call"
+          : kind === "sms"
+            ? "Text"
           : kind === "email"
             ? "Email"
             : "Link";
   return {
-    id:
-      typeof row.id === "string" && row.id.trim()
-        ? row.id.trim()
-        : `pre-${index}-${kind}`,
+    id,
     kind,
     label:
-      kind === "call" && label === "Call"
-        ? "Call Us"
-        : label === "Live chat"
-          ? "Live Chat"
-          : label === "Book consultation"
-            ? "Book Consultation"
-            : label,
+      kind === "call" && (label === "Call Us" || label === "Call us")
+        ? "Call"
+        : label === "Text Us" || label === "Text us"
+          ? "Text"
+          : label === "Email us" || label === "Email Us"
+            ? "Email"
+            : label === "Live chat"
+              ? "Live Chat"
+              : label === "Book consultation"
+                ? "Book Consultation"
+                : label,
     enabled: row.enabled !== false,
+    showInWidget: CONTACT_LINK_IDS.includes(
+      id as (typeof CONTACT_LINK_IDS)[number],
+    )
+      ? row.showInWidget !== false
+      : row.showInWidget === true,
+    quickBuild:
+      normalizeQuickBuild(row.quickBuild) ??
+      (legacyQuickType ? defaultQuickBuildConfig(legacyQuickType) : undefined),
     href:
-      kind === "call" &&
+      (kind === "call" || kind === "sms") &&
       !(typeof row.href === "string" && row.href.trim())
         ? DEFAULT_CALL_PHONE
         : typeof row.href === "string"
@@ -605,6 +759,7 @@ const DEFAULT_PROMO_LINK: PreChatLink = {
   kind: "url",
   label: "Daily Promotions",
   enabled: true,
+  showInWidget: false,
   href: "",
 };
 
@@ -617,10 +772,48 @@ function isDepartmentsLink(link: PreChatLink) {
 
 function withDefaultPreChatLinks(links: PreChatLink[]): PreChatLink[] {
   const next = links.filter((link) => !isDepartmentsLink(link));
-  if (!next.some((link) => link.id === "pre-promo") && next.length < 12) {
+  if (!next.some((link) => link.id === "pre-promo") && next.length < 16) {
     next.push(DEFAULT_PROMO_LINK);
   }
-  return next;
+  return ensureContactLinks(next);
+}
+
+function ensureContactLinks(links: PreChatLink[]): PreChatLink[] {
+  const defaults = defaultContactLinks();
+  const byId = new Map(links.map((link) => [link.id, link]));
+  const phone =
+    byId.get("pre-call")?.href?.trim() ||
+    links.find((link) => link.kind === "call")?.href?.trim() ||
+    DEFAULT_CALL_PHONE;
+  const email =
+    byId.get("pre-email")?.href?.trim() ||
+    links.find((link) => link.kind === "email" && !link.quickBuild)?.href?.trim() ||
+    "";
+  const contacts = defaults.map((item) => {
+    const existing = byId.get(item.id);
+    if (!existing) {
+      return {
+        ...item,
+        href: item.kind === "email" ? email : phone,
+      };
+    }
+    return {
+      ...existing,
+      kind: item.kind,
+      label: existing.label.trim() || item.label,
+      href:
+        existing.href?.trim() ||
+        (item.kind === "email" ? email : phone),
+    };
+  });
+  const rest = links.filter((link) => {
+    if (CONTACT_LINK_IDS.includes(link.id as (typeof CONTACT_LINK_IDS)[number])) {
+      return false;
+    }
+    if (link.quickBuild) return true;
+    return link.kind !== "call" && link.kind !== "sms" && link.kind !== "email";
+  });
+  return [...contacts, ...rest].slice(0, 16);
 }
 
 export function normalizePreChat(raw: unknown): PreChatPage {
@@ -632,7 +825,7 @@ export function normalizePreChat(raw: unknown): PreChatPage {
     for (const [index, item] of row.links.entries()) {
       const link = normalizePreChatLink(item, index);
       if (link) links.push(link);
-      if (links.length >= 12) break;
+      if (links.length >= 16) break;
     }
   }
   const ordered = [...links];
@@ -771,6 +964,7 @@ export function normalizeFloorSettings(
     ),
     notifyEmails: normalizeNotifyEmails(settings.notifyEmails),
     emailAlerts: normalizeEmailAlerts(settings.emailAlerts),
+    phoneAlerts: normalizePhoneAlerts(settings.phoneAlerts),
     assistBehavior:
       typeof settings.assistBehavior === "string"
         ? settings.assistBehavior.trim().slice(0, 4000)
@@ -793,6 +987,8 @@ export function normalizeFloorSettings(
       settings.enabledSolutions,
       normalizeSetupIndustry(settings.setupIndustry),
     ),
+    enabledWorkspace: normalizeEnabledWorkspace(settings.enabledWorkspace),
+    storyTemplate: normalizeStoryTemplate(settings.storyTemplate),
   };
 }
 
@@ -1113,6 +1309,8 @@ export function normalizeSpace(raw: BusinessSpace): BusinessSpace {
     offerings: normalizeOfferings(space.offerings),
     knowledgeNotes: normalizeKnowledgeNotes(space.knowledgeNotes),
     cases: normalizeCustomerCases(space.cases),
+    scheduleRequests: normalizeScheduleRequests(space.scheduleRequests),
+    formSubmissions: normalizeFormSubmissions(space.formSubmissions),
     collectedContacts: normalizeCollectedContacts(space.collectedContacts),
     categories: cleaned.categories,
     artifacts,
@@ -1381,6 +1579,202 @@ export function normalizeCustomerCaseIdentifiers(
     })
     .filter((item): item is CustomerCaseIdentifier => Boolean(item))
     .slice(0, 20);
+}
+
+const SCHEDULE_DURATIONS = new Set([15, 30, 45, 60, 90]);
+
+export function normalizeScheduleRequestStatus(
+  raw: unknown,
+): ScheduleRequestStatus {
+  if (raw === "confirmed" || raw === "declined") return raw;
+  return "requested";
+}
+
+export function normalizeScheduleRequests(raw: unknown): ScheduleRequest[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw
+    .map((item) => {
+      const row = item as Partial<ScheduleRequest>;
+      const id = typeof row.id === "string" ? row.id.trim().slice(0, 64) : "";
+      const date =
+        typeof row.date === "string" ? row.date.trim().slice(0, 32) : "";
+      const time =
+        typeof row.time === "string" ? row.time.trim().slice(0, 32) : "";
+      const name =
+        typeof row.name === "string" ? row.name.trim().slice(0, 80) : "";
+      if (!id || !date || !time || !name || seen.has(id)) return null;
+      seen.add(id);
+      const duration = Number(row.durationMinutes);
+      return {
+        id,
+        chatId:
+          typeof row.chatId === "string" ? row.chatId.trim().slice(0, 80) : "",
+        name,
+        ...(typeof row.email === "string" && row.email.trim()
+          ? { email: row.email.trim().slice(0, 120) }
+          : {}),
+        ...(typeof row.phone === "string" && row.phone.trim()
+          ? { phone: row.phone.trim().slice(0, 40) }
+          : {}),
+        date,
+        time,
+        durationMinutes: SCHEDULE_DURATIONS.has(duration) ? duration : 30,
+        ...(typeof row.notes === "string" && row.notes.trim()
+          ? { notes: row.notes.trim().slice(0, 2000) }
+          : {}),
+        ...(typeof row.title === "string" && row.title.trim()
+          ? { title: row.title.trim().slice(0, 80) }
+          : {}),
+        status: normalizeScheduleRequestStatus(row.status),
+        createdAt:
+          typeof row.createdAt === "string" && row.createdAt.trim()
+            ? row.createdAt.trim()
+            : new Date().toISOString(),
+        ...(typeof row.updatedAt === "string" && row.updatedAt.trim()
+          ? { updatedAt: row.updatedAt.trim() }
+          : {}),
+      };
+    })
+    .filter((item): item is ScheduleRequest => Boolean(item));
+}
+
+export function newScheduleRequestId() {
+  return `sch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function buildScheduleRequest(input: {
+  chatId: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  date: string;
+  time: string;
+  durationMinutes: number;
+  notes?: string;
+  title?: string;
+}): ScheduleRequest {
+  const now = new Date().toISOString();
+  return {
+    id: newScheduleRequestId(),
+    chatId: input.chatId,
+    name: input.name,
+    ...(input.email ? { email: input.email } : {}),
+    ...(input.phone ? { phone: input.phone } : {}),
+    date: input.date,
+    time: input.time,
+    durationMinutes: input.durationMinutes,
+    ...(input.notes ? { notes: input.notes } : {}),
+    ...(input.title ? { title: input.title } : {}),
+    status: "requested",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function normalizeFormSubmissionStatus(
+  raw: unknown,
+): FormSubmissionStatus {
+  return raw === "read" ? "read" : "new";
+}
+
+function normalizeFormSubmissionFields(raw: unknown): FormSubmissionField[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      const row = item as Partial<FormSubmissionField>;
+      const label =
+        typeof row.label === "string" ? row.label.trim().slice(0, 80) : "";
+      const value =
+        typeof row.value === "string" ? row.value.trim().slice(0, 2000) : "";
+      if (!label) return null;
+      return { label, value };
+    })
+    .filter((item): item is FormSubmissionField => Boolean(item))
+    .slice(0, 40);
+}
+
+export function normalizeFormSubmissions(raw: unknown): FormSubmission[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw
+    .map((item) => {
+      const row = item as Partial<FormSubmission>;
+      const id = typeof row.id === "string" ? row.id.trim().slice(0, 64) : "";
+      const name =
+        typeof row.name === "string" ? row.name.trim().slice(0, 80) : "";
+      if (!id || !name || seen.has(id)) return null;
+      seen.add(id);
+      return {
+        id,
+        name,
+        ...(typeof row.email === "string" && row.email.trim()
+          ? { email: row.email.trim().slice(0, 120) }
+          : {}),
+        ...(typeof row.phone === "string" && row.phone.trim()
+          ? { phone: row.phone.trim().slice(0, 40) }
+          : {}),
+        title:
+          typeof row.title === "string" && row.title.trim()
+            ? row.title.trim().slice(0, 80)
+            : "Form",
+        fields: normalizeFormSubmissionFields(row.fields),
+        status: normalizeFormSubmissionStatus(row.status),
+        createdAt:
+          typeof row.createdAt === "string" && row.createdAt.trim()
+            ? row.createdAt.trim()
+            : new Date().toISOString(),
+        ...(typeof row.updatedAt === "string" && row.updatedAt.trim()
+          ? { updatedAt: row.updatedAt.trim() }
+          : {}),
+      };
+    })
+    .filter((item): item is FormSubmission => Boolean(item));
+}
+
+export function newFormSubmissionId() {
+  return `form-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function buildFormSubmission(input: {
+  name: string;
+  email?: string;
+  phone?: string;
+  title: string;
+  fields: FormSubmissionField[];
+}): FormSubmission {
+  const now = new Date().toISOString();
+  return {
+    id: newFormSubmissionId(),
+    name: input.name,
+    ...(input.email ? { email: input.email } : {}),
+    ...(input.phone ? { phone: input.phone } : {}),
+    title: input.title,
+    fields: input.fields,
+    status: "new",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function scheduleStartMs(date: string, time: string) {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  const hm = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (day && hm) {
+    return new Date(
+      Number(day[1]),
+      Number(day[2]) - 1,
+      Number(day[3]),
+      Number(hm[1]),
+      Number(hm[2]),
+    ).getTime();
+  }
+  if (day) {
+    const locale = Date.parse(`${date} ${time}`);
+    if (Number.isFinite(locale)) return locale;
+    return new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])).getTime();
+  }
+  return 0;
 }
 
 const GUEST_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

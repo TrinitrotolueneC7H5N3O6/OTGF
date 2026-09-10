@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { Client, Message } from "@/lib/types";
+import type { Client, Message, ScheduleRequest } from "@/lib/types";
 import { dbAppendMessage } from "@/lib/spaceServer";
 
 type Body = {
@@ -8,6 +8,7 @@ type Body = {
   upsertClient?: boolean;
   clearDeleted?: boolean;
   bumpClient?: boolean;
+  scheduleRequest?: ScheduleRequest;
 };
 
 export async function POST(
@@ -30,6 +31,7 @@ export async function POST(
       upsertClient: body.upsertClient,
       clearDeleted: body.clearDeleted,
       bumpClient: body.bumpClient,
+      scheduleRequest: body.scheduleRequest,
     });
     return NextResponse.json(result);
   } catch (err) {

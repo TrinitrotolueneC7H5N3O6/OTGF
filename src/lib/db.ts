@@ -61,9 +61,14 @@ function urlFor(target: DbTarget) {
 /** True when this process still holds a Prisma client from before `prisma generate`. */
 function hasCurrentDelegates(client: PrismaClient) {
   return (
+    "growthRecord" in client &&
     "offering" in client &&
     "knowledgeNote" in client &&
-    "customerCase" in client
+    "customerCase" in client &&
+    "scheduleRequest" in client &&
+    "formSubmission" in client &&
+    "insightSession" in client &&
+    "insightSnapshot" in client
   );
 }
 

@@ -50,7 +50,7 @@ export function WebsiteInstallPanel({
   const isContact = kind === "contact";
   const heading = isContact ? "Contact Page" : "Chat Bubble";
   const help = isContact
-    ? "Replace the old Contact Us page. Visitors stay on your site: they see your public page first, then live chat."
+    ? "Replace the old Contact Us page. Visitors stay on your site: they see your micro-landing page first, then live chat."
     : "A button in the bottom-right corner. It opens live chat — same inbox as your link.";
 
   const content = (
@@ -60,7 +60,7 @@ export function WebsiteInstallPanel({
 
       {!isContact || publicPageOn ? null : (
         <p className="floor-settings-help">
-          Public page is off in Setup, so this embed goes straight to chat.
+          Micro-landing page is off in Setup, so this embed goes straight to chat.
         </p>
       )}
 

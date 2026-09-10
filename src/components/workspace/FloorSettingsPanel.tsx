@@ -54,14 +54,12 @@ export type SettingsTab =
   | "account";
 
 export const ACCOUNT_SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
-  { id: "setup", label: "Setup" },
   { id: "brand", label: "Logo & banner" },
   { id: "hours", label: "Hours" },
-  { id: "shortcuts", label: "Shortcuts" },
   { id: "shoutouts", label: "Promo banners" },
-  { id: "notify", label: "Email alerts" },
+  { id: "notify", label: "Email alert" },
   { id: "billing", label: "Billing" },
-  { id: "account", label: "Your account" },
+  { id: "account", label: "Account" },
 ];
 
 export function visibleAccountSettingsTabs(settings: FloorSettings) {
@@ -72,8 +70,18 @@ export function visibleAccountSettingsTabs(settings: FloorSettings) {
 }
 
 const TABS = ACCOUNT_SETTINGS_TABS;
+const DEFAULT_PHONE_ALERT_NUMBER = "+1 877 780 4236";
+const PHONE_SAMPLE_OPTIONS = [
+  { id: "new-chat", label: "New chat" },
+  { id: "new-message", label: "New message" },
+  { id: "away-message", label: "Message while away" },
+  { id: "after-hours", label: "After-hours intake" },
+  { id: "contact-captured", label: "Contact captured" },
+] as const;
+type PhoneSampleType = (typeof PHONE_SAMPLE_OPTIONS)[number]["id"];
 
 interface FloorSettingsPanelProps {
+  slug?: string;
   settings: FloorSettings;
   members: FloorMember[];
   artifacts: Artifact[];
@@ -83,6 +91,7 @@ interface FloorSettingsPanelProps {
   ownerEmail?: string | null;
   loggingOut?: boolean;
   variant?: "modal" | "page";
+  hideTitle?: boolean;
   /** Skip the page chrome so this panel can sit inside another page. */
   embed?: boolean;
   onChangeSettings: (settings: FloorSettings) => void;
@@ -302,14 +311,16 @@ export function TeamMembersEditor({
 }
 
 export function FloorSettingsPanel({
+  slug,
   settings,
   members,
   artifacts,
-  initialTab = "setup",
+  initialTab = "account",
   activeTab,
   ownerEmail: ownerEmailProp,
   loggingOut = false,
   variant = "modal",
+  hideTitle = false,
   embed = false,
   onChangeSettings,
   onChangeMembers,
@@ -322,6 +333,13 @@ export function FloorSettingsPanel({
   const [bannerDraft, setBannerDraft] = useState("");
   const [notifyDraft, setNotifyDraft] = useState("");
   const [notifyError, setNotifyError] = useState<string | null>(null);
+  const [phoneDraft, setPhoneDraft] = useState(
+    settings.phoneAlerts?.phoneNumber ?? DEFAULT_PHONE_ALERT_NUMBER,
+  );
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneSampleBusy, setPhoneSampleBusy] = useState<PhoneSampleType | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [phoneNotice, setPhoneNotice] = useState<string | null>(null);
   const [ownerEmail, setOwnerEmail] = useState<string | null>(
     ownerEmailProp ?? null,
   );
@@ -555,7 +573,91 @@ export function FloorSettingsPanel({
     });
   }
 
-  const brandIncomplete = !settings.brandBannerUrl || !settings.logoUrl;
+  async function connectPhoneAlerts() {
+    const phoneNumber = phoneDraft.trim();
+    setPhoneError(null);
+    setPhoneNotice(null);
+    if (!slug) {
+      setPhoneError("Phone alerts are unavailable on this screen.");
+      return;
+    }
+    setPhoneBusy(true);
+    try {
+      const response = await fetch(`/api/spaces/${encodeURIComponent(slug)}/phone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ action: "connect", phoneNumber }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { phoneNumber?: string; verificationToken?: string; error?: string }
+        | null;
+      if (!response.ok || !payload?.phoneNumber || !payload.verificationToken) {
+        throw new Error(payload?.error || "Could not connect that phone number.");
+      }
+      setPhoneDraft(payload.phoneNumber);
+      patch({
+        phoneAlerts: {
+          enabled: true,
+          phoneNumber: payload.phoneNumber,
+          verificationToken: payload.verificationToken,
+        },
+      });
+      setPhoneNotice("Connected. Twilio sent a test message to this number.");
+    } catch (error) {
+      setPhoneError(error instanceof Error ? error.message : "Could not connect that phone number.");
+    } finally {
+      setPhoneBusy(false);
+    }
+  }
+
+  async function sendSamplePhoneAlert(sampleType: PhoneSampleType) {
+    const phoneNumber = settings.phoneAlerts?.phoneNumber ?? phoneDraft.trim();
+    setPhoneError(null);
+    setPhoneNotice(null);
+    if (!slug) {
+      setPhoneError("Phone alerts are unavailable on this screen.");
+      return;
+    }
+    setPhoneSampleBusy(sampleType);
+    try {
+      const response = await fetch(`/api/spaces/${encodeURIComponent(slug)}/phone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ action: "sample", phoneNumber, sampleType }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { phoneNumber?: string; error?: string }
+        | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not send the sample SMS.");
+      }
+      const sampleLabel = PHONE_SAMPLE_OPTIONS.find((option) => option.id === sampleType)?.label;
+      setPhoneNotice(
+        `${sampleLabel || "Sample"} SMS submitted to ${payload?.phoneNumber || phoneNumber}.`,
+      );
+    } catch (error) {
+      setPhoneError(error instanceof Error ? error.message : "Could not send the sample SMS.");
+    } finally {
+      setPhoneSampleBusy(null);
+    }
+  }
+
+  function togglePhoneAlerts(enabled: boolean) {
+    if (!settings.phoneAlerts) return;
+    setPhoneError(null);
+    setPhoneNotice(enabled ? "Phone alerts turned on." : "Phone alerts paused.");
+    patch({ phoneAlerts: { ...settings.phoneAlerts, enabled } });
+  }
+
+  function disconnectPhoneAlerts() {
+    setPhoneError(null);
+    setPhoneNotice("Phone number disconnected.");
+    setPhoneDraft(DEFAULT_PHONE_ALERT_NUMBER);
+    patch({ phoneAlerts: undefined });
+  }
+
   const notifyEmails = settings.notifyEmails ?? [];
 
   async function onBrandImage(
@@ -605,7 +707,7 @@ export function FloorSettingsPanel({
               aria-labelledby="settings-tab-brand"
             >
               <p className="floor-settings-help">
-                Banner sits at the top of your public page and customer chat.
+                Banner sits at the top of your micro-landing page and customer chat.
                 Logo appears as a circle beside your name.
               </p>
 
@@ -699,7 +801,7 @@ export function FloorSettingsPanel({
               aria-labelledby="settings-tab-hours"
             >
               <p className="floor-settings-help">
-                Shown on the public page and in chat so people know when you
+                Shown on the micro-landing page and in chat so people know when you
                 usually reply.
               </p>
 
@@ -1226,6 +1328,109 @@ export function FloorSettingsPanel({
                 </button>
               </div>
               {notifyError ? <p className="editor-error">{notifyError}</p> : null}
+
+              <div className="phone-alert-section">
+                <h3>Phone alerts</h3>
+                <p className="floor-settings-help">
+                  Get SMS copies of the enabled team alerts above. Connecting sends
+                  a test message through Twilio before notifications are turned on.
+                </p>
+
+                {settings.phoneAlerts ? (
+                  <div className="phone-alert-connected">
+                    <label className="staff-out-toggle-card">
+                      <input
+                        type="checkbox"
+                        checked={settings.phoneAlerts.enabled}
+                        onChange={(event) => togglePhoneAlerts(event.target.checked)}
+                      />
+                      <span>
+                        <strong>SMS notifications</strong>
+                        <small>
+                          {settings.phoneAlerts.enabled
+                            ? "Enabled for team alerts"
+                            : "Paused—your number stays connected"}
+                        </small>
+                      </span>
+                    </label>
+                    <div className="phone-alert-number-row">
+                      <span className="floor-notify-email">
+                        {settings.phoneAlerts.phoneNumber}
+                        <span className="floor-notify-badge">Connected</span>
+                      </span>
+                      <div className="phone-alert-actions">
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          onClick={disconnectPhoneAlerts}
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="floor-banner-add phone-alert-connect">
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      value={phoneDraft}
+                      onChange={(event) => {
+                        setPhoneDraft(event.target.value);
+                        setPhoneError(null);
+                        setPhoneNotice(null);
+                      }}
+                      placeholder="+1 415 555 1234"
+                      aria-label="Phone number including country code"
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void connectPhoneAlerts();
+                        }
+                      }}
+                    />
+                    <div className="phone-alert-actions">
+                      <button
+                        type="button"
+                        className="btn-solid"
+                        disabled={phoneBusy || phoneSampleBusy !== null || !phoneDraft.trim()}
+                        onClick={() => void connectPhoneAlerts()}
+                      >
+                        {phoneBusy ? "Connecting…" : "Connect & test"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="phone-alert-samples">
+                  <div>
+                    <h4>Send a sample notification</h4>
+                    <p>Choose a situation to preview the SMS your team will receive.</p>
+                  </div>
+                  <div className="phone-alert-sample-grid">
+                    {PHONE_SAMPLE_OPTIONS.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className="btn-ghost"
+                        disabled={
+                          phoneBusy ||
+                          phoneSampleBusy !== null ||
+                          !(settings.phoneAlerts?.phoneNumber || phoneDraft.trim())
+                        }
+                        onClick={() => void sendSamplePhoneAlert(option.id)}
+                      >
+                        {phoneSampleBusy === option.id ? "Sending…" : option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {phoneError ? <p className="editor-error">{phoneError}</p> : null}
+                {phoneNotice ? <p className="phone-alert-notice">{phoneNotice}</p> : null}
+                <p className="phone-alert-terms">
+                  Message and data rates may apply. Disconnect or pause alerts at any time.
+                </p>
+              </div>
             </section>
           ) : null}
 
@@ -1293,6 +1498,7 @@ export function FloorSettingsPanel({
 
   if (variant === "page") {
     if (embed) return panels;
+    if (hideTitle) return <div className="dashboard-panel-body">{panels}</div>;
     return (
       <div
         className={`dashboard-panel-body${tab === "setup" ? " is-setup" : ""}`}
@@ -1329,32 +1535,20 @@ export function FloorSettingsPanel({
         </header>
 
         <div className="floor-settings-tabs" role="tablist" aria-label="Account Settings">
-          {visibleTabs.map((item) => {
-            const incomplete = item.id === "brand" && brandIncomplete;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                id={`settings-tab-${item.id}`}
-                aria-selected={tab === item.id}
-                aria-controls={`settings-panel-${item.id}`}
-                className={tab === item.id ? "is-active" : undefined}
-                onClick={() => setTab(item.id)}
-              >
-                <span>{item.label}</span>
-                {incomplete ? (
-                  <span
-                    className="settings-tab-alert"
-                    aria-label={`${item.label} incomplete`}
-                    title="Needs setup"
-                  >
-                    !
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
+          {visibleTabs.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              id={`settings-tab-${item.id}`}
+              aria-selected={tab === item.id}
+              aria-controls={`settings-panel-${item.id}`}
+              className={tab === item.id ? "is-active" : undefined}
+              onClick={() => setTab(item.id)}
+            >
+              <span>{item.label}</span>
+            </button>
+          ))}
         </div>
 
         <div className="floor-settings-body">{panels}</div>

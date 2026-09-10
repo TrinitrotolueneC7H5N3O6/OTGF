@@ -1,15 +1,10 @@
-import { FloorAuthGate } from "@/components/home/SpaceAuthForm";
-import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
+import { redirect } from "next/navigation";
 
-export default async function FloorPage({
+export default async function LegacyFloorPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  return (
-    <FloorAuthGate slug={slug}>
-      <WorkspaceShell slug={slug} />
-    </FloorAuthGate>
-  );
+  redirect(`/${slug}/live-chat`);
 }

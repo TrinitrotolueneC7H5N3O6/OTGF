@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Figtree, Syne } from "next/font/google";
+import { CornerTools } from "@/components/shared/CornerTools";
 import { LatencyHud } from "@/components/shared/LatencyHud";
 import "./globals.css";
 
@@ -32,6 +33,7 @@ export default function RootLayout({
     >
       <body className="h-full">
         {children}
+        <CornerTools />
         <LatencyHud />
       </body>
     </html>

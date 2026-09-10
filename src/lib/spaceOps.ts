@@ -14,6 +14,10 @@ import type {
   ReceiptProduct,
   CustomerCaseIdentifier,
   CustomerCaseStatus,
+  ScheduleRequest,
+  ScheduleRequestStatus,
+  FormSubmission,
+  FormSubmissionStatus,
 } from "./types";
 import { withoutAutoAnswerDraft } from "./autoAnswer";
 
@@ -48,6 +52,18 @@ export type SpaceOp =
       caseId: string;
       identifiers: CustomerCaseIdentifier[];
     }
+  | { type: "createScheduleRequest"; scheduleRequest: ScheduleRequest; schedulerId?: string }
+  | {
+      type: "updateScheduleStatus";
+      id: string;
+      status: ScheduleRequestStatus;
+    }
+  | { type: "createFormSubmission"; formSubmission: FormSubmission }
+  | {
+      type: "updateFormStatus";
+      id: string;
+      status: FormSubmissionStatus;
+    }
   | { type: "assignChatCase"; clientId: string; caseId?: string | null }
   | { type: "hideClient"; clientId: string; hidden?: boolean }
   | { type: "upsertClient"; client: Client; clearDeleted?: boolean }
@@ -61,7 +77,14 @@ export type SpaceOp =
 
 /** Ops customers must ignore so one chat's draft never lands in another tab. */
 export function isStaffOnlySpaceOp(op: SpaceOp): boolean {
-  return op.type === "setAutoAnswerDraft" || op.type === "retryAutoAnswer";
+  return (
+    op.type === "setAutoAnswerDraft" ||
+    op.type === "retryAutoAnswer" ||
+    op.type === "createScheduleRequest" ||
+    op.type === "updateScheduleStatus" ||
+    op.type === "createFormSubmission" ||
+    op.type === "updateFormStatus"
+  );
 }
 
 export function applySpaceOpToSpace(
@@ -181,6 +204,52 @@ export function applySpaceOpToSpace(
         cases: space.cases.map((item) =>
           item.id === op.caseId
             ? { ...item, identifiers: op.identifiers }
+            : item,
+        ),
+      };
+    case "createScheduleRequest": {
+      const current = space.scheduleRequests ?? [];
+      if (current.some((item) => item.id === op.scheduleRequest.id)) {
+        return space;
+      }
+      return {
+        ...space,
+        scheduleRequests: [op.scheduleRequest, ...current],
+      };
+    }
+    case "updateScheduleStatus":
+      return {
+        ...space,
+        scheduleRequests: (space.scheduleRequests ?? []).map((item) =>
+          item.id === op.id
+            ? {
+                ...item,
+                status: op.status,
+                updatedAt: new Date().toISOString(),
+              }
+            : item,
+        ),
+      };
+    case "createFormSubmission": {
+      const current = space.formSubmissions ?? [];
+      if (current.some((item) => item.id === op.formSubmission.id)) {
+        return space;
+      }
+      return {
+        ...space,
+        formSubmissions: [op.formSubmission, ...current],
+      };
+    }
+    case "updateFormStatus":
+      return {
+        ...space,
+        formSubmissions: (space.formSubmissions ?? []).map((item) =>
+          item.id === op.id
+            ? {
+                ...item,
+                status: op.status,
+                updatedAt: new Date().toISOString(),
+              }
             : item,
         ),
       };

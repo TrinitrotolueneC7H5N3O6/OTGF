@@ -1,4 +1,7 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { InAppLink } from "@/components/shared/LinkSheet";
 
 const URL_IN_TEXT =
   /\b((?:https?:\/\/|www\.)[^\s<]+|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?:\/[^\s<]*)?)/gi;
@@ -48,7 +51,7 @@ export function linkifyText(text: string): ReactNode[] {
     const display = trimTrailingPunctuation(raw);
     const trailing = raw.slice(display.length);
     nodes.push(
-      <a
+      <InAppLink
         key={`u-${key++}`}
         href={href}
         target="_blank"
@@ -56,7 +59,7 @@ export function linkifyText(text: string): ReactNode[] {
         onClick={(e) => e.stopPropagation()}
       >
         {display}
-      </a>,
+      </InAppLink>,
     );
     if (trailing) nodes.push(trailing);
     last = start + raw.length;

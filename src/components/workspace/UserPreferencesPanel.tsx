@@ -42,7 +42,7 @@ export const PREF_SECTIONS: { id: PrefSection; label: string }[] = [
   { id: "intro", label: "About & greeting" },
   { id: "links", label: "Chat links" },
   { id: "chat-interface", label: "Chat photos" },
-  { id: "pre-chat", label: "Public page" },
+  { id: "pre-chat", label: "Micro-landing page" },
 ];
 
 export function visiblePrefSections(settings: FloorSettings) {
@@ -736,13 +736,13 @@ export function UserPreferencesPanel({
       {show("pre-chat") ? (
         <section className="floor-settings-section">
           {variant === "page" && !hideTitle ? (
-            <h2 className="dashboard-panel-title">Public page</h2>
+            <h2 className="dashboard-panel-title">Micro-landing page</h2>
           ) : variant === "page" ? null : (
-            <h3>Public page</h3>
+            <h3>Micro-landing page</h3>
           )}
           {hideTitle ? null : (
           <p className="floor-settings-help">
-            This is the page people hit from your public link before they start
+            This is the micro-landing page people hit from your public link before they start
             a live chat.
           </p>
           )}
@@ -755,7 +755,7 @@ export function UserPreferencesPanel({
                 rel="noreferrer"
               >
                 <IconEye size={16} />
-                Preview page
+                Preview micro-landing page
               </Link>
               <a
                 className="btn-ghost"
@@ -819,7 +819,7 @@ export function UserPreferencesPanel({
         <header className="floor-settings-head">
           <div>
             <h2 id="user-prefs-title">User Preferences</h2>
-            <p>Sounds for you on the floor, plus your public intro and links.</p>
+            <p>Sounds for you in live chat, plus your public intro and links.</p>
           </div>
           <button
             type="button"

@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { BusinessSpace } from "@/lib/types";
 import { PreChatPage } from "@/components/client/PreChatPage";
 import { ClientChat } from "@/components/client/ClientChat";
-import { IconMaximize, IconMinimize } from "@/components/shared/Icons";
+import { PreviewFrame } from "./PreviewFrame";
 
 const PREVIEW_CHAT_ID = "preview";
 
 interface ClientFacingPreviewProps {
   slug: string;
-  surface: "page" | "chat";
-  space: BusinessSpace;
+  surface: "page" | "chat" | "widget";
+  space?: BusinessSpace;
 }
 
 export function ClientFacingPreview({
@@ -19,73 +19,51 @@ export function ClientFacingPreview({
   surface,
   space,
 }: ClientFacingPreviewProps) {
-  const [fullscreen, setFullscreen] = useState(false);
-  const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
+  const [revision, setRevision] = useState(0);
   const [showEndScreen, setShowEndScreen] = useState(false);
+  const [exploreChat, setExploreChat] = useState(false);
+  const sitePreview = `/widget-demo.html?slug=${encodeURIComponent(slug)}&preview=1`;
+  const interactive = surface === "page" || surface === "widget";
 
-  useEffect(() => {
-    if (!fullscreen) return;
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setFullscreen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [fullscreen]);
+  function restart() {
+    setRevision((n) => n + 1);
+    setExploreChat(false);
+    setShowEndScreen(false);
+  }
 
   return (
-    <aside
-      className={`client-facing-preview${fullscreen ? " is-fullscreen" : ""}`}
-      aria-label="Live preview"
-      onClick={(event) => {
-        if (fullscreen && event.target === event.currentTarget) {
-          setFullscreen(false);
-        }
-      }}
+    <PreviewFrame
+      help={surface === "chat" ? "Preview your customer chat and end screen." : "Try it here. Preview changes won’t be saved."}
+      onRestart={restart}
+      screenClassName="preview-frame-client"
+      controls={surface === "chat" ? (
+        <button type="button" className={`client-facing-preview-toggle${showEndScreen ? " is-active" : ""}`} onClick={() => setShowEndScreen((show) => !show)} aria-pressed={showEndScreen}>End screen</button>
+      ) : surface === "page" && exploreChat ? (
+        <button type="button" className="client-facing-preview-toggle" onClick={() => setExploreChat(false)}>Back to page</button>
+      ) : null}
     >
-      <button
-        type="button"
-        className="client-facing-preview-fs"
-        onClick={() => setFullscreen((open) => !open)}
-        aria-label={fullscreen ? "Exit full screen" : "Enter full screen"}
-        title={fullscreen ? "Exit full screen" : "Enter full screen"}
-      >
-        {fullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
-      </button>
-      <div className="client-facing-preview-controls" aria-label="Preview controls">
-        <div className="client-facing-preview-segmented">
-          {(["mobile", "desktop"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className={device === mode ? "is-active" : undefined}
-              onClick={() => setDevice(mode)}
-              aria-pressed={device === mode}
-            >
-              {mode === "mobile" ? "Mobile" : "Desktop"}
-            </button>
-          ))}
-        </div>
-        {surface === "chat" ? (
-          <button
-            type="button"
-            className={`client-facing-preview-toggle${
-              showEndScreen ? " is-active" : ""
-            }`}
-            onClick={() => setShowEndScreen((show) => !show)}
-            aria-pressed={showEndScreen}
-          >
-            End screen
-          </button>
-        ) : null}
-      </div>
       <div
-        className={`client-facing-preview-device is-${device}`}
-        inert
-        aria-hidden
+        key={`${surface}-${revision}`}
+        className={`preview-frame-content${surface === "widget" ? " is-site" : ""}`}
+        inert={interactive ? undefined : true}
+        aria-hidden={interactive ? undefined : true}
       >
-        {surface === "page" ? (
-          <PreChatPage slug={slug} preview previewSpace={space} />
-        ) : (
+        {surface === "page" && space && exploreChat ? (
+          <ClientChat
+            slug={slug}
+            chatId={PREVIEW_CHAT_ID}
+            preview
+            previewSpace={space}
+          />
+        ) : surface === "page" && space ? (
+          <PreChatPage
+            slug={slug}
+            preview
+            previewSpace={space}
+            onOpenChat={() => setExploreChat(true)}
+            modalChat
+          />
+        ) : surface === "chat" && space ? (
           <ClientChat
             slug={slug}
             chatId={PREVIEW_CHAT_ID}
@@ -93,8 +71,14 @@ export function ClientFacingPreview({
             previewEnded={showEndScreen}
             previewSpace={space}
           />
-        )}
+        ) : surface === "widget" ? (
+          <iframe
+            className="widget-site-frame"
+            title="Widget on a sample website"
+            src={sitePreview}
+          />
+        ) : null}
       </div>
-    </aside>
+    </PreviewFrame>
   );
 }
