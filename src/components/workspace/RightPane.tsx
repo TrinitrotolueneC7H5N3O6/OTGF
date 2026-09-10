@@ -71,44 +71,28 @@ export function RightPane({
   onChangeReceiptPayments,
   onChangeReceiptProducts,
   onSendReceipt,
-  enabledTabs = ["artifacts", "assist", "receipts"],
+  enabledTabs = ["assist", "artifacts", "receipts"],
 }: RightPaneProps) {
+  const tabLabel: Record<RightTab, string> = {
+    assist: "Assist",
+    artifacts: "Tool Box",
+    receipts: "Billing",
+  };
   return (
     <div className="right-pane">
       <div className="right-pane-tabs" role="tablist" aria-label="Side tools">
-        {enabledTabs.includes("artifacts") ? (
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "artifacts"}
-          className={tab === "artifacts" ? "is-active" : undefined}
-          onClick={() => onTabChange("artifacts")}
-        >
-          Artifacts
-        </button>
-        ) : null}
-        {enabledTabs.includes("assist") ? (
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "assist"}
-          className={tab === "assist" ? "is-active" : undefined}
-          onClick={() => onTabChange("assist")}
-        >
-          Assist
-        </button>
-        ) : null}
-        {enabledTabs.includes("receipts") ? (
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "receipts"}
-          className={tab === "receipts" ? "is-active" : undefined}
-          onClick={() => onTabChange("receipts")}
-        >
-          Receipts
-        </button>
-        ) : null}
+        {enabledTabs.map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className={tab === id ? "is-active" : undefined}
+            onClick={() => onTabChange(id)}
+          >
+            {tabLabel[id]}
+          </button>
+        ))}
       </div>
 
       <div className="right-pane-body">

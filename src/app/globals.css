@@ -1125,6 +1125,19 @@ a {
   margin-top: 0.85rem;
 }
 
+.home .space-auth {
+  margin-top: 0;
+}
+
+.home .space-auth-form {
+  margin-top: 0.65rem;
+  gap: 0.65rem;
+}
+
+.home .space-auth-form input {
+  padding: 0.65rem 0.8rem;
+}
+
 .space-auth.is-bare {
   margin-top: 0;
   padding-top: 0;
@@ -1218,29 +1231,29 @@ a {
 }
 
 .workspace-view-toggle {
-  justify-self: center;
-  display: inline;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.38rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: var(--surface);
   box-shadow: none;
   outline: none;
   color: var(--ink);
-  font-size: 0.82rem;
-  font-weight: 650;
+  font-size: 0.8rem;
+  font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
 }
 
 .workspace-view-toggle:hover,
 .workspace-view-toggle:focus-visible {
-  background: none;
-  border: 0;
+  background: var(--accent-soft);
+  border-color: var(--line);
   box-shadow: none;
   outline: none;
-  text-decoration: underline;
-  text-underline-offset: 0.18em;
+  text-decoration: none;
 }
 
 .workspace.workspace-dashboard {
@@ -3428,6 +3441,15 @@ a {
   margin-bottom: 0;
 }
 
+.dashboard-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 .dashboard-open-floor,
 .btn-solid.dashboard-open-floor {
   background: #ffffff;
@@ -3437,6 +3459,21 @@ a {
 
 .dashboard-open-floor:hover,
 .btn-solid.dashboard-open-floor:hover {
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.dashboard-manage-employees,
+.btn-ghost.dashboard-manage-employees {
+  background: #ffffff;
+  color: var(--ink);
+  box-shadow: var(--shadow-box);
+  border-color: transparent;
+  white-space: nowrap;
+}
+
+.dashboard-manage-employees:hover,
+.btn-ghost.dashboard-manage-employees:hover {
   background: #ffffff;
   color: var(--ink);
 }
@@ -3950,6 +3987,31 @@ a {
   box-shadow: var(--shadow-box);
 }
 
+.dashboard-quick-access {
+  justify-content: center;
+  align-items: stretch;
+  gap: 0.65rem;
+  padding: 1rem 1.1rem;
+}
+
+.dashboard-quick-access .dashboard-open-floor,
+.dashboard-quick-access .dashboard-manage-employees {
+  width: 100%;
+}
+
+.dashboard-quick-access .auto-answer-toggle-wrap {
+  width: 100%;
+}
+
+.dashboard-quick-access .auto-answer-toggle {
+  width: 100%;
+  justify-content: center;
+  padding: 0.75rem 1rem;
+  font-size: inherit;
+  font-weight: 600;
+  border-radius: 0.5rem;
+}
+
 .dashboard-team-inner .dashboard-team-list,
 .dashboard-team-employees .floor-member-list {
   flex: 1;
@@ -3963,6 +4025,56 @@ a {
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.4;
+}
+
+.employees-search,
+.employees-add-field {
+  display: block;
+  min-width: 0;
+}
+
+.employees-search input,
+.employees-add-field input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--ink);
+  border-radius: 0.45rem;
+  padding: 0.55rem 0.65rem;
+  outline: none;
+  font: inherit;
+}
+
+.employees-search {
+  margin: 0 0 0.75rem;
+}
+
+.employees-add {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.4rem;
+  margin: 0 0 0.85rem;
+}
+
+.employees-add .btn-solid {
+  padding: 0.55rem 0.85rem;
+  font-size: 0.85rem;
+}
+
+.employees-error {
+  margin: -0.45rem 0 0.75rem;
+  color: #b42318;
+  font-size: 0.82rem;
+}
+
+.employees-list {
+  margin-bottom: 0.45rem;
+}
+
+.employees-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .dashboard-team-employees .floor-member-list {
@@ -5871,26 +5983,31 @@ a {
 }
 
 .rail-quick-filters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: 0.35rem;
   margin-top: 0.65rem;
 }
 
 .rail-quick-filters button {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.45rem;
+  justify-content: center;
+  gap: 0.28rem;
   border: 1px solid var(--line);
   border-radius: 0.7rem;
   background: var(--bg);
   color: var(--muted);
-  padding: 0.42rem 0.5rem;
+  padding: 0.42rem 0.35rem;
   font: inherit;
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   font-weight: 650;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .rail-quick-filters button strong {

@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Business } from "@/lib/types";
-import { createBusiness, listBusinesses } from "@/lib/store";
+import { listBusinesses } from "@/lib/store";
 import { IconChevronDown } from "@/components/shared/Icons";
 import { HOW_STEPS, HowDemoFrame } from "./HowDemo";
 import { SpaceAuthForm } from "./SpaceAuthForm";
@@ -16,7 +16,6 @@ function possessive(name: string) {
 }
 
 export function HomeSetup() {
-  const [name, setName] = useState("");
   const [created, setCreated] = useState<Business | null>(null);
   const [owned, setOwned] = useState<Business | null>(null);
   const [step, setStep] = useState<Step>("loading");
@@ -24,8 +23,6 @@ export function HomeSetup() {
   const [origin, setOrigin] = useState("");
   const [howStep, setHowStep] = useState(0);
   const [howStarted, setHowStarted] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -52,35 +49,6 @@ export function HomeSetup() {
     if (!created) return "";
     return `${origin}/${created.slug}`;
   }, [created, origin]);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setCreateError(null);
-    setCreating(true);
-    try {
-      const space = await createBusiness(name, "salon");
-      setCreated(space.business);
-      setCopied(false);
-      try {
-        const res = await fetch("/api/auth/me", { cache: "no-store" });
-        const data = (await res.json()) as { user?: { id: string } | null };
-        if (data.user) {
-          setOwned(space.business);
-          setStep("ready");
-          return;
-        }
-      } catch {
-        // fall through to auth
-      }
-      setStep("auth");
-    } catch (err) {
-      setCreateError(
-        err instanceof Error ? err.message : "Could not create space.",
-      );
-    } finally {
-      setCreating(false);
-    }
-  }
 
   async function onAuthenticated() {
     const spaces = await listBusinesses();
@@ -137,7 +105,7 @@ export function HomeSetup() {
       ? "Back"
       : "Next";
 
-  const showMarketing = step === "form" || step === "login" || step === "auth";
+  const showMarketing = step === "form";
 
   return (
     <div className={`home${howStarted ? " is-howing" : ""}`}>
@@ -169,19 +137,15 @@ export function HomeSetup() {
           ) : null}
 
           {step === "form" ? (
-            <form className="setup-form" onSubmit={(e) => void onSubmit(e)}>
-              <label>
-                <span>Business name</span>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. River Street Salon"
-                  autoFocus
-                  required
-                />
-              </label>
-              <button type="submit" className="setup-go" disabled={creating}>
-                {creating ? "Creating…" : "Create chat space"}
+            <form
+              className="setup-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setStep("auth");
+              }}
+            >
+              <button type="submit" className="setup-go">
+                Create Chat Space Account
               </button>
               <button
                 type="button"
@@ -190,23 +154,27 @@ export function HomeSetup() {
               >
                 Log in to space
               </button>
-              {createError ? (
-                <p className="space-auth-error">{createError}</p>
-              ) : null}
             </form>
           ) : null}
 
-          {step === "auth" && created ? (
+          {step === "auth" ? (
             <SpaceAuthForm
-              spaceName={created.name}
-              claimSlug={created.slug}
+              collectBusinessName
+              claimSlug={created?.slug}
+              onSpaceCreated={(business) => {
+                setCreated(business);
+                setCopied(false);
+              }}
               onAuthenticated={() => void onAuthenticated()}
+              onCancel={() => {
+                setStep("form");
+                setCreated(null);
+              }}
             />
           ) : null}
 
           {step === "login" ? (
             <SpaceAuthForm
-              bare
               initialMode="signin"
               onAuthenticated={() => void onAuthenticated()}
               onCancel={() => setStep("form")}

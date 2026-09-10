@@ -12,16 +12,21 @@ async function authorized(slug: string) {
 export async function GET(_request: Request, { params }: { params: Promise<{slug: string}> }) {
   const {slug} = await params;
   if (!await authorized(slug)) return NextResponse.json({error: "Unauthorized"}, {status: 401});
-  const records = await prisma.growthRecord.findMany({where: {spaceSlug: slug}, orderBy: {createdAt: "desc"}});
-  return NextResponse.json(records.map((record) => {
-    const parsed = JSON.parse(record.data);
-    const kind = record.kind as GrowthKind;
-    const data = {...newGrowthData(kind), ...parsed};
-    if (kind === "story") {
-      data.chapters = storyChapters(data.chapters, data.challenge, data.process, data.outcome);
-    }
-    return {...record, data};
-  }), {headers: {"Cache-Control": "no-store"}});
+  try {
+    const records = await prisma.growthRecord.findMany({where: {spaceSlug: slug}, orderBy: {createdAt: "desc"}});
+    return NextResponse.json(records.map((record) => {
+      const parsed = JSON.parse(record.data);
+      const kind = record.kind as GrowthKind;
+      const data = {...newGrowthData(kind), ...parsed};
+      if (kind === "story") {
+        data.chapters = storyChapters(data.chapters, data.challenge, data.process, data.outcome);
+      }
+      return {...record, data};
+    }), {headers: {"Cache-Control": "no-store"}});
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not load records.";
+    return NextResponse.json({error: message}, {status: 500, headers: {"Cache-Control": "no-store"}});
+  }
 }
 export async function POST(request: Request, {params}: {params: Promise<{slug: string}>}) {
   const {slug} = await params;

@@ -31,7 +31,6 @@ import {
 } from "@/lib/store";
 import type { SpaceOp } from "@/lib/spaceOps";
 import { waitSinceLabel } from "@/lib/messageTime";
-import { isClientLive } from "@/lib/presence";
 import { messageTimeStamp } from "@/lib/spaceNormalize";
 import { autoAnswerListLabel, withoutAutoAnswerDraft } from "@/lib/autoAnswer";
 import { ScheduleSettingsPanel } from "./ScheduleSettingsPanel";
@@ -39,7 +38,6 @@ import { WorkspaceTopBar } from "./WorkspaceTopBar";
 import {
   ACCOUNT_SETTINGS_TABS,
   FloorSettingsPanel,
-  TeamMembersEditor,
   visibleAccountSettingsTabs,
   type SettingsTab,
 } from "./FloorSettingsPanel";
@@ -56,6 +54,7 @@ import { AiSetupPanel } from "./AiSetupPanel";
 import { QuickBuildsPanel } from "./QuickBuildsPanel";
 import { InsightsPanel } from "./InsightsPanel";
 import { CasesPanel } from "./CasesPanel";
+import { EmployeesPanel } from "./EmployeesPanel";
 import { SchedulePanel } from "./SchedulePanel";
 import { FormsPanel } from "./FormsPanel";
 import { FormsManagerPanel } from "./FormsManagerPanel";
@@ -124,6 +123,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   const [popupClientId, setPopupClientId] = useState<string | null>(null);
   const [laterDraftIds, setLaterDraftIds] = useState<Set<string>>(() => new Set());
   const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
+  const [employeesOpen, setEmployeesOpen] = useState(false);
 
   useEffect(() => {
     if (openedFromQuery.current) return;
@@ -146,6 +146,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   useEffect(() => {
     const next = navFromPathname(pathname, slug);
     setNav((current) => (current === next ? current : next));
+    setEmployeesOpen(false);
   }, [pathname, slug]);
 
   useEffect(() => {
@@ -569,9 +570,9 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     }
   }, [space, nav, slug, router]);
 
-  const openChats = clients.filter((c) => !c.chatEndedAt);
-  const unreadTotal = clients.reduce((sum, c) => sum + (c.unread || 0), 0);
-  const presentNow = clients.filter((c) => isClientLive(c)).length;
+  const allChats = clients;
+  const readChats = clients.filter((c) => (c.unread || 0) === 0);
+  const unreadChats = clients.filter((c) => (c.unread || 0) > 0);
 
   const recent = useMemo(() => {
     return [...clients]
@@ -640,23 +641,32 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
             from the sidebar when a customer writes in.
           </p>
         </div>
-        <Link href={dashHref(slug, "floor")} className="btn-solid dashboard-open-floor">
-          Open Live Chat
-        </Link>
+        <div className="dashboard-hero-actions">
+          <Link href={dashHref(slug, "floor")} className="btn-solid dashboard-open-floor">
+            Open Live Chat
+          </Link>
+          <button
+            type="button"
+            className="btn-ghost dashboard-manage-employees"
+            onClick={() => setEmployeesOpen(true)}
+          >
+            Manage Employees
+          </button>
+        </div>
       </header>
 
       <section className="dashboard-stats" aria-label="Overview">
         <div className="dashboard-stat is-open-chats">
-          <span className="dashboard-stat-label">Open Chats</span>
-          <strong>{openChats.length}</strong>
+          <span className="dashboard-stat-label">All</span>
+          <strong>{allChats.length}</strong>
         </div>
         <div className="dashboard-stat is-unread">
-          <span className="dashboard-stat-label">Unread</span>
-          <strong>{unreadTotal}</strong>
+          <span className="dashboard-stat-label">Read</span>
+          <strong>{readChats.length}</strong>
         </div>
         <div className="dashboard-stat is-customers-online">
-          <span className="dashboard-stat-label">Customers Online</span>
-          <strong>{presentNow}</strong>
+          <span className="dashboard-stat-label">Unread</span>
+          <strong>{unreadChats.length}</strong>
         </div>
         <div className="dashboard-stat is-status">
           <span className="dashboard-stat-label">Status</span>
@@ -669,8 +679,8 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
       <div className="dashboard-grid">
         <section className="dashboard-card is-recent-chats">
           <header className="dashboard-card-head">
-            <h2>Recent Chats</h2>
-            <p>Jump back into live chat</p>
+            <h2>Inbox</h2>
+            <p>Jump back into the floor inbox</p>
           </header>
           {recent.length === 0 ? (
             <p className="dashboard-empty">No customer chats yet.</p>
@@ -709,19 +719,26 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
 
         <section className="dashboard-card is-team-load">
           <header className="dashboard-card-head">
-            <h2>Team Load</h2>
-            <p>Add people who can own chats</p>
+            <h2>Quick Access</h2>
           </header>
           <div className="dashboard-team-stack">
-            <div className="dashboard-team-inner dashboard-team-employees">
-              <p className="dashboard-team-help">
-                Add employees so chats can be assigned to someone. If
-                there&apos;s only one person, they own every chat by default.
-              </p>
-              <TeamMembersEditor
-                members={members}
-                onChangeMembers={updateMembers}
-                searchable
+            <div className="dashboard-team-inner dashboard-quick-access">
+              <Link
+                href={dashHref(slug, "floor")}
+                className="btn-solid dashboard-open-floor"
+              >
+                Open Live Chat
+              </Link>
+              <button
+                type="button"
+                className="btn-ghost dashboard-manage-employees"
+                onClick={() => setEmployeesOpen(true)}
+              >
+                Manage Employees
+              </button>
+              <AutoAnswerToggle
+                on={Boolean(space.settings.autoAnswer)}
+                onToggle={toggleAutoAnswer}
               />
             </div>
           </div>
@@ -807,7 +824,11 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   );
 
   let main: ReactNode = overview;
-  if (nav === "dashboard" || nav === "online") {
+  if (employeesOpen) {
+    main = (
+      <EmployeesPanel members={members} onChangeMembers={updateMembers} />
+    );
+  } else if (nav === "dashboard" || nav === "online") {
     main = (
       <ComponentsDashboard
         slug={slug}

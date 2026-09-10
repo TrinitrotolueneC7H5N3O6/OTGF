@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import type { Business } from "@/lib/types";
+import { createBusiness } from "@/lib/store";
 
 type Mode = "create" | "signin";
 
@@ -11,6 +13,9 @@ interface SpaceAuthFormProps {
   initialMode?: Mode;
   /** Hide title, copy, and mode tabs — use under an existing page headline. */
   bare?: boolean;
+  /** Show a Business Name field and create the space before registering. */
+  collectBusinessName?: boolean;
+  onSpaceCreated?: (business: Business) => void;
   onAuthenticated: () => void;
   onCancel?: () => void;
 }
@@ -20,6 +25,8 @@ export function SpaceAuthForm({
   claimSlug,
   initialMode = "create",
   bare = false,
+  collectBusinessName = false,
+  onSpaceCreated,
   onAuthenticated,
   onCancel,
 }: SpaceAuthFormProps) {
@@ -27,6 +34,7 @@ export function SpaceAuthForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [businessName, setBusinessName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -39,6 +47,16 @@ export function SpaceAuthForm({
     setError(null);
     setBusy(true);
     try {
+      let slug = claimSlug?.trim() || "";
+      if (mode === "create" && collectBusinessName) {
+        const business = businessName.trim();
+        if (!business) {
+          throw new Error("Business Name is required.");
+        }
+        const space = await createBusiness(business, "salon");
+        onSpaceCreated?.(space.business);
+        slug = space.business.slug;
+      }
       const path = mode === "create" ? "/api/auth/register" : "/api/auth/login";
       const res = await fetch(path, {
         method: "POST",
@@ -47,7 +65,7 @@ export function SpaceAuthForm({
           email,
           password,
           name: mode === "create" ? name : undefined,
-          claimSlug: claimSlug || undefined,
+          claimSlug: slug || undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -113,9 +131,22 @@ export function SpaceAuthForm({
         className="setup-form space-auth-form"
         onSubmit={(e) => void onSubmit(e)}
       >
+        {mode === "create" && collectBusinessName ? (
+          <label>
+            <span>Business Name</span>
+            <input
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              placeholder="e.g. River Street Salon"
+              required
+              autoComplete="organization"
+              autoFocus
+            />
+          </label>
+        ) : null}
         {mode === "create" ? (
           <label>
-            <span>Your name</span>
+            <span>Your Name</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -133,7 +164,7 @@ export function SpaceAuthForm({
             placeholder="you@email.com"
             required
             autoComplete="email"
-            autoFocus
+            autoFocus={!collectBusinessName || mode !== "create"}
           />
         </label>
         <label>

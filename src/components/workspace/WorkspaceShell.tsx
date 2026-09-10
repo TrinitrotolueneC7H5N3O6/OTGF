@@ -77,8 +77,8 @@ const EMPTY_MEMBERS: FloorMember[] = [];
 
 function floorToolTabs(settings: FloorSettings): RightTab[] {
   const tabs: RightTab[] = [];
-  if (isSolutionEnabled(settings, "artifacts")) tabs.push("artifacts");
   if (isSolutionEnabled(settings, "assist")) tabs.push("assist");
+  if (isSolutionEnabled(settings, "artifacts")) tabs.push("artifacts");
   if (isSolutionEnabled(settings, "receipts")) tabs.push("receipts");
   return tabs;
 }
@@ -116,8 +116,8 @@ function clientMatchesInboxFilter(
   filter: InboxQuickFilter,
 ): boolean {
   if (filter === "all" || filter === "ai") return true;
-  if (filter === "unanswered") return clientAwaitingReply(client, messages);
-  if (filter === "new") return (client.unread ?? 0) > 0;
+  if (filter === "read") return (client.unread ?? 0) === 0;
+  if (filter === "unread") return clientAwaitingReply(client, messages);
   return Boolean(client.caseId);
 }
 
@@ -140,7 +140,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const [clientUrl, setClientUrl] = useState("");
   const [floorMemberId, setFloorMemberId] = useState<string>("all");
   const [openAtBottom, setOpenAtBottom] = useState(false);
-  const [rightTab, setRightTab] = useState<RightTab>("artifacts");
+  const [rightTab, setRightTab] = useState<RightTab>("assist");
   const [replyTo, setReplyTo] = useState<MessageReplyRef | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set());
@@ -458,10 +458,10 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const inboxQuickCounts = useMemo(
     () => ({
       all: inboxClients.length,
-      unanswered: inboxClients.filter((client) =>
+      read: inboxClients.filter((client) => (client.unread ?? 0) === 0).length,
+      unread: inboxClients.filter((client) =>
         clientAwaitingReply(client, messages),
       ).length,
-      new: inboxClients.filter((client) => (client.unread ?? 0) > 0).length,
       cases: space?.cases?.length ?? 0,
     }),
     [inboxClients, messages, space?.cases],

@@ -200,7 +200,7 @@ function ReplyMock() {
         </footer>
       </div>
       <div className="shot-lib">
-        <p>Artifacts</p>
+        <p>Tool Box</p>
         <div className="shot-lib-grid">
           <span />
           <span />

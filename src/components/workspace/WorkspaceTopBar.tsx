@@ -36,12 +36,20 @@ export function WorkspaceTopBar({
       <Link href={dashHref(slug, brandNav)} className="brand-lockup">
         <span className="brand-mark" aria-hidden />
         <div>
-          <p className="brand-name">OTGF</p>
+          <p className="brand-name">OTGF - Floor Board</p>
           <p className="brand-sub">{businessName}</p>
         </div>
       </Link>
 
       <div className="floor-share">
+        <Link
+          href={dashHref(slug, view === "floor" ? "dashboard" : "floor")}
+          className="workspace-view-toggle"
+          title={view === "floor" ? "Dashboard" : "Live Chat"}
+          aria-label={view === "floor" ? "Dashboard" : "Live Chat"}
+        >
+          {view === "floor" ? "Dashboard" : "Live Chat"}
+        </Link>
         <button
           type="button"
           className={`floor-live-btn ${live ? "is-live" : ""}`}

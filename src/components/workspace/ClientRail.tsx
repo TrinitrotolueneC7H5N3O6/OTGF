@@ -19,12 +19,12 @@ import {
 import { ClientAvatar } from "@/components/shared/ClientAvatar";
 import { IconEyeOff, IconPencil, IconTrash } from "@/components/shared/Icons";
 
-export type InboxQuickFilter = "all" | "unanswered" | "new" | "cases" | "ai";
+export type InboxQuickFilter = "all" | "read" | "unread" | "cases" | "ai";
 
 export interface InboxQuickCounts {
   all: number;
-  unanswered: number;
-  new: number;
+  read: number;
+  unread: number;
   cases: number;
 }
 
@@ -48,9 +48,9 @@ interface ClientRailProps {
 
 const QUICK_FILTERS: { id: InboxQuickFilter; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "unanswered", label: "Unanswered" },
+  { id: "read", label: "Read" },
+  { id: "unread", label: "Unread" },
   { id: "cases", label: "Cases" },
-  { id: "new", label: "New" },
   { id: "ai", label: "AI" },
 ];
 
