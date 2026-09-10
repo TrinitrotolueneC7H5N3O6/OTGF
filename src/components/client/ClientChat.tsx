@@ -12,7 +12,6 @@ import {
   patchSpace,
   appendMessage,
   readAttachmentFile,
-  readMediaFile,
   sendSpaceEmail,
   subscribeSpace,
   toggleReaction,
@@ -36,7 +35,7 @@ import {
 import { clusterClassName, messageCluster } from "@/lib/messageCluster";
 import {
   IconArrowSend,
-  IconPaperclip,
+  IconPlus,
   IconX,
 } from "@/components/shared/Icons";
 import { SwipeTimeStream } from "./SwipeTimeStream";
@@ -103,7 +102,9 @@ export function ClientChat({
   const [attaching, setAttaching] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [numberMenuOpen, setNumberMenuOpen] = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [listening, setListening] = useState(false);
   const [specialtiesMenuOpen, setSpecialtiesMenuOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
   const [departmentDraft, setDepartmentDraft] = useState("");
@@ -120,9 +121,15 @@ export function ClientChat({
   const [actionsFor, setActionsFor] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const docRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
+  const recordStreamRef = useRef<MediaStream | null>(null);
+  const speechRef = useRef<{ stop: () => void } | null>(null);
   const departmentImageRef = useRef<HTMLInputElement>(null);
   const departmentDocRef = useRef<HTMLInputElement>(null);
-  const numberMenuRef = useRef<HTMLDivElement>(null);
   const specialtiesMenuRef = useRef<HTMLDivElement>(null);
   const inquireSent = useRef(false);
 
@@ -267,21 +274,29 @@ export function ClientChat({
   }, [thread.length]);
 
   useEffect(() => {
-    if (!numberMenuOpen && !specialtiesMenuOpen) return;
+    if (!specialtiesMenuOpen && !attachMenuOpen) return;
 
     function onPointerDown(event: PointerEvent) {
       const target = event.target as Node;
-      if (!numberMenuRef.current?.contains(target)) {
-        setNumberMenuOpen(false);
-      }
       if (!specialtiesMenuRef.current?.contains(target)) {
         setSpecialtiesMenuOpen(false);
+      }
+      if (!attachMenuRef.current?.contains(target)) {
+        setAttachMenuOpen(false);
       }
     }
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [numberMenuOpen, specialtiesMenuOpen]);
+  }, [specialtiesMenuOpen, attachMenuOpen]);
+
+  useEffect(() => {
+    return () => {
+      speechRef.current?.stop();
+      mediaRecorderRef.current?.stop();
+      recordStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
 
   // Tell the floor when this customer tab is open / interacting.
   useEffect(() => {
@@ -544,53 +559,62 @@ export function ClientChat({
     }
   }
 
-  async function sendImage(file: File) {
+  async function sendPickedFile(file: File) {
     if (client?.chatEndedAt || sending) return;
     setAttaching(true);
     setSendError(null);
     try {
-      const media = await readMediaFile(file);
-      if (media.kind !== "photo") {
-        throw new Error("Pick an image file.");
-      }
-
+      const media = await readAttachmentFile(file);
       const caption = draft.trim();
       const name = displayName.trim();
       const presentAt = new Date().toISOString();
       const selectedReason = contactReason?.trim() || "";
       setSending(true);
 
-      const message: Message = {
-        id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        clientId: chatId,
-        from: "client",
-        kind: "image",
-        body: caption,
-        imageUrl: media.url,
-        ...(replyTo
-          ? { replyTo }
-          : selectedReason
-            ? {
-                replyTo: {
-                  id: `contact-reason-${chatId}`,
-                  from: "client",
-                  kind: "text",
-                  preview: `Contact reason: ${selectedReason}`,
-                },
-              }
-            : {}),
-        ...messageTimeStamp(),
-      };
+      const message: Message =
+        media.kind === "image"
+          ? {
+              id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              clientId: chatId,
+              from: "client",
+              kind: "image",
+              body: caption,
+              imageUrl: media.url,
+              ...(replyTo
+                ? { replyTo }
+                : selectedReason
+                  ? {
+                      replyTo: {
+                        id: `contact-reason-${chatId}`,
+                        from: "client",
+                        kind: "text",
+                        preview: `Contact reason: ${selectedReason}`,
+                      },
+                    }
+                  : {}),
+              ...messageTimeStamp(),
+            }
+          : {
+              id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              clientId: chatId,
+              from: "client",
+              kind: "link",
+              body: media.name,
+              linkUrl: media.url,
+              ...(replyTo ? { replyTo } : {}),
+              ...messageTimeStamp(),
+            };
 
       const next = await patchSpace(slug, (latest) => {
         const existing = latest.clients.find((c) => c.id === chatId);
-        const preview = caption || "Photo";
+        const previewText =
+          media.kind === "image" ? caption || "Photo" : media.name;
         const nextClient: Client = existing
           ? {
               ...existing,
               name: name || existing.name,
               status: existing.status === "client" ? "client" : "unknown",
-              preview,
+              preview: previewText,
               lastActive: "Just now",
               unread: existing.unread + 1,
               presentAt,
@@ -600,7 +624,7 @@ export function ClientChat({
               name: name || nextGuestName(latest.clients),
               status: "unknown",
               channel: "web",
-              preview,
+              preview: previewText,
               unread: 1,
               trade: latest.business.trade,
               lastActive: "Just now",
@@ -628,18 +652,204 @@ export function ClientChat({
       });
 
       setSpace(next);
-      setDraft("");
+      if (media.kind === "image") setDraft("");
       setReplyTo(null);
       setContactReason(null);
     } catch (err) {
       setSendError(
-        err instanceof Error ? err.message : "Could not send photo.",
+        err instanceof Error ? err.message : "Could not send file.",
       );
     } finally {
       setAttaching(false);
       setSending(false);
       if (fileRef.current) fileRef.current.value = "";
+      if (cameraRef.current) cameraRef.current.value = "";
+      if (docRef.current) docRef.current.value = "";
     }
+  }
+
+  async function sendVoiceBlob(blob: Blob) {
+    const url = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Could not read recording."));
+      reader.readAsDataURL(blob);
+    });
+    const name = displayName.trim();
+    const presentAt = new Date().toISOString();
+    const message: Message = {
+      id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      clientId: chatId,
+      from: "client",
+      kind: "link",
+      body: "Voice recording",
+      linkUrl: url,
+      ...messageTimeStamp(),
+    };
+    setSending(true);
+    setSendError(null);
+    try {
+      const next = await patchSpace(slug, (latest) => {
+        const existing = latest.clients.find((c) => c.id === chatId);
+        const nextClient: Client = existing
+          ? {
+              ...existing,
+              name: name || existing.name,
+              preview: "Voice recording",
+              lastActive: "Just now",
+              unread: existing.unread + 1,
+              presentAt,
+            }
+          : {
+              id: chatId,
+              name: name || nextGuestName(latest.clients),
+              status: "unknown",
+              channel: "web",
+              preview: "Voice recording",
+              unread: 1,
+              trade: latest.business.trade,
+              lastActive: "Just now",
+              note: "Unique chat link",
+              presentAt,
+            };
+        return {
+          ...latest,
+          deletedClientIds: (latest.deletedClientIds ?? []).filter(
+            (id) => id !== chatId,
+          ),
+          clients: existing
+            ? [nextClient, ...latest.clients.filter((c) => c.id !== chatId)]
+            : [nextClient, ...latest.clients],
+          messages: appendCustomerMessageWithAutoReply(
+            latest.messages,
+            chatId,
+            message,
+            latest.business.name,
+            latest.business.slug,
+            resolveChatIntroMessages(latest.settings),
+          ),
+        };
+      });
+      setSpace(next);
+    } catch (err) {
+      setSendError(
+        err instanceof Error ? err.message : "Could not send recording.",
+      );
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function toggleRecord() {
+    if (preview || client?.chatEndedAt || sending) return;
+    setAttachMenuOpen(false);
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordStreamRef.current = stream;
+      const mime = MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : undefined;
+      const recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      recordChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) recordChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        recordStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        setRecording(false);
+        const blob = new Blob(recordChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        if (blob.size > 0) void sendVoiceBlob(blob);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch {
+      setSendError("Couldn’t start recording. Check microphone access.");
+    }
+  }
+
+  function startTalkToText() {
+    if (preview || client?.chatEndedAt) return;
+    setAttachMenuOpen(false);
+    const SpeechCtor =
+      (
+        window as Window & {
+          SpeechRecognition?: new () => {
+            lang: string;
+            interimResults: boolean;
+            start: () => void;
+            stop: () => void;
+            onresult: ((event: {
+              results: ArrayLike<ArrayLike<{ transcript: string }>>;
+            }) => void) | null;
+            onerror: (() => void) | null;
+            onend: (() => void) | null;
+          };
+          webkitSpeechRecognition?: new () => {
+            lang: string;
+            interimResults: boolean;
+            start: () => void;
+            stop: () => void;
+            onresult: ((event: {
+              results: ArrayLike<ArrayLike<{ transcript: string }>>;
+            }) => void) | null;
+            onerror: (() => void) | null;
+            onend: (() => void) | null;
+          };
+        }
+      ).SpeechRecognition ??
+      (
+        window as Window & {
+          webkitSpeechRecognition?: new () => {
+            lang: string;
+            interimResults: boolean;
+            start: () => void;
+            stop: () => void;
+            onresult: ((event: {
+              results: ArrayLike<ArrayLike<{ transcript: string }>>;
+            }) => void) | null;
+            onerror: (() => void) | null;
+            onend: (() => void) | null;
+          };
+        }
+      ).webkitSpeechRecognition;
+    if (!SpeechCtor) {
+      setSendError("Talk to text isn’t available in this browser.");
+      return;
+    }
+    speechRef.current?.stop();
+    const recognition = new SpeechCtor();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      const text = event.results[0]?.[0]?.transcript?.trim() ?? "";
+      if (text) {
+        setDraft((cur) => (cur.trim() ? `${cur.trim()} ${text}` : text));
+      }
+    };
+    recognition.onerror = () => {
+      setListening(false);
+      speechRef.current = null;
+      setSendError("Couldn’t hear that. Try again.");
+    };
+    recognition.onend = () => {
+      setListening(false);
+      speechRef.current = null;
+    };
+    speechRef.current = recognition;
+    setListening(true);
+    setSendError(null);
+    recognition.start();
   }
 
   function reactToMessage(messageId: string, emoji: string) {
@@ -724,7 +934,6 @@ export function ClientChat({
   }
 
   async function requestPromo() {
-    setNumberMenuOpen(false);
     setSpecialtiesMenuOpen(false);
     await sendQuickRequest(
       "I'd like to see today's promotions.",
@@ -1577,69 +1786,12 @@ export function ClientChat({
     </header>
   );
 
-  const quickActions = !chatEnded && (showSpecialties || showPromos) ? (
+  const showPromoButton = showPromos && !showSpecialties;
+  const showDepartmentAttach = showSpecialties && selectedNumber != null;
+  const quickActions = !chatEnded && (showPromoButton || showDepartmentAttach) ? (
     <div className="client-quick-actions">
-      <div className="client-away-actions">
-        {showSpecialties ? (
-        <div className="client-number-dropdown" ref={numberMenuRef}>
-          <button
-            type="button"
-            className="client-book-consult-btn client-number-dropdown-trigger"
-            aria-haspopup="listbox"
-            aria-expanded={numberMenuOpen}
-            onClick={() => setNumberMenuOpen((open) => !open)}
-          >
-            {selectedNumber != null
-              ? `Department ${selectedNumber}`
-              : "Departments"}
-          </button>
-          {numberMenuOpen ? (
-            <ul className="client-number-dropdown-list" role="listbox">
-              {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => {
-                const department = currentDepartments(settings)[n - 1];
-                const attached = departmentHasContent(department);
-                return (
-                  <li
-                    key={n}
-                    role="none"
-                    className={n === 1 ? "client-number-row" : undefined}
-                  >
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={selectedNumber === n}
-                      className={
-                        [
-                          selectedNumber === n ? "is-selected" : "",
-                          attached ? "has-message" : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" ") || undefined
-                      }
-                      onClick={() =>
-                        pickDepartment(n, () => setNumberMenuOpen(false))
-                      }
-                    >
-                      {n}
-                    </button>
-                    {n === 1 && showPromos ? (
-                      <button
-                        type="button"
-                        className="client-promo-btn"
-                        onClick={() => void requestPromo()}
-                        disabled={sending}
-                      >
-                        Promo
-                      </button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-        </div>
-        ) : null}
-        {showPromos && !showSpecialties ? (
+      {showPromoButton ? (
+        <div className="client-away-actions">
           <button
             type="button"
             className="client-book-consult-btn"
@@ -1648,8 +1800,8 @@ export function ClientChat({
           >
             Today&apos;s promotions
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       {showSpecialties && selectedNumber != null ? (
         <form
           className="client-department-attach"
@@ -2367,53 +2519,156 @@ export function ClientChat({
                 {sendError}
               </p>
             ) : null}
-            <div className="client-composer-row">
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                id="client-attach-image"
-                onChange={(e) => {
-                  const file = e.target.files?.[0] ?? null;
-                  if (file) void sendImage(file);
-                }}
-              />
-              <label
-                htmlFor="client-attach-image"
-                className={`composer-attach ${attaching || sending ? "is-busy" : ""}`}
-                aria-label="Attach image"
-                title="Attach image"
-              >
-                <IconPaperclip />
-              </label>
-              <label className="composer-field">
-                <span className="sr-only">Message</span>
-                <input
-                  value={draft ?? ""}
-                  onChange={(e) => {
-                    setDraft(e.target.value);
-                    if (sendError) setSendError(null);
-                  }}
-                  placeholder={
-                    replyTo
-                      ? "Write a reply…"
-                      : contactReason
-                        ? "Add details so the team can understand your situation…"
-                        : "Message…"
-                  }
-                  autoFocus={!preview}
-                  disabled={sending || preview}
-                />
-              </label>
+            {recording ? (
               <button
-                type="submit"
-                className="composer-send"
-                aria-label="Send"
-                disabled={sending || preview || !draft.trim()}
+                type="button"
+                className="composer-recording"
+                onClick={() => void toggleRecord()}
               >
-                <IconArrowSend />
+                Recording… Tap to stop
               </button>
+            ) : null}
+            {listening ? (
+              <p className="composer-listening" role="status">
+                Listening…
+              </p>
+            ) : null}
+            <div className="composer-attach-wrap" ref={attachMenuRef}>
+              {attachMenuOpen ? (
+                <ul className="composer-attach-menu" role="menu">
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void toggleRecord()}
+                    >
+                      {recording ? "Stop recording" : "Record"}
+                    </button>
+                  </li>
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={startTalkToText}
+                    >
+                      Talk to text
+                    </button>
+                  </li>
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setAttachMenuOpen(false);
+                        fileRef.current?.click();
+                      }}
+                    >
+                      Image
+                    </button>
+                  </li>
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setAttachMenuOpen(false);
+                        cameraRef.current?.click();
+                      }}
+                    >
+                      Camera
+                    </button>
+                  </li>
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setAttachMenuOpen(false);
+                        docRef.current?.click();
+                      }}
+                    >
+                      Document
+                    </button>
+                  </li>
+                </ul>
+              ) : null}
+              <div className="client-composer-row">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  id="client-attach-image"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    if (file) void sendPickedFile(file);
+                  }}
+                />
+                <input
+                  ref={cameraRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="sr-only"
+                  id="client-attach-camera"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    if (file) void sendPickedFile(file);
+                  }}
+                />
+                <input
+                  ref={docRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt,.rtf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                  className="sr-only"
+                  id="client-attach-document"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    if (file) void sendPickedFile(file);
+                  }}
+                />
+                <button
+                  type="button"
+                  className={`composer-attach${attaching || sending ? " is-busy" : ""}${
+                    attachMenuOpen ? " is-open" : ""
+                  }`}
+                  aria-label="Add"
+                  aria-haspopup="menu"
+                  aria-expanded={attachMenuOpen}
+                  title="Add"
+                  disabled={attaching || sending}
+                  onClick={() => setAttachMenuOpen((open) => !open)}
+                >
+                  <IconPlus />
+                </button>
+                <label className="composer-field">
+                  <span className="sr-only">Message</span>
+                  <input
+                    value={draft ?? ""}
+                    onChange={(e) => {
+                      setDraft(e.target.value);
+                      if (sendError) setSendError(null);
+                    }}
+                    placeholder={
+                      replyTo
+                        ? "Write a reply…"
+                        : contactReason
+                          ? "Add details so the team can understand your situation…"
+                          : "Message…"
+                    }
+                    autoFocus={!preview}
+                    disabled={sending || preview}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="composer-send"
+                  aria-label="Send"
+                  disabled={sending || preview || !draft.trim()}
+                >
+                  <IconArrowSend />
+                </button>
+              </div>
             </div>
           </form>
         )}

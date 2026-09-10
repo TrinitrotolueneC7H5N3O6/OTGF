@@ -75,12 +75,12 @@ export const SOLUTION_CATALOG: SolutionInfo[] = [
   },
   {
     id: "artifacts",
-    label: "Artifacts",
+    label: "Tool Box",
     blurb: "Send looks, menus, photos, and saved replies from the floor.",
   },
   {
     id: "receipts",
-    label: "Receipts",
+    label: "Billing",
     blurb: "Quote a product or service and collect payment in chat.",
   },
   {

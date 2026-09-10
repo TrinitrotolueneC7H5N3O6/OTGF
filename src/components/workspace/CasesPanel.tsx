@@ -1,20 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getSpace } from "@/lib/store";
 import type {
   Client,
   CollectedContact,
   CustomerCase,
   CustomerCaseIdentifier,
   CustomerCaseStatus,
-  Message,
 } from "@/lib/types";
-import { IconX } from "@/components/shared/Icons";
-import { MessageBodyText } from "@/components/shared/MessageBodyText";
-import { MessageMedia } from "@/components/shared/MessageMedia";
-import { MessageReplyQuote } from "@/components/shared/MessageReplyQuote";
-import { ReceiptCard } from "@/components/shared/ReceiptCard";
 
 interface CasesPanelProps {
   slug: string;
@@ -42,15 +35,6 @@ const CASE_STATUSES: { value: CustomerCaseStatus; label: string }[] = [
 function newCaseId() {
   const suffix = Math.random().toString(36).slice(2, 7).toUpperCase();
   return `CASE-${suffix}`;
-}
-
-function newIdentifier(): CustomerCaseIdentifier {
-  const suffix = Math.random().toString(36).slice(2, 9);
-  return { id: `case-ref-${Date.now()}-${suffix}`, label: "", value: "" };
-}
-
-function identifierLabel(identifier: CustomerCaseIdentifier) {
-  return `${identifier.label}: ${identifier.value}`;
 }
 
 function statusLabel(value: CustomerCaseStatus) {
@@ -108,35 +92,20 @@ function buildContactsPdf(lines: string[]) {
 }
 
 export function CasesPanel({
-  slug,
   cases,
   clients,
   contacts = [],
   section = "cases",
   onCreateCase,
-  onUpdateStatus,
-  onUpdateNotes,
-  onUpdateIdentifiers,
-  onAssignChat,
-  onHideChat,
 }: CasesPanelProps) {
   const [caseId, setCaseId] = useState(newCaseId);
   const [notes, setNotes] = useState("");
-  const [assignDraft, setAssignDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [lookupQuery, setLookupQuery] = useState("");
   const [lookupCaseId, setLookupCaseId] = useState("");
   const [lookupOpen, setLookupOpen] = useState(false);
   const lookupRef = useRef<HTMLDivElement>(null);
-  const [viewingClient, setViewingClient] = useState<Client | null>(null);
-  const [threadMessages, setThreadMessages] = useState<Message[]>([]);
-  const [threadLoading, setThreadLoading] = useState(false);
-  const [threadError, setThreadError] = useState<string | null>(null);
 
-  const activeClients = useMemo(
-    () => clients.filter((client) => client.preview.trim()),
-    [clients],
-  );
   const caseCounts = useMemo(
     () => ({
       total: cases.length,
@@ -146,11 +115,6 @@ export function CasesPanel({
     }),
     [cases],
   );
-  const assignedIds = useMemo(
-    () => new Set(activeClients.filter((client) => client.caseId).map((client) => client.id)),
-    [activeClients],
-  );
-  const unassignedClients = activeClients.filter((client) => !assignedIds.has(client.id));
   const lookupMatches = useMemo(() => {
     const query = lookupQuery.trim().toLowerCase();
     const sorted = [...cases].sort((a, b) => a.id.localeCompare(b.id));
@@ -340,46 +304,6 @@ export function CasesPanel({
     );
   }
 
-  async function viewConversation(client: Client) {
-    setViewingClient(client);
-    setThreadMessages([]);
-    setThreadError(null);
-    setThreadLoading(true);
-    try {
-      const thread = await getSpace(slug, client.id, { threadOnly: true });
-      setThreadMessages(
-        (thread?.messages ?? []).filter((message) => message.clientId === client.id),
-      );
-    } catch (err) {
-      console.warn("Could not load case chat:", err);
-      setThreadError("Could not load this conversation.");
-    } finally {
-      setThreadLoading(false);
-    }
-  }
-
-  function updateIdentifier(
-    customerCase: CustomerCase,
-    identifierId: string,
-    patch: Partial<CustomerCaseIdentifier>,
-  ) {
-    onUpdateIdentifiers(
-      customerCase.id,
-      customerCase.identifiers.map((identifier) =>
-        identifier.id === identifierId
-          ? { ...identifier, ...patch }
-          : identifier,
-      ),
-    );
-  }
-
-  function removeIdentifier(customerCase: CustomerCase, identifierId: string) {
-    onUpdateIdentifiers(
-      customerCase.id,
-      customerCase.identifiers.filter((identifier) => identifier.id !== identifierId),
-    );
-  }
-
   return (
     <div className="dashboard-panel-body cases-panel">
       <header className="cases-page-head">
@@ -413,40 +337,7 @@ export function CasesPanel({
           </div>
         </section>
 
-        <section className="dashboard-card cases-create">
-        <header className="dashboard-card-head cases-create-head">
-          <div>
-            <h2>Create case</h2>
-            <p>Start with a case id and optional internal notes.</p>
-          </div>
-          <button type="button" className="btn-solid cases-action" onClick={createCase}>
-            Create case
-          </button>
-        </header>
-        <div className="cases-create-grid">
-          <label className="floor-settings-note">
-            <span>Case id</span>
-            <input
-              value={caseId}
-              onChange={(event) => setCaseId(event.target.value)}
-              placeholder="CASE-1234"
-            />
-          </label>
-          <label className="floor-settings-note">
-            <span>Notes</span>
-            <textarea
-              rows={3}
-              value={notes}
-              onChange={(event) => setNotes(event.target.value.slice(0, 4000))}
-              placeholder="Add context, follow-up plan, or internal notes..."
-            />
-          </label>
-        </div>
-        {error ? <p className="settings-error">{error}</p> : null}
-      </section>
-
-      <div className="cases-main">
-      <section className="dashboard-card cases-lookup">
+        <section className="dashboard-card cases-lookup">
         <header className="dashboard-card-head">
           <h2>Find a case</h2>
           <p>Search or pick a case to read its notes.</p>
@@ -517,355 +408,38 @@ export function CasesPanel({
         </div>
       </section>
 
-      {cases.length === 0 ? (
-        <p className="dashboard-empty">No cases yet.</p>
-      ) : (
-        <div className="cases-list">
-          {cases.map((customerCase) => {
-            const assigned = activeClients.filter(
-              (client) => client.caseId === customerCase.id,
-            );
-            const draft = assignDraft[customerCase.id] ?? "";
-            return (
-              <section key={customerCase.id} className="dashboard-card case-card">
-                <header className="case-card-head">
-                  <div className="case-card-title">
-                    <div>
-                      <p>Case</p>
-                      <h2>{customerCase.id}</h2>
-                    </div>
-                    <span className={`case-status-pill is-${customerCase.status}`}>
-                      {statusLabel(customerCase.status)}
-                    </span>
-                  </div>
-                  <div className="case-card-meta">
-                    <p>
-                      {assigned.length === 1
-                        ? "1 assigned chat"
-                        : `${assigned.length} assigned chats`}
-                    </p>
-                    <p>
-                      {customerCase.identifiers.length === 1
-                        ? "1 linked identifier"
-                        : `${customerCase.identifiers.length} linked identifiers`}
-                    </p>
-                  </div>
-                </header>
-
-                <div className="case-controls">
-                  <label className="case-status-field">
-                    <span>Status</span>
-                    <select
-                      value={customerCase.status}
-                      onChange={(event) =>
-                        onUpdateStatus(
-                          customerCase.id,
-                          event.target.value as CustomerCaseStatus,
-                        )
-                      }
-                      aria-label={`Status for ${customerCase.id}`}
-                    >
-                      {CASE_STATUSES.map((status) => (
-                        <option key={status.value} value={status.value}>
-                          {status.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="case-assign-control">
-                    <label>
-                      <span>Assign chat</span>
-                      <select
-                        value={draft}
-                        onChange={(event) =>
-                          setAssignDraft((current) => ({
-                            ...current,
-                            [customerCase.id]: event.target.value,
-                          }))
-                        }
-                        aria-label={`Assign chat to ${customerCase.id}`}
-                      >
-                        <option value="">Choose an unassigned chat...</option>
-                        {unassignedClients.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.name} - {client.preview || "No messages yet"}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      className="btn-ghost cases-action"
-                      disabled={!draft}
-                      onClick={() => {
-                        if (!draft) return;
-                        onAssignChat(draft, customerCase.id);
-                        setAssignDraft((current) => ({ ...current, [customerCase.id]: "" }));
-                      }}
-                    >
-                      Assign
-                    </button>
-                  </div>
-                </div>
-
-                <div className="case-detail-grid">
-                  <label className="floor-settings-note case-notes-card">
-                    <span>Case notes</span>
-                    <textarea
-                      rows={7}
-                      value={customerCase.notes}
-                      onChange={(event) =>
-                        onUpdateNotes(customerCase.id, event.target.value)
-                      }
-                      placeholder="Notes for this case..."
-                    />
-                  </label>
-
-                  <section className="case-identifiers">
-                    <div className="case-identifiers-head">
-                      <div>
-                        <h3>Linked identifiers</h3>
-                        <p>Tracking IDs, order numbers, client IDs, or other records.</p>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-ghost cases-action"
-                        onClick={() =>
-                          onUpdateIdentifiers(customerCase.id, [
-                            ...customerCase.identifiers,
-                            newIdentifier(),
-                          ])
-                        }
-                      >
-                        Add
-                      </button>
-                    </div>
-                  {customerCase.identifiers.length === 0 ? (
-                    <p className="case-identifiers-empty">
-                      No linked identifiers yet.
-                    </p>
-                  ) : (
-                    <div className="case-identifier-list">
-                      {customerCase.identifiers.map((identifier) => (
-                        <div key={identifier.id} className="case-identifier-row">
-                          <label>
-                            <span>Type</span>
-                            <input
-                              value={identifier.label}
-                              onChange={(event) =>
-                                updateIdentifier(customerCase, identifier.id, {
-                                  label: event.target.value.slice(0, 80),
-                                })
-                              }
-                              placeholder="Tracking ID"
-                            />
-                          </label>
-                          <label>
-                            <span>ID / number</span>
-                            <input
-                              value={identifier.value}
-                              onChange={(event) =>
-                                updateIdentifier(customerCase, identifier.id, {
-                                  value: event.target.value.slice(0, 160),
-                                })
-                              }
-                              placeholder="TRK-1234"
-                            />
-                          </label>
-                          <label>
-                            <span>Link</span>
-                            <input
-                              value={identifier.url ?? ""}
-                              onChange={(event) =>
-                                updateIdentifier(customerCase, identifier.id, {
-                                  url: event.target.value.slice(0, 500),
-                                })
-                              }
-                              placeholder="https://..."
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            className="btn-ghost cases-action"
-                            onClick={() =>
-                              removeIdentifier(customerCase, identifier.id)
-                            }
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {customerCase.identifiers.some(
-                    (identifier) => identifier.label && identifier.value,
-                  ) ? (
-                    <div className="case-identifier-links">
-                      {customerCase.identifiers
-                        .filter((identifier) => identifier.label && identifier.value)
-                        .map((identifier) =>
-                          identifier.url ? (
-                            <a
-                              key={identifier.id}
-                              href={identifier.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {identifierLabel(identifier)}
-                            </a>
-                          ) : (
-                            <span key={identifier.id}>
-                              {identifierLabel(identifier)}
-                            </span>
-                          ),
-                        )}
-                    </div>
-                  ) : null}
-                  </section>
-                </div>
-
-                <section className="case-chats">
-                  <div className="case-section-head">
-                    <h3>Assigned chats</h3>
-                    <span>{assigned.length}</span>
-                  </div>
-                  {assigned.length === 0 ? (
-                    <p className="dashboard-empty">No chats assigned yet.</p>
-                  ) : (
-                    <ul className="case-chat-list">
-                      {assigned.map((client) => (
-                        <li key={client.id}>
-                          <div className="case-chat-main">
-                            <strong>{client.name}</strong>
-                            <span>{client.preview || "No messages yet"}</span>
-                          </div>
-                          <div className="case-chat-actions">
-                            {client.hiddenFromInbox ? (
-                              <span className="case-hidden-label">Hidden</span>
-                            ) : null}
-                            <button
-                              type="button"
-                              className="btn-ghost cases-action"
-                              onClick={() => viewConversation(client)}
-                            >
-                              View
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-ghost cases-action"
-                              onClick={() => onHideChat(client.id, !client.hiddenFromInbox)}
-                            >
-                              {client.hiddenFromInbox ? "Unhide" : "Hide"}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-ghost cases-action"
-                              onClick={() => onAssignChat(client.id, null)}
-                            >
-                              Unassign
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
-              </section>
-            );
-          })}
+        <section className="dashboard-card cases-create">
+        <header className="dashboard-card-head cases-create-head">
+          <div>
+            <h2>Create case</h2>
+            <p>Start with a case id and optional internal notes.</p>
+          </div>
+          <button type="button" className="btn-solid cases-action" onClick={createCase}>
+            Create case
+          </button>
+        </header>
+        <div className="cases-create-grid">
+          <label className="floor-settings-note">
+            <span>Case id</span>
+            <input
+              value={caseId}
+              onChange={(event) => setCaseId(event.target.value)}
+              placeholder="CASE-1234"
+            />
+          </label>
+          <label className="floor-settings-note">
+            <span>Notes</span>
+            <textarea
+              rows={3}
+              value={notes}
+              onChange={(event) => setNotes(event.target.value.slice(0, 4000))}
+              placeholder="Add context, follow-up plan, or internal notes..."
+            />
+          </label>
         </div>
-      )}
-        </div>
+        {error ? <p className="settings-error">{error}</p> : null}
+      </section>
       </div>
-
-      {viewingClient ? (
-        <div
-          className="case-chat-drawer-backdrop"
-          role="presentation"
-          onClick={() => setViewingClient(null)}
-        >
-          <aside
-            className="case-chat-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Conversation with ${viewingClient.name}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header className="case-chat-drawer-head">
-              <div>
-                <p>Case chat</p>
-                <h2>{viewingClient.name}</h2>
-                <span>{viewingClient.caseId}</span>
-              </div>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => setViewingClient(null)}
-                aria-label="Close conversation"
-                title="Close"
-              >
-                <IconX size={16} />
-              </button>
-            </header>
-
-            <div className="case-chat-drawer-stream" role="log">
-              {threadLoading ? (
-                <p className="dashboard-empty">Loading conversation...</p>
-              ) : threadError ? (
-                <p className="settings-error">{threadError}</p>
-              ) : threadMessages.length === 0 ? (
-                <p className="dashboard-empty">No messages in this chat yet.</p>
-              ) : (
-                threadMessages.map((message) => {
-                  if (message.kind === "system") {
-                    return (
-                      <div key={message.id} className="case-chat-system">
-                        <span>{message.body}</span>
-                        <time>{message.at}</time>
-                      </div>
-                    );
-                  }
-                  const mine = message.from === "business";
-                  const mediaOnly =
-                    (message.kind === "image" || message.kind === "video") &&
-                    !message.body?.trim();
-                  return (
-                    <div
-                      key={message.id}
-                      className={`msg-wrap ${mine ? "is-mine" : "is-theirs"}`}
-                    >
-                      <article
-                        className={`bubble bubble-${message.from} bubble-${message.kind}${mediaOnly ? " is-media-only" : ""}`}
-                      >
-                        {message.fromName && mine ? (
-                          <span className="bubble-speaker">{message.fromName}</span>
-                        ) : null}
-                        {message.replyTo ? (
-                          <MessageReplyQuote reply={message.replyTo} />
-                        ) : null}
-                        {message.kind === "receipt" && message.receipt ? (
-                          <ReceiptCard
-                            receipt={message.receipt}
-                            linkUrl={message.linkUrl}
-                          />
-                        ) : (
-                          <>
-                            <MessageMedia message={message} />
-                            {message.body ? (
-                              <MessageBodyText text={message.body} />
-                            ) : null}
-                          </>
-                        )}
-                        <time>{message.at}</time>
-                      </article>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </aside>
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -595,7 +595,7 @@ export function ThreadPane({
               className="composer-chip"
               onClick={() => onOpenTool("artifacts")}
             >
-              Artifacts
+              Tool Box
             </button>
             ) : null}
             {enabledTools.receipts ? (
@@ -604,7 +604,7 @@ export function ThreadPane({
               className="composer-chip"
               onClick={() => onOpenTool("receipts")}
             >
-              Receipt
+              Billing
             </button>
             ) : null}
 

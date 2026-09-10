@@ -55,6 +55,14 @@ function formatWaitMinutes(mins: number) {
   return hours <= 1 ? "~1 hr" : `~${hours} hr`;
 }
 
+function formatWaitPhrase(mins: number) {
+  if (mins < 1) return "under 1 min";
+  if (mins === 1) return "1 min";
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.round(mins / 60);
+  return hours <= 1 ? "1 hr" : `${hours} hr`;
+}
+
 /** Queue position and wait estimate for a visitor about to start live chat. */
 export function liveChatQueueStatus(
   space: Pick<BusinessSpace, "clients" | "messages" | "settings">,
@@ -95,8 +103,11 @@ export function liveChatQueueStatus(
   return {
     ahead,
     position,
+    waitMinutes: avgMin,
     waitLabel: formatWaitMinutes(avgMin),
-    queueLabel: `Your queue #${position}`,
+    waitPhrase: formatWaitPhrase(avgMin),
+    queueLabel: `Your Queue #${position}`,
+    wrappingUp: avgMin <= 1,
   };
 }
 

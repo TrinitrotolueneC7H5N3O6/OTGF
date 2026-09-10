@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { BusinessSpace } from "@/lib/types";
 import { getSpace, subscribeSpace } from "@/lib/store";
@@ -26,6 +26,77 @@ function isLocalChatHref(href: string, slug: string) {
   return href === `/${slug}/chat` || href.startsWith(`/${slug}/chat?`);
 }
 
+function ReachWaitTip({
+  waitPhrase,
+  children,
+}: {
+  waitPhrase: string;
+  children: ReactNode;
+}) {
+  return (
+    <span className="pre-chat-wait-anchor">
+      {children}
+      <span className="pre-chat-wait-tip" role="tooltip">
+        Help Desk is working with Client. Your place in line is secured with a
+        live wait time of {waitPhrase}.
+      </span>
+    </span>
+  );
+}
+
+const WAIT_BUBBLE_SHOW_MS = 10_000;
+const WAIT_BUBBLE_REPEAT_MS = 60_000;
+
+function WaitProgressBubble({
+  waitPhrase,
+  wrappingUp,
+}: {
+  waitPhrase: string;
+  wrappingUp: boolean;
+}) {
+  const [open, setOpen] = useState(true);
+  const [shownAt, setShownAt] = useState(() => Date.now());
+
+  useEffect(() => {
+    let hideTimer = 0;
+    const show = () => {
+      setShownAt(Date.now());
+      setOpen(true);
+      window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => setOpen(false), WAIT_BUBBLE_SHOW_MS);
+    };
+    show();
+    const repeat = window.setInterval(show, WAIT_BUBBLE_REPEAT_MS);
+    return () => {
+      window.clearTimeout(hideTimer);
+      window.clearInterval(repeat);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!wrappingUp) return;
+    setShownAt(Date.now());
+    setOpen(true);
+    const hide = window.setTimeout(() => setOpen(false), WAIT_BUBBLE_SHOW_MS);
+    return () => window.clearTimeout(hide);
+  }, [wrappingUp]);
+
+  if (!open) return null;
+
+  return (
+    <aside
+      key={shownAt}
+      className="pre-chat-wait-bubble"
+      role="status"
+      aria-live="polite"
+    >
+      {wrappingUp
+        ? "Help Desk chat is wrapping up and will now be with you. Thank you for waiting and looking forward to our chat."
+        : `Help Desk Chat is working with a Client. Your expected wait time is ${waitPhrase}.`}
+    </aside>
+  );
+}
+
 export function PreChatPage({
   slug,
   embedded = false,
@@ -40,7 +111,7 @@ export function PreChatPage({
   const space = previewSpace ?? loadedSpace;
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    const timer = window.setInterval(() => setNow(Date.now()), 5_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -153,6 +224,11 @@ export function PreChatPage({
         </div>
       ) : null}
 
+      <WaitProgressBubble
+        waitPhrase={queue.waitPhrase}
+        wrappingUp={queue.wrappingUp}
+      />
+
       <main className="pre-chat-card">
         {settings.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -175,70 +251,78 @@ export function PreChatPage({
             const isPromo =
               link.id === "pre-promo" || /promotions/i.test(link.label);
             if (link.kind === "call") {
-              const phone = link.href?.trim() ?? "";
               const callInner = (
                 <>
                   <span className="pre-chat-link-label">{link.label}</span>
-                  {phone ? (
-                    <span className="pre-chat-link-meta">US {phone}</span>
-                  ) : null}
                   {hoursMeta}
                 </>
               );
               if (preview) {
                 return (
-                  <span key={link.id} className="pre-chat-link is-chat">
-                    {callInner}
-                  </span>
+                  <ReachWaitTip key={link.id} waitPhrase={queue.waitPhrase}>
+                    <span className="pre-chat-link is-chat">{callInner}</span>
+                  </ReachWaitTip>
                 );
               }
               return (
-                <a key={link.id} href={href} className="pre-chat-link is-chat">
-                  {callInner}
-                </a>
+                <ReachWaitTip key={link.id} waitPhrase={queue.waitPhrase}>
+                  <a href={href} className="pre-chat-link is-chat">
+                    {callInner}
+                  </a>
+                </ReachWaitTip>
               );
             }
             const opensChat =
               link.kind === "chat" || isLocalChatHref(href, space.business.slug);
-            if (opensChat) {
-              const chatInner = (
-                <>
-                  <span className="pre-chat-link-label">{link.label}</span>
-                  {link.kind === "chat" ? (
+            const chatInner = (
+              <>
+                <span className="pre-chat-link-label">{link.label}</span>
+                {link.kind === "chat" ? (
+                  <>
                     <span className="pre-chat-link-meta">
-                      Live Wait Time {queue.waitLabel} · {queue.queueLabel}
+                      Live Wait Time {queue.waitLabel}
                     </span>
-                  ) : isPromo ? (
-                    <span className="pre-chat-link-meta">Viewable Anytime</span>
-                  ) : isConsult ? (
-                    <span className="pre-chat-link-meta">Book Anytime</span>
-                  ) : null}
-                  {link.kind === "chat" ? hoursMeta : null}
-                </>
-              );
-              if (preview) {
+                    <span className="pre-chat-link-meta">{queue.queueLabel}</span>
+                  </>
+                ) : isPromo ? (
+                  <>
+                    <span className="pre-chat-link-meta">Book With Us Through</span>
+                    <span className="pre-chat-link-meta">
+                      Live Chat, Call, Or Email
+                    </span>
+                  </>
+                ) : isConsult ? (
+                  <span className="pre-chat-link-meta">Book Anytime</span>
+                ) : null}
+              </>
+            );
+            const chatAction = preview ? (
+              <span className="pre-chat-link is-chat">{chatInner}</span>
+            ) : onOpenChat ? (
+              <button
+                type="button"
+                className="pre-chat-link is-chat"
+                onClick={onOpenChat}
+              >
+                {chatInner}
+              </button>
+            ) : (
+              <Link href={href} className="pre-chat-link is-chat">
+                {chatInner}
+              </Link>
+            );
+            if (opensChat) {
+              if (link.kind === "chat") {
                 return (
-                  <span key={link.id} className="pre-chat-link is-chat">
-                    {chatInner}
-                  </span>
-                );
-              }
-              if (onOpenChat) {
-                return (
-                  <button
-                    key={link.id}
-                    type="button"
-                    className="pre-chat-link is-chat"
-                    onClick={onOpenChat}
-                  >
-                    {chatInner}
-                  </button>
+                  <ReachWaitTip key={link.id} waitPhrase={queue.waitPhrase}>
+                    {chatAction}
+                  </ReachWaitTip>
                 );
               }
               return (
-                <Link key={link.id} href={href} className="pre-chat-link is-chat">
-                  {chatInner}
-                </Link>
+                <span key={link.id} className="pre-chat-link-wrap">
+                  {chatAction}
+                </span>
               );
             }
             const urlInner = (
@@ -248,7 +332,12 @@ export function PreChatPage({
                   <span className="pre-chat-link-meta">Book Anytime</span>
                 ) : null}
                 {isPromo ? (
-                  <span className="pre-chat-link-meta">Viewable Anytime</span>
+                  <>
+                    <span className="pre-chat-link-meta">Book With Us Through</span>
+                    <span className="pre-chat-link-meta">
+                      Live Chat, Call, Or Email
+                    </span>
+                  </>
                 ) : null}
               </>
             );

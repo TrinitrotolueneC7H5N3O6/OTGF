@@ -37,21 +37,20 @@ export function WorkspaceTopBar({
       <div className="brand-lockup">
         <span className="brand-mark" aria-hidden />
         <div>
-          <p className="brand-name">OTGF - HelpDesk</p>
+          <p className="brand-name">OTGF - Floor Board</p>
           <p className="brand-sub">{businessName}</p>
         </div>
       </div>
 
-      <Link
-        href={switchHref}
-        className="workspace-view-toggle"
-        title={switchLabel}
-        aria-label={switchLabel}
-      >
-        {switchLabel}
-      </Link>
-
       <div className="floor-share">
+        <Link
+          href={switchHref}
+          className="workspace-view-toggle"
+          title={switchLabel}
+          aria-label={switchLabel}
+        >
+          {switchLabel}
+        </Link>
         {view === "floor" ? (
           <>
             <button

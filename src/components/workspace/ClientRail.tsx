@@ -18,13 +18,12 @@ import {
 import { ClientAvatar } from "@/components/shared/ClientAvatar";
 import { IconEyeOff, IconPencil, IconTrash } from "@/components/shared/Icons";
 
-export type InboxQuickFilter = "all" | "unanswered" | "new" | "cases";
+export type InboxQuickFilter = "all" | "read" | "unread";
 
 export interface InboxQuickCounts {
   all: number;
-  unanswered: number;
-  new: number;
-  cases: number;
+  read: number;
+  unread: number;
 }
 
 interface ClientRailProps {
@@ -45,9 +44,8 @@ interface ClientRailProps {
 
 const QUICK_FILTERS: { id: InboxQuickFilter; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "unanswered", label: "Unanswered" },
-  { id: "new", label: "New" },
-  { id: "cases", label: "Cases" },
+  { id: "read", label: "Read" },
+  { id: "unread", label: "Unread" },
 ];
 
 function awaitingReply(clientId: string, messages: Message[], ended?: boolean) {

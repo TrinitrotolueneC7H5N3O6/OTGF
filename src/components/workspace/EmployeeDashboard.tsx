@@ -24,14 +24,12 @@ import {
 } from "@/lib/store";
 import type { SpaceOp } from "@/lib/spaceOps";
 import { waitSinceLabel } from "@/lib/messageTime";
-import { isClientLive } from "@/lib/presence";
 import { messageTimeStamp } from "@/lib/spaceNormalize";
 import { autoAnswerListLabel, withoutAutoAnswerDraft } from "@/lib/autoAnswer";
 import { WorkspaceTopBar } from "./WorkspaceTopBar";
 import {
   ACCOUNT_SETTINGS_TABS,
   FloorSettingsPanel,
-  TeamMembersEditor,
   visibleAccountSettingsTabs,
   type SettingsTab,
 } from "./FloorSettingsPanel";
@@ -46,6 +44,7 @@ import { WebsiteInstallPanel } from "./WebsiteInstallPanel";
 import { OfferingsPanel } from "./OfferingsPanel";
 import { AiSetupPanel } from "./AiSetupPanel";
 import { CasesPanel } from "./CasesPanel";
+import { EmployeesPanel } from "./EmployeesPanel";
 import { AutoAnswerReview, AutoAnswerToggle } from "./AutoAnswerReview";
 import { CornerTools } from "@/components/shared/CornerTools";
 import { IconChevronDown } from "@/components/shared/Icons";
@@ -68,6 +67,7 @@ type DashNav =
   | "site:contact"
   | "site:bubble"
   | "offerings"
+  | "employees"
   | "cases"
   | "cases:contacts"
   | "ai";
@@ -80,6 +80,7 @@ type DashNavEntry =
   | { kind: "client"; id: "page" | "chat"; label: string }
   | { kind: "site"; id: "contact" | "bubble"; label: string }
   | { kind: "offerings"; label: string }
+  | { kind: "employees"; label: string }
   | { kind: "cases"; id: "overview" | "contacts"; label: string }
   | { kind: "ai"; label: string };
 
@@ -110,6 +111,7 @@ const DASH_NAV_GROUPS: {
     id: "business",
     label: "Settings",
     items: [
+      { kind: "employees", label: "Employees" },
       { kind: "offerings", label: "What you offer" },
       {
         id: "account-pages",
@@ -158,6 +160,7 @@ function dashNavId(item: DashNavEntry): DashNav {
   if (item.kind === "client") return `client:${item.id}`;
   if (item.kind === "site") return `site:${item.id}`;
   if (item.kind === "offerings") return "offerings";
+  if (item.kind === "employees") return "employees";
   if (item.kind === "cases") {
     return item.id === "contacts" ? "cases:contacts" : "cases";
   }
@@ -169,6 +172,7 @@ function isDashItemVisible(settings: FloorSettings, item: DashNavEntry) {
   if (
     item.kind === "site" ||
     item.kind === "offerings" ||
+    item.kind === "employees" ||
     item.kind === "cases" ||
     item.kind === "ai"
   ) {
@@ -659,9 +663,9 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     }
   }, [space, nav]);
 
-  const openChats = clients.filter((c) => !c.chatEndedAt);
-  const unreadTotal = clients.reduce((sum, c) => sum + (c.unread || 0), 0);
-  const presentNow = clients.filter((c) => isClientLive(c)).length;
+  const allChats = clients;
+  const readChats = clients.filter((c) => (c.unread || 0) === 0);
+  const unreadChats = clients.filter((c) => (c.unread || 0) > 0);
 
   const recent = useMemo(() => {
     return [...clients]
@@ -807,23 +811,32 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
             — then jump back to the floor to answer.
           </p>
         </div>
-        <Link href={`/${slug}/floor`} className="btn-solid dashboard-open-floor">
-          Open Floor
-        </Link>
+        <div className="dashboard-hero-actions">
+          <Link href={`/${slug}/floor`} className="btn-solid dashboard-open-floor">
+            Open Floor
+          </Link>
+          <button
+            type="button"
+            className="btn-ghost dashboard-manage-employees"
+            onClick={() => setNav("employees")}
+          >
+            Manage Employees
+          </button>
+        </div>
       </header>
 
       <section className="dashboard-stats" aria-label="Overview">
         <div className="dashboard-stat is-open-chats">
-          <span className="dashboard-stat-label">Open Chats</span>
-          <strong>{openChats.length}</strong>
+          <span className="dashboard-stat-label">All</span>
+          <strong>{allChats.length}</strong>
         </div>
         <div className="dashboard-stat is-unread">
-          <span className="dashboard-stat-label">Unread</span>
-          <strong>{unreadTotal}</strong>
+          <span className="dashboard-stat-label">Read</span>
+          <strong>{readChats.length}</strong>
         </div>
         <div className="dashboard-stat is-customers-online">
-          <span className="dashboard-stat-label">Customers Online</span>
-          <strong>{presentNow}</strong>
+          <span className="dashboard-stat-label">Unread</span>
+          <strong>{unreadChats.length}</strong>
         </div>
         <div className="dashboard-stat is-status">
           <span className="dashboard-stat-label">Status</span>
@@ -836,7 +849,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
       <div className="dashboard-grid">
         <section className="dashboard-card is-recent-chats">
           <header className="dashboard-card-head">
-            <h2>Recent Chats</h2>
+            <h2>Inbox</h2>
             <p>Jump back into the floor inbox</p>
           </header>
           {recent.length === 0 ? (
@@ -876,19 +889,26 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
 
         <section className="dashboard-card is-team-load">
           <header className="dashboard-card-head">
-            <h2>Team Load</h2>
-            <p>Add people who can own chats</p>
+            <h2>Quick Access</h2>
           </header>
           <div className="dashboard-team-stack">
-            <div className="dashboard-team-inner dashboard-team-employees">
-              <p className="dashboard-team-help">
-                Add employees so chats can be assigned to someone. If
-                there&apos;s only one person, they own every chat by default.
-              </p>
-              <TeamMembersEditor
-                members={members}
-                onChangeMembers={updateMembers}
-                searchable
+            <div className="dashboard-team-inner dashboard-quick-access">
+              <Link
+                href={`/${slug}/floor`}
+                className="btn-solid dashboard-open-floor"
+              >
+                Open Floor
+              </Link>
+              <button
+                type="button"
+                className="btn-ghost dashboard-manage-employees"
+                onClick={() => setNav("employees")}
+              >
+                Manage Employees
+              </button>
+              <AutoAnswerToggle
+                on={Boolean(space.settings.autoAnswer)}
+                onToggle={toggleAutoAnswer}
               />
             </div>
           </div>
@@ -986,6 +1006,10 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
         onChangeSettings={updateSettings}
         onChangeMembers={updateMembers}
       />
+    );
+  } else if (nav === "employees") {
+    main = (
+      <EmployeesPanel members={members} onChangeMembers={updateMembers} />
     );
   } else if (nav === "offerings") {
     main = (

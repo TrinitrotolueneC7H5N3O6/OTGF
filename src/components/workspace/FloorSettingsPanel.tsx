@@ -769,8 +769,8 @@ export function FloorSettingsPanel({
               aria-labelledby="settings-tab-shortcuts"
             >
               <p className="floor-settings-help">
-                Pin photos, phrases, and links from Artifacts onto the chat
-                shortcut bar for one-tap send. Assist / Artifacts / Receipt stay
+                Pin photos, phrases, and links from Tool Box onto the chat
+                shortcut bar for one-tap send. Assist / Tool Box / Billing stay
                 fixed.
               </p>
 
@@ -842,7 +842,7 @@ export function FloorSettingsPanel({
                 {availableArtifacts.length === 0 ? (
                   <p className="floor-settings-help">
                     {artifacts.length === 0
-                      ? "Add photos, links, or phrases in Artifacts first."
+                      ? "Add photos, links, or phrases in Tool Box first."
                       : "Every artifact is already on the bar."}
                   </p>
                 ) : (

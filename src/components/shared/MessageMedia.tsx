@@ -284,6 +284,23 @@ export function MessageMedia({ message }: MessageMediaProps) {
   }
 
   if (message.kind === "link" && message.linkUrl) {
+    const isAudio =
+      message.linkUrl.startsWith("data:audio") ||
+      /voice recording/i.test(message.body);
+    if (isAudio) {
+      return (
+        <div className="bubble-media">
+          <audio
+            src={message.linkUrl}
+            controls
+            preload="metadata"
+            className="bubble-audio"
+          >
+            {message.body.trim() || "Voice recording"}
+          </audio>
+        </div>
+      );
+    }
     const label = message.body.trim() || "Document";
     const download = message.linkUrl.startsWith("data:") ? label : undefined;
     return (
