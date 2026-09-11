@@ -22,7 +22,7 @@ export const PUBLIC_SURFACE_CATALOG: {
 }[] = [
   {
     id: "page",
-    label: "Micro-landing page",
+    label: "Front Desk",
     blurb: "Your shared link.",
   },
   {

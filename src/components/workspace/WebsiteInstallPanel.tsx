@@ -60,7 +60,7 @@ export function WebsiteInstallPanel({
 
       {!isContact || publicPageOn ? null : (
         <p className="floor-settings-help">
-          Micro-landing page is off in Setup, so this embed goes straight to chat.
+          Front Desk is off in Setup, so this embed goes straight to chat.
         </p>
       )}
 

@@ -1,6 +1,6 @@
 import type { ChatIntroMessages, FloorSettings } from "./types";
 
-const DEFAULT_CONTACT_REASONS = [
+const PRESET_CONTACT_REASONS = [
   "Pricing or quote",
   "Available services",
   "Before & after photos",
@@ -12,8 +12,12 @@ const DEFAULT_CONTACT_REASONS = [
 
 const LEGACY_CONTACT_REASONS = [
   "Book a consultation",
-  ...DEFAULT_CONTACT_REASONS,
+  ...PRESET_CONTACT_REASONS,
 ];
+
+function sameReasons(a: string[], b: string[]) {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
 
 const LEGACY_PROMO_FOLLOW_UP =
   "While your beauty is loading, have a look at your daily promotions";
@@ -39,7 +43,7 @@ export function defaultChatIntroMessages(): ChatIntroMessages {
     specialtiesPrompt: "Are you reaching out for:",
     specialtiesLabel: "Select a reason",
     contactReasonDisplay: "dropdown",
-    contactReasonOptions: DEFAULT_CONTACT_REASONS,
+    contactReasonOptions: [],
     reconnectEnabled: true,
     reconnectCopy: "If you get disconnected, reopen this chat with your history:",
   };
@@ -76,11 +80,9 @@ export function normalizeChatIntroMessages(raw: unknown): ChatIntroMessages {
         .filter(Boolean)
         .slice(0, 20)
     : defaults.contactReasonOptions;
-  const reasonsMatchLegacy =
-    contactReasonOptions.length === LEGACY_CONTACT_REASONS.length &&
-    contactReasonOptions.every(
-      (item, index) => item === LEGACY_CONTACT_REASONS[index],
-    );
+  const reasonsMatchPreset =
+    sameReasons(contactReasonOptions, PRESET_CONTACT_REASONS) ||
+    sameReasons(contactReasonOptions, LEGACY_CONTACT_REASONS);
   const promoFollowUp = editableText(
     row.promoFollowUp,
     defaults.promoFollowUp,
@@ -111,8 +113,8 @@ export function normalizeChatIntroMessages(raw: unknown): ChatIntroMessages {
     ),
     contactReasonDisplay:
       row.contactReasonDisplay === "list" ? "list" : "dropdown",
-    contactReasonOptions: reasonsMatchLegacy
-      ? defaults.contactReasonOptions
+    contactReasonOptions: reasonsMatchPreset
+      ? []
       : contactReasonOptions,
     reconnectEnabled:
       typeof row.reconnectEnabled === "boolean"

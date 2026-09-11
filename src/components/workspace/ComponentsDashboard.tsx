@@ -152,7 +152,7 @@ export function ComponentsDashboard({
         </div>
       </section>
       <section className="components-toggle-group">
-        <h2>Platforms</h2>
+        <h2>Get In Touch</h2>
         <div className="components-toggle-list">
           {PUBLIC_SURFACE_CATALOG.map((item) => {
             const settingsNav =

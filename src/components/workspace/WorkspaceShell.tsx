@@ -77,7 +77,6 @@ const EMPTY_MEMBERS: FloorMember[] = [];
 
 function floorToolTabs(settings: FloorSettings): RightTab[] {
   const tabs: RightTab[] = [];
-  if (isSolutionEnabled(settings, "assist")) tabs.push("assist");
   if (isSolutionEnabled(settings, "artifacts")) tabs.push("artifacts");
   if (isSolutionEnabled(settings, "receipts")) tabs.push("receipts");
   return tabs;
@@ -116,7 +115,6 @@ function clientMatchesInboxFilter(
   filter: InboxQuickFilter,
 ): boolean {
   if (filter === "all" || filter === "ai") return true;
-  if (filter === "read") return (client.unread ?? 0) === 0;
   if (filter === "unread") return clientAwaitingReply(client, messages);
   return Boolean(client.caseId);
 }
@@ -140,7 +138,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const [clientUrl, setClientUrl] = useState("");
   const [floorMemberId, setFloorMemberId] = useState<string>("all");
   const [openAtBottom, setOpenAtBottom] = useState(false);
-  const [rightTab, setRightTab] = useState<RightTab>("assist");
+  const [rightTab, setRightTab] = useState<RightTab>("artifacts");
   const [replyTo, setReplyTo] = useState<MessageReplyRef | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set());
@@ -458,7 +456,6 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const inboxQuickCounts = useMemo(
     () => ({
       all: inboxClients.length,
-      read: inboxClients.filter((client) => (client.unread ?? 0) === 0).length,
       unread: inboxClients.filter((client) =>
         clientAwaitingReply(client, messages),
       ).length,
@@ -1230,7 +1227,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
   const toolTabs = floorToolTabs(space.settings);
   const showLibrary = toolTabs.length > 0;
   const enabledTools = {
-    assist: isSolutionEnabled(space.settings, "assist"),
+    assist: false,
     artifacts: isSolutionEnabled(space.settings, "artifacts"),
     receipts: isSolutionEnabled(space.settings, "receipts"),
     shortcuts: isSolutionEnabled(space.settings, "shortcuts"),
@@ -1355,7 +1352,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
             <div className="thread thread-empty-floor">
               <h2>Waiting for clients</h2>
               <p>
-                Share your micro-landing page from Platforms → Micro-landing page. Each person gets
+                Share your micro-landing page from Get In Touch → Front Desk. Each person gets
                 their own chat URL.
               </p>
               <code>{clientUrl || `/${slug}`}</code>

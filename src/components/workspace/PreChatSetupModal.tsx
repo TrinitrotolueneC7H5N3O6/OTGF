@@ -275,7 +275,7 @@ export function PreChatSetupModal({
       >
         <header className="floor-settings-head">
           <div>
-            <h2 id="pre-chat-title">Edit micro-landing page</h2>
+            <h2 id="pre-chat-title">Edit Front Desk</h2>
             <p>
               This is the page people hit from your link — before they start a
               live chat.

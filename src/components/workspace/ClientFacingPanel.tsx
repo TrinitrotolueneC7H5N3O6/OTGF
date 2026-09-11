@@ -49,7 +49,6 @@ export function ClientFacingPanel({
   const hoursOn = isSolutionEnabled(settings, "hours");
   const introOn = isSolutionEnabled(settings, "intro");
   const shoutoutsOn = isSolutionEnabled(settings, "shoutouts");
-  const photosOn = isSolutionEnabled(settings, "chatInterface");
   const [pane, setPane] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const previewSpace = useMemo<BusinessSpace>(
@@ -71,18 +70,16 @@ export function ClientFacingPanel({
       ...(surface === "page" ? [{ id: "cf-look", label: "Look" }, ...(hoursOn ? [{ id: "cf-hours", label: "Hours" }] : [])] : []),
     ];
     return [
-      { id: "cf-sounds", label: "Sounds" },
-      ...(introOn ? [{ id: "cf-about", label: "About" }] : []),
-      { id: "cf-links", label: "Chat links" },
       ...(introOn
-        ? [{ id: "cf-initial-messages", label: "Opening messages" }]
+        ? [{ id: "cf-initial-messages", label: "Open Screen" }]
         : []),
-      { id: "cf-staff-out", label: "When staff out" },
-      { id: "cf-end-screen", label: "End screen behavior" },
-      ...(shoutoutsOn ? [{ id: "cf-promos", label: "Promo banners" }] : []),
-      ...(photosOn ? [{ id: "cf-photos", label: "Chat photos" }] : []),
+      { id: "cf-end-screen", label: "End Screen" },
+      { id: "cf-staff-out", label: "After Hours Screen" },
+      { id: "cf-links", label: "Link Displays" },
+      ...(shoutoutsOn ? [{ id: "cf-promos", label: "Banner Displays" }] : []),
+      { id: "cf-sounds", label: "Sounds" },
     ];
-  }, [isPresence, surface, hoursOn, introOn, shoutoutsOn, photosOn]);
+  }, [isPresence, surface, hoursOn, introOn, shoutoutsOn]);
 
   const active = pane && toc.some((item) => item.id === pane) ? pane : toc[0]?.id ?? null;
 
@@ -268,43 +265,23 @@ export function ClientFacingPanel({
         </>
       ) : (
         <>
-          <section id="cf-sounds" className="client-facing-section" hidden={active !== "cf-sounds"}>
-            <h3>Sounds</h3>
-            {prefChunk("sounds")}
-          </section>
-
           {introOn ? (
-            <section id="cf-about" className="client-facing-section" hidden={active !== "cf-about"}>
-              <h3>About</h3>
-              {prefChunk("intro", "about")}
-            </section>
-          ) : null}
-
-          <section id="cf-links" className="client-facing-section" hidden={active !== "cf-links"}>
-            <h3>Chat links</h3>
-            {prefChunk("links")}
-          </section>
-
-          {introOn ? (
-            <section id="cf-initial-messages" className="client-facing-section" hidden={active !== "cf-initial-messages"}>
-              <h3>Opening messages</h3>
+            <section
+              id="cf-initial-messages"
+              className="client-facing-section"
+              hidden={active !== "cf-initial-messages"}
+            >
+              <h3>Open Screen</h3>
               {prefChunk("intro", "messages")}
             </section>
           ) : null}
 
-          <section id="cf-staff-out" className="client-facing-section" hidden={active !== "cf-staff-out"}>
-            <h3>When staff out</h3>
-            <p className="floor-settings-help">
-              Guide visitors through a useful after-hours intake instead of a plain email box.
-            </p>
-            <StaffOutIntakePanel
-              settings={settings}
-              onChangeSettings={onChangeSettings}
-            />
-          </section>
-
-          <section id="cf-end-screen" className="client-facing-section" hidden={active !== "cf-end-screen"}>
-            <h3>End screen behavior</h3>
+          <section
+            id="cf-end-screen"
+            className="client-facing-section"
+            hidden={active !== "cf-end-screen"}
+          >
+            <h3>End Screen</h3>
             <p className="floor-settings-help">
               Choose what customers see after an employee ends the chat.
             </p>
@@ -314,19 +291,49 @@ export function ClientFacingPanel({
             />
           </section>
 
+          <section
+            id="cf-staff-out"
+            className="client-facing-section"
+            hidden={active !== "cf-staff-out"}
+          >
+            <h3>After Hours Screen</h3>
+            <p className="floor-settings-help">
+              Guide visitors through a useful after-hours intake instead of a plain email box.
+            </p>
+            <StaffOutIntakePanel
+              settings={settings}
+              onChangeSettings={onChangeSettings}
+            />
+          </section>
+
+          <section
+            id="cf-links"
+            className="client-facing-section"
+            hidden={active !== "cf-links"}
+          >
+            <h3>Link Displays</h3>
+            {prefChunk("links")}
+          </section>
+
           {shoutoutsOn ? (
-            <section id="cf-promos" className="client-facing-section" hidden={active !== "cf-promos"}>
-              <h3>Promo banners</h3>
+            <section
+              id="cf-promos"
+              className="client-facing-section"
+              hidden={active !== "cf-promos"}
+            >
+              <h3>Banner Displays</h3>
               {settingsChunk("shoutouts")}
             </section>
           ) : null}
 
-          {photosOn ? (
-            <section id="cf-photos" className="client-facing-section" hidden={active !== "cf-photos"}>
-              <h3>Chat photos</h3>
-              {prefChunk("chat-interface")}
-            </section>
-          ) : null}
+          <section
+            id="cf-sounds"
+            className="client-facing-section"
+            hidden={active !== "cf-sounds"}
+          >
+            <h3>Sounds</h3>
+            {prefChunk("sounds")}
+          </section>
         </>
       )}
       </div>

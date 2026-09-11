@@ -45,7 +45,7 @@ export interface IndustryInfo {
 export const SOLUTION_CATALOG: SolutionInfo[] = [
   {
     id: "preChat",
-    label: "Micro-landing page",
+    label: "Front Desk",
     blurb: "The Linktree-style page behind your shared link.",
   },
   {
