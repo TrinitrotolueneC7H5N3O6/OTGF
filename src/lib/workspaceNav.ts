@@ -37,7 +37,8 @@ export type DashNav =
   | "tools:storytelling"
   | "online"
   | "insights"
-  | "ai";
+  | "ai"
+  | "feedback";
 
 export type SettingsNavId = "tools" | "account";
 
@@ -97,8 +98,8 @@ export function presenceHomeNav(settings?: FloorSettings | null): DashNav {
 
 export const TOOL_SETTINGS_LEAVES: { nav: DashNav; label: string }[] = [
   { nav: "tools:live-chat", label: "Live Chat" },
-  { nav: "tools:forms", label: "Forms" },
   { nav: "tools:schedule", label: "Appointments" },
+  { nav: "tools:forms", label: "Forms" },
   { nav: "tools:referrals", label: "Referral Programs" },
   { nav: "tools:affiliates", label: "Affiliates" },
   { nav: "tools:storytelling", label: "Blog" },
@@ -181,6 +182,7 @@ export const WORKSPACE_ROUTES: Array<[DashNav, string]> = [
   ["account:billing", "settings/account/billing"],
   ["account:notify", "settings/account/email-alerts"],
   ["account:account", "settings/account"],
+  ["feedback", "feedback"],
 ];
 
 const PATH_TO_NAV = new Map<string, DashNav>([

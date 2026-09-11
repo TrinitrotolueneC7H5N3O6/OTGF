@@ -336,6 +336,28 @@ export interface FormSubmission {
   updatedAt?: string;
 }
 
+export type FeedbackKind = "idea" | "issue" | "other";
+
+export interface FeedbackComment {
+  id: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface FeedbackPost {
+  id: string;
+  kind: FeedbackKind;
+  title: string;
+  body: string;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+  voterIds: string[];
+  comments: FeedbackComment[];
+}
+
 export interface CustomerCaseIdentifier {
   id: string;
   label: string;
@@ -687,6 +709,8 @@ export interface BusinessSpace {
   scheduleRequests: ScheduleRequest[];
   /** Form submissions from public forms. */
   formSubmissions: FormSubmission[];
+  /** Team ideas, issues, and comments on the space feedback board. */
+  feedbackBoard?: FeedbackPost[];
   /** Durable contact records captured from chats, independent from chat deletion. */
   collectedContacts?: CollectedContact[];
   /** Clients removed on the floor — kept so merges don't resurrect them */

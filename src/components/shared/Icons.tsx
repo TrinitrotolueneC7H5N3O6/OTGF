@@ -408,6 +408,24 @@ export function IconCode({ size = 15 }: { size?: number }) {
   );
 }
 
+export function IconChevronUp({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="m18 15-6-6-6 6" />
+    </svg>
+  );
+}
+
 export function IconChevronDown({
   size = 18,
   className,

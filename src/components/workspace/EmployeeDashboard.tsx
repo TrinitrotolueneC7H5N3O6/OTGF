@@ -21,6 +21,7 @@ import type {
   KnowledgeNote,
   ScheduleRequestStatus,
   FormSubmissionStatus,
+  FeedbackPost,
 } from "@/lib/types";
 import {
   appendMessage,
@@ -57,10 +58,12 @@ import { CasesPanel } from "./CasesPanel";
 import { EmployeesPanel } from "./EmployeesPanel";
 import { SchedulePanel } from "./SchedulePanel";
 import { FormsPanel } from "./FormsPanel";
+import { FeedbackBoardPanel } from "./FeedbackBoardPanel";
 import { FormsManagerPanel } from "./FormsManagerPanel";
 import { ComponentsDashboard } from "./ComponentsDashboard";
 import { AutoAnswerReview, AutoAnswerToggle } from "./AutoAnswerReview";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
+import { WorkspaceShell } from "./WorkspaceShell";
 import { isSolutionEnabled } from "@/lib/setupSolutions";
 import {
   HASH_TO_NAV,
@@ -359,6 +362,38 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     runOp({ type: "updateFormStatus", id, status });
   }
 
+  function feedbackAuthor() {
+    const member =
+      floorMemberId !== "all" ? members.find((item) => item.id === floorMemberId) : members[0];
+    return {
+      authorId: member?.id ?? "team",
+      authorName: member?.name?.trim() || "Team",
+    };
+  }
+
+  function createFeedbackPost(post: FeedbackPost) {
+    runOp({ type: "createFeedbackPost", post });
+  }
+
+  function addFeedbackComment(postId: string, body: string) {
+    const author = feedbackAuthor();
+    runOp({
+      type: "addFeedbackComment",
+      postId,
+      comment: {
+        id: `fbc-${crypto.randomUUID()}`,
+        authorId: author.authorId,
+        authorName: author.authorName,
+        body,
+        createdAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  function toggleFeedbackVote(postId: string) {
+    runOp({ type: "toggleFeedbackVote", postId, voterId: feedbackAuthor().authorId });
+  }
+
   function toggleLive() {
     if (!space) return;
     runOp({
@@ -612,7 +647,15 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   }, [space?.clients, popupClientId, laterDraftIds]);
 
   if (!space) {
-    return <div className="client-chat-loading">Loading dashboard…</div>;
+    return (
+      <div className="client-chat-loading">
+        {nav === "floor" ? "Loading live chat…" : "Loading dashboard…"}
+      </div>
+    );
+  }
+
+  if (nav === "floor") {
+    return <WorkspaceShell slug={slug} initialSpace={space} />;
   }
 
   const settingsPayload = {
@@ -934,6 +977,18 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
       <FormsPanel
         submissions={space.formSubmissions ?? []}
         onUpdateStatus={updateFormStatus}
+      />
+    );
+  } else if (nav === "feedback") {
+    const author = feedbackAuthor();
+    main = (
+      <FeedbackBoardPanel
+        posts={space.feedbackBoard ?? []}
+        authorId={author.authorId}
+        authorName={author.authorName}
+        onCreate={createFeedbackPost}
+        onComment={addFeedbackComment}
+        onVote={toggleFeedbackVote}
       />
     );
   } else if (nav === "referrals") {

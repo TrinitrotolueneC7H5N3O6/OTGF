@@ -18,6 +18,8 @@ import type {
   ScheduleRequestStatus,
   FormSubmission,
   FormSubmissionStatus,
+  FeedbackPost,
+  FeedbackComment,
 } from "./types";
 import { withoutAutoAnswerDraft } from "./autoAnswer";
 
@@ -64,6 +66,9 @@ export type SpaceOp =
       id: string;
       status: FormSubmissionStatus;
     }
+  | { type: "createFeedbackPost"; post: FeedbackPost }
+  | { type: "addFeedbackComment"; postId: string; comment: FeedbackComment }
+  | { type: "toggleFeedbackVote"; postId: string; voterId: string }
   | { type: "assignChatCase"; clientId: string; caseId?: string | null }
   | { type: "hideClient"; clientId: string; hidden?: boolean }
   | { type: "upsertClient"; client: Client; clearDeleted?: boolean }
@@ -83,7 +88,10 @@ export function isStaffOnlySpaceOp(op: SpaceOp): boolean {
     op.type === "createScheduleRequest" ||
     op.type === "updateScheduleStatus" ||
     op.type === "createFormSubmission" ||
-    op.type === "updateFormStatus"
+    op.type === "updateFormStatus" ||
+    op.type === "createFeedbackPost" ||
+    op.type === "addFeedbackComment" ||
+    op.type === "toggleFeedbackVote"
   );
 }
 
@@ -252,6 +260,34 @@ export function applySpaceOpToSpace(
               }
             : item,
         ),
+      };
+    case "createFeedbackPost": {
+      const current = space.feedbackBoard ?? [];
+      if (current.some((item) => item.id === op.post.id)) return space;
+      return { ...space, feedbackBoard: [op.post, ...current] };
+    }
+    case "addFeedbackComment":
+      return {
+        ...space,
+        feedbackBoard: (space.feedbackBoard ?? []).map((item) =>
+          item.id === op.postId
+            ? { ...item, comments: [...item.comments, op.comment] }
+            : item,
+        ),
+      };
+    case "toggleFeedbackVote":
+      return {
+        ...space,
+        feedbackBoard: (space.feedbackBoard ?? []).map((item) => {
+          if (item.id !== op.postId) return item;
+          const voted = item.voterIds.includes(op.voterId);
+          return {
+            ...item,
+            voterIds: voted
+              ? item.voterIds.filter((id) => id !== op.voterId)
+              : [...item.voterIds, op.voterId],
+          };
+        }),
       };
     case "assignChatCase":
       return {

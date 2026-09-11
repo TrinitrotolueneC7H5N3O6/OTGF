@@ -37,6 +37,9 @@ import type {
   FormSubmission,
   FormSubmissionStatus,
   FormSubmissionField,
+  FeedbackComment,
+  FeedbackKind,
+  FeedbackPost,
   StaffOutIntake,
   Weekday,
 } from "./types";
@@ -1318,6 +1321,7 @@ export function normalizeSpace(raw: BusinessSpace): BusinessSpace {
     cases: normalizeCustomerCases(space.cases),
     scheduleRequests: normalizeScheduleRequests(space.scheduleRequests),
     formSubmissions: normalizeFormSubmissions(space.formSubmissions),
+    feedbackBoard: normalizeFeedbackBoard(space.feedbackBoard),
     collectedContacts: normalizeCollectedContacts(space.collectedContacts),
     categories: cleaned.categories,
     artifacts,
@@ -1741,6 +1745,72 @@ export function normalizeFormSubmissions(raw: unknown): FormSubmission[] {
       };
     })
     .filter((item): item is FormSubmission => Boolean(item));
+}
+
+function normalizeFeedbackKind(raw: unknown): FeedbackKind {
+  if (raw === "issue" || raw === "other") return raw;
+  return "idea";
+}
+
+function normalizeFeedbackComments(raw: unknown): FeedbackComment[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw
+    .map((item) => {
+      const row = item as Partial<FeedbackComment>;
+      const id = typeof row.id === "string" ? row.id.trim().slice(0, 64) : "";
+      const body = typeof row.body === "string" ? row.body.trim().slice(0, 2000) : "";
+      if (!id || !body || seen.has(id)) return null;
+      seen.add(id);
+      return {
+        id,
+        authorId: typeof row.authorId === "string" ? row.authorId.trim().slice(0, 64) : "team",
+        authorName:
+          typeof row.authorName === "string" && row.authorName.trim()
+            ? row.authorName.trim().slice(0, 80)
+            : "Team",
+        body,
+        createdAt:
+          typeof row.createdAt === "string" && row.createdAt.trim()
+            ? row.createdAt.trim()
+            : new Date().toISOString(),
+      };
+    })
+    .filter((item): item is FeedbackComment => Boolean(item));
+}
+
+export function normalizeFeedbackBoard(raw: unknown): FeedbackPost[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw
+    .map((item) => {
+      const row = item as Partial<FeedbackPost>;
+      const id = typeof row.id === "string" ? row.id.trim().slice(0, 64) : "";
+      const title = typeof row.title === "string" ? row.title.trim().slice(0, 120) : "";
+      if (!id || !title || seen.has(id)) return null;
+      seen.add(id);
+      const voterIds = Array.isArray(row.voterIds)
+        ? [...new Set(row.voterIds.filter((value): value is string => typeof value === "string" && Boolean(value.trim())).map((value) => value.trim().slice(0, 64)))]
+        : [];
+      return {
+        id,
+        kind: normalizeFeedbackKind(row.kind),
+        title,
+        body: typeof row.body === "string" ? row.body.trim().slice(0, 4000) : "",
+        authorId: typeof row.authorId === "string" ? row.authorId.trim().slice(0, 64) : "team",
+        authorName:
+          typeof row.authorName === "string" && row.authorName.trim()
+            ? row.authorName.trim().slice(0, 80)
+            : "Team",
+        createdAt:
+          typeof row.createdAt === "string" && row.createdAt.trim()
+            ? row.createdAt.trim()
+            : new Date().toISOString(),
+        voterIds,
+        comments: normalizeFeedbackComments(row.comments),
+      };
+    })
+    .filter((item): item is FeedbackPost => Boolean(item));
 }
 
 export function newFormSubmissionId() {

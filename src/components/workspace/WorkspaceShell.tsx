@@ -67,6 +67,7 @@ import { dashHref, workspaceHomeNav } from "@/lib/workspaceNav";
 
 interface WorkspaceShellProps {
   slug: string;
+  initialSpace?: BusinessSpace;
 }
 
 const EMPTY_CLIENTS: Client[] = [];
@@ -119,10 +120,12 @@ function clientMatchesInboxFilter(
   return Boolean(client.caseId);
 }
 
-export function WorkspaceShell({ slug }: WorkspaceShellProps) {
+export function WorkspaceShell({ slug, initialSpace }: WorkspaceShellProps) {
   const router = useRouter();
-  const [space, setSpace] = useState<BusinessSpace | null>(null);
-  const [activeId, setActiveId] = useState("");
+  const [space, setSpace] = useState<BusinessSpace | null>(initialSpace ?? null);
+  const [activeId, setActiveId] = useState(() =>
+    initialSpace?.clients.find((client) => client.preview.trim())?.id ?? "",
+  );
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
   const [inboxFilter, setInboxFilter] = useState<InboxQuickFilter>("all");
@@ -293,7 +296,7 @@ export function WorkspaceShell({ slug }: WorkspaceShellProps) {
     }
 
     async function boot() {
-      const loaded = await bootFloor(slug);
+      const loaded = initialSpace ?? (await bootFloor(slug));
       if (cancelled) return;
 
       setClientUrl(`${window.location.origin}/${slug}`);

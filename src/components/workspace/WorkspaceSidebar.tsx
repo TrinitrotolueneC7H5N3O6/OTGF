@@ -29,6 +29,7 @@ import {
   IconGrid,
   IconPhoto,
   IconStar,
+  IconThumbUp,
   IconUser,
   IconUsers,
 } from "@/components/shared/Icons";
@@ -309,6 +310,16 @@ export function WorkspaceSidebar({ slug, settings }: WorkspaceSidebarProps) {
           );
         })}
       </div>
+      <Link
+        href={dashHref(slug, "feedback")}
+        scroll={false}
+        title="Feedback board"
+        className={`workspace-sidebar-item${active === "feedback" ? " is-active" : ""}`}
+        aria-current={active === "feedback" ? "page" : undefined}
+      >
+        <IconThumbUp size={18} />
+        <span className="workspace-sidebar-label">Feedback board</span>
+      </Link>
       </div>
     </nav>
   );

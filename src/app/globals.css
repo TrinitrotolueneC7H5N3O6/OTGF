@@ -1338,6 +1338,10 @@ html[data-nav-collapsed="1"] .workspace-sidebar {
   border-top: 1px solid var(--line);
 }
 
+.workspace-sidebar-scroll > .workspace-sidebar-item {
+  margin-top: 0.35rem;
+}
+
 .workspace-sidebar-item,
 .workspace-sidebar-group,
 .workspace-sidebar-collapse {
@@ -4898,6 +4902,198 @@ html[data-nav-collapsed="1"] .workspace-sidebar-settings {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(10rem, 38%);
   }
+}
+
+.feedback-board {
+  gap: 0.75rem;
+}
+
+.feedback-compose {
+  display: grid;
+  gap: 0.55rem;
+  flex-shrink: 0;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: var(--surface);
+}
+
+.feedback-compose input,
+.feedback-compose textarea,
+.feedback-comment-form textarea {
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.feedback-compose input {
+  font-weight: 650;
+}
+
+.feedback-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.feedback-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0.5rem;
+  display: grid;
+  gap: 0.55rem;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
+}
+
+.feedback-card {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  gap: 0.55rem;
+  padding: 0.7rem 0.8rem 0.75rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: var(--surface);
+}
+
+.feedback-vote {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.1rem;
+  margin: 0;
+  padding: 0.35rem 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.feedback-vote:hover,
+.feedback-vote.is-on {
+  background: #efe8f6;
+  border-color: color-mix(in oklab, var(--ink) 18%, var(--line));
+}
+
+.feedback-card-body {
+  min-width: 0;
+}
+
+.feedback-card-main {
+  display: grid;
+  justify-items: start;
+  gap: 0.28rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.feedback-card-main strong {
+  font-size: 0.98rem;
+  letter-spacing: -0.02em;
+}
+
+.feedback-card-main p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.feedback-card-meta {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.feedback-kind {
+  display: inline-flex;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.feedback-kind.is-idea {
+  background: color-mix(in oklab, var(--surface) 70%, #7d9a6a 30%);
+  color: #35553a;
+}
+
+.feedback-kind.is-issue {
+  background: color-mix(in oklab, var(--surface) 70%, #c4a35a 30%);
+  color: #6a4b12;
+}
+
+.feedback-comments {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+.feedback-comments ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.feedback-comments li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.45rem;
+}
+
+.feedback-comments li strong {
+  font-size: 0.8rem;
+}
+
+.feedback-comments li span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  justify-self: end;
+}
+
+.feedback-comments li p {
+  grid-column: 1 / -1;
+  margin: 0.15rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.feedback-comments-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.feedback-comment-form {
+  display: grid;
+  gap: 0.45rem;
+  justify-items: end;
 }
 
 .form-submission-fields {
