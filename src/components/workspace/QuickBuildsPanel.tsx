@@ -387,6 +387,7 @@ export function QuickBuildsPanel({
     }
     if (selected === "scheduler") {
       return {
+        ...initialSchedule,
         type: "scheduler",
         title: modalTitle.trim() || initialSchedule.title,
         description: modalDescription.trim() || initialSchedule.description,
@@ -450,60 +451,41 @@ export function QuickBuildsPanel({
   }
 
   return (
-    <div className="dashboard-panel-body quick-builds">
-      {hideTitle ? null : (
-        <>
-          <h2 className="dashboard-panel-title">Actions</h2>
-          <p className="floor-settings-help quick-builds-intro">
-            Choose what visitors can do, then whether it lives on your micro-landing page, in
-            the widget, or both.
-          </p>
-        </>
-      )}
-      {hideTitle ? (
-        <p className="floor-settings-help quick-builds-intro">
-          Turn on tools first, then choose Micro-landing page, Widget, or both.
-        </p>
-      ) : null}
-
-      {templates.length === 0 ? (
-        <p className="floor-settings-help">
-          Turn on a tool in Tools to offer it on your micro-landing page or widget.
-        </p>
-      ) : null}
-
-      <div className="quick-build-grid" aria-label="Public actions">
-        {templates.map((item) => (
-          <article
-            key={item.id}
-            className={`quick-build-card${selected === item.id ? " is-active" : ""}`}
-          >
-            <button
-              type="button"
-              className="quick-build-card-main"
-              aria-pressed={selected === item.id}
-              onClick={() => choose(item)}
-            >
-              <span className="quick-build-icon" aria-hidden>{item.eyebrow}</span>
-              <strong>{item.title}</strong>
-              <span>{item.description}</span>
-            </button>
-            {item.id === "chat" ? (
-              <PlacementChips
-                pageOn={chatOnPage}
-                widgetOn={chatInWidget}
-                pageAllowed={pageAllowed}
-                widgetAllowed={widgetAllowed}
-                onTogglePage={toggleChatPage}
-                onToggleWidget={toggleChatWidget}
-              />
-            ) : null}
-          </article>
-        ))}
-      </div>
-
-      {templates.length > 0 ? (
-      <section className="quick-build-editor" aria-labelledby="quick-build-editor-title">
+    <div className="forms-manager-shell schedule-settings">
+    <div className="dashboard-panel-body forms-manager">
+      <div className="schedule-settings-body">
+        <aside className="schedule-settings-rail" aria-label="Public actions">
+          <div className="schedule-settings-rail-head">
+            <div>
+              <strong>Actions</strong>
+              <span>{templates.length ? `${templates.length} available` : "None yet"}</span>
+            </div>
+          </div>
+          {templates.length === 0 ? (
+            <p className="schedule-settings-rail-empty">
+              Turn on a tool in Tools to offer it on your micro-landing page or widget.
+            </p>
+          ) : (
+            <ul className="schedule-settings-events">
+              {templates.map((item) => {
+                const active = selected === item.id;
+                return (
+                  <li key={item.id}>
+                    <button type="button" className={active ? "is-active" : undefined} aria-current={active ? "true" : undefined} onClick={() => choose(item)}>
+                      <strong>{item.title}</strong>
+                      <span className="schedule-settings-event-meta">
+                        <em>{item.eyebrow}</em>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </aside>
+        <section className="schedule-settings-editor">
+          {templates.length > 0 ? (
+          <div className="schedule-settings-editor-scroll">
         <div className="quick-build-editor-head">
           <div>
             <span>{selected === "chat" ? "WHERE IT SHOWS" : "BUILDING"}</span>
@@ -650,9 +632,6 @@ export function QuickBuildsPanel({
             </div>
           </>
         )}
-      </section>
-      ) : null}
-
       {configured.length > 0 ? (
         <section className="quick-build-configured" aria-labelledby="quick-build-configured-title">
           <div className="quick-build-configured-head">
@@ -694,6 +673,11 @@ export function QuickBuildsPanel({
           </ul>
         </section>
       ) : null}
+          </div>
+          ) : null}
+        </section>
+      </div>
+    </div>
     </div>
   );
 }

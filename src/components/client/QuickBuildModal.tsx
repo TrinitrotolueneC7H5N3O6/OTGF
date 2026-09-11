@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { IconCheck, IconX } from "@/components/shared/Icons";
 import type { Client, Message, PreChatLink } from "@/lib/types";
 import {
@@ -10,9 +10,10 @@ import {
   nextGuestName,
   resolveCustomerChatId,
 } from "@/lib/store";
-import { buildFormSubmission, buildScheduleRequest, messageTimeStamp } from "@/lib/spaceNormalize";
+import { buildFormSubmission, messageTimeStamp } from "@/lib/spaceNormalize";
+import { useBookingAvailability } from "./useBookingAvailability";
 import { BookingCalendar } from "./BookingCalendar";
-import { scheduleDates, scheduleSlots } from "@/lib/scheduling";
+import { scheduleChoiceOptions, scheduleChoicePrompt, scheduleDates, scheduleSlots } from "@/lib/scheduling";
 import { quickBuildConfigForLink } from "@/lib/quickBuilds";
 import {
   forgetQuickBuildDraft,
@@ -43,7 +44,11 @@ export function QuickBuildModal({
   const [bookingDetails, setBookingDetails] = useState(false);
   const [draftReadyFor, setDraftReadyFor] = useState<string | null>(null);
   const draftIdentity = JSON.stringify([slug, link.id]);
-  const slots = config?.type === "scheduler" ? scheduleSlots(config, values.date ?? "") : [];
+  const availability = useBookingAvailability(slug, link.id, !preview && config?.type === "scheduler");
+  const bookingToken = useRef("");
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [receipt, setReceipt] = useState<{ id: string; status: string; date: string; time: string; timeZone: string; token: string } | null>(null);
+  const slots = config?.type === "scheduler" ? (preview ? scheduleSlots(config, values.date ?? "") : availability.slots[values.date ?? ""] ?? []) : [];
 
   useEffect(() => {
     if (preview) return;
@@ -65,10 +70,10 @@ export function QuickBuildModal({
   }, [draftIdentity, draftReadyFor, link.id, sent, slug, values, preview]);
 
   useEffect(() => {
-    if (preview || !embedded || !sent) return;
+    if (preview || !embedded || !sent || config?.type === "scheduler") return;
     const timer = window.setTimeout(() => onClose(), 1600);
     return () => window.clearTimeout(timer);
-  }, [embedded, sent, onClose, preview]);
+  }, [embedded, sent, onClose, preview, config?.type]);
 
   if (!config) return null;
 
@@ -97,21 +102,16 @@ export function QuickBuildModal({
           throw new Error("That time is no longer available. Choose another time.");
         }
         if (config.requirePhone && !values.phone?.trim()) throw new Error("Enter a phone number.");
-        await applySpaceOp(slug, {
-          type: "createScheduleRequest",
-          schedulerId: link.id,
-          scheduleRequest: buildScheduleRequest({
-            chatId: "",
-            name,
-            email: values.email?.trim() || undefined,
-            phone: values.phone?.trim() || undefined,
-            date: values.date,
-            time: values.time,
-            durationMinutes: config.durationMinutes,
-            notes: [values.question?.trim(), `Time zone: ${config.timeZone ?? "UTC"}`, config.location ? `Location: ${config.location}` : ""].filter(Boolean).join("\n"),
-            title: config.title,
-          }),
+        const options = scheduleChoiceOptions(config);
+        if (options.length && !options.includes(values.choice?.trim() ?? "")) throw new Error("Choose an option.");
+        if (!bookingToken.current) bookingToken.current = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
+        const response = await fetch(`/api/spaces/${encodeURIComponent(slug)}/bookings`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "create", schedulerId: link.id, token: bookingToken.current, name, email: values.email?.trim(), phone: values.phone?.trim(), date: values.date, time: values.time, notes: values.question?.trim(), choice: values.choice?.trim() }),
         });
+        const result = await response.json();
+        if (!response.ok) { availability.refresh(); setBookingDetails(false); throw new Error(result.error || "Could not book this appointment."); }
+        setReceipt({ ...result.booking, token: result.token });
         forgetQuickBuildDraft(slug, link.id);
         setSent(true);
         return;
@@ -217,8 +217,9 @@ export function QuickBuildModal({
         {sent ? (
           <div className="quick-build-customer-success" role="status">
             <span><IconCheck size={18} /></span>
-            <h3>{preview ? "Preview complete" : config.type === "scheduler" ? "Request received" : config.type === "form" ? "Form received" : "Message sent"}</h3>
-            <p>{preview ? "This was a preview. Nothing was submitted." : config.type === "scheduler" ? "The team will confirm your appointment time." : config.type === "form" ? "The team will follow up using the details you shared." : "The team will follow up using the contact method you provided."}</p>
+            <h3>{preview ? "Preview complete" : config.type === "scheduler" ? (receipt?.status === "confirmed" ? "Appointment confirmed" : "Request received") : config.type === "form" ? "Form received" : "Message sent"}</h3>
+            <p>{preview ? "This was a preview. Nothing was submitted." : config.type === "scheduler" ? (receipt?.status === "confirmed" ? "Your time is reserved. Save your private link below to manage your appointment." : "Your time is reserved while the team reviews your request. Save your private link below.") : config.type === "form" ? "The team will follow up using the details you shared." : "The team will follow up using the contact method you provided."}</p>
+            {receipt && <><p>{receipt.date} · {receipt.time} · {receipt.timeZone}</p><a className="btn-solid" href={`/${slug}/booking/${receipt.id}#${receipt.token}`} target="_blank" rel="noreferrer">Manage appointment</a><button type="button" className="btn-ghost" onClick={async () => { try { await navigator.clipboard.writeText(`${window.location.origin}/${slug}/booking/${receipt.id}#${receipt.token}`); setLinkCopied(true); } catch { setLinkCopied(false); } }}>{linkCopied ? "Link copied" : "Copy private link"}</button><p className="floor-settings-help">Keep this private link to cancel or reschedule later.</p></>}
             {embedded ? null : <button type="button" className="btn-solid" onClick={closeModal}>Done</button>}
           </div>
         ) : (
@@ -238,7 +239,7 @@ export function QuickBuildModal({
                 <>
                   <p className="floor-settings-help">{config.type === "scheduler" ? `${config.durationMinutes} minutes · ${config.timeZone ?? "UTC"}${config.location ? ` · ${config.location}` : ""}` : ""}</p>
                   {!bookingDetails ? (
-                    <BookingCalendar config={config} date={values.date ?? ""} time={values.time ?? ""} onDate={(date) => patch("date", date)} onTime={(time) => patch("time", time)} />
+                    <BookingCalendar slotsByDate={preview ? undefined : availability.slots} config={config} date={values.date ?? ""} time={values.time ?? ""} onDate={(date) => patch("date", date)} onTime={(time) => patch("time", time)} />
                   ) : (
                     <>
                       <div className="booking-selection">
@@ -246,6 +247,27 @@ export function QuickBuildModal({
                         <button type="button" className="btn-ghost" onClick={() => setBookingDetails(false)}>Change time</button>
                       </div>
                       <h3 className="booking-details-title">Your details</h3>
+                      {scheduleChoiceOptions(config).length ? (
+                        config.choiceDisplay === "list" ? (
+                          <fieldset className="booking-choice-list">
+                            <legend>{scheduleChoicePrompt(config)} *</legend>
+                            {scheduleChoiceOptions(config).map((option) => (
+                              <label key={option}>
+                                <input type="radio" name="booking-choice" required checked={values.choice === option} onChange={() => patch("choice", option)} />
+                                {option}
+                              </label>
+                            ))}
+                          </fieldset>
+                        ) : (
+                          <label className="floor-settings-note">
+                            <span>{scheduleChoicePrompt(config)} *</span>
+                            <select required value={values.choice ?? ""} onChange={(event) => patch("choice", event.target.value)}>
+                              <option value="">Select</option>
+                              {scheduleChoiceOptions(config).map((option) => <option key={option} value={option}>{option}</option>)}
+                            </select>
+                          </label>
+                        )
+                      ) : null}
                       <label className="floor-settings-note"><span>Name *</span><input required autoComplete="name" value={values.name ?? ""} onChange={(event) => patch("name", event.target.value)} /></label>
                       <div className="quick-build-customer-grid">
                         <label className="floor-settings-note"><span>Email *</span><input required type="email" autoComplete="email" value={values.email ?? ""} onChange={(event) => patch("email", event.target.value)} /></label>
@@ -262,12 +284,14 @@ export function QuickBuildModal({
                   <label className="floor-settings-note"><span>Your question *</span><textarea required rows={5} value={values.question ?? ""} onChange={(event) => patch("question", event.target.value)} /></label>
                 </>
               )}
+              {config.type === "scheduler" && availability.loading ? <p role="status">Checking availability…</p> : null}
+              {config.type === "scheduler" && availability.error ? <p role="alert">{availability.error} <button type="button" className="btn-ghost" onClick={availability.refresh}>Retry</button></p> : null}
               {error ? <p className="editor-error" role="alert">{error}</p> : null}
             </div>
             {config.type === "scheduler" && !bookingDetails ? (
               <button key="booking-continue" type="button" className="btn-solid quick-build-customer-submit" disabled={!values.date || !slots.some((slot) => slot.value === values.time)} onClick={(event) => { event.preventDefault(); setBookingDetails(true); }}>Continue</button>
             ) : (
-              <button key="booking-submit" type="submit" className="btn-solid quick-build-customer-submit" disabled={sending}>{sending ? "Sending…" : config.type === "scheduler" ? "Request appointment" : "Send question"}</button>
+              <button key="booking-submit" type="submit" className="btn-solid quick-build-customer-submit" disabled={sending}>{sending ? "Sending…" : config.type === "scheduler" ? (config.confirmationMode === "instant" ? "Confirm appointment" : "Request appointment") : "Send question"}</button>
             )}
           </form>
         )}

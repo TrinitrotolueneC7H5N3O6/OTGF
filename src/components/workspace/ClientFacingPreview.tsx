@@ -33,7 +33,6 @@ export function ClientFacingPreview({
 
   return (
     <PreviewFrame
-      help={surface === "chat" ? "Preview your customer chat and end screen." : "Try it here. Preview changes won’t be saved."}
       onRestart={restart}
       screenClassName="preview-frame-client"
       controls={surface === "chat" ? (

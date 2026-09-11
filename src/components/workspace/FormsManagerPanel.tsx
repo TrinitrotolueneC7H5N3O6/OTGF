@@ -1,6 +1,5 @@
 "use client";
 
-import { SettingsEditorHeader } from "./SettingsEditorHeader";
 import { ToolPreview } from "./ToolPreview";
 import { useMemo, useState } from "react";
 import type {
@@ -58,6 +57,7 @@ export function FormsManagerPanel({
     return forms[0]?.id ?? null;
   });
   const [copied, setCopied] = useState<"embed" | "page" | null>(null);
+  const [pane, setPane] = useState<"details" | "fields" | "share">("details");
 
   function selectForm(id: string | null) {
     setSelectedId(id);
@@ -158,45 +158,73 @@ export function FormsManagerPanel({
     );
   }
 
+  const FORM_SECTIONS = [
+    { id: "details", label: "Form" },
+    { id: "fields", label: "Fields" },
+    { id: "share", label: "Share" },
+  ] as const;
+
   return (
-    <div className="forms-manager-shell">
+    <div className="forms-manager-shell schedule-settings">
     <div className="dashboard-panel-body forms-manager">
-      <SettingsEditorHeader
-        title="Forms"
-        description="Build forms, then share each one as an embed or its own page."
-        actions={<button type="button" className="btn-solid" onClick={createForm} disabled={page.links.length >= 16}>New form</button>}
-      />
-
-      {forms.length === 0 ? (
-        <p className="dashboard-empty">
-          No forms yet. Create one to get a page link and an embed snippet.
-        </p>
-      ) : (
-        <div className="forms-manager-layout">
-          <ul className="forms-manager-list" aria-label="Your forms">
-            {forms.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className={item.id === selected?.id ? "is-active" : undefined}
-                  onClick={() => selectForm(item.id)}
-                >
-                  <strong>{item.label}</strong>
-                  <span>
-                    {formShare(item).embed ? "Embed" : null}
-                    {formShare(item).embed && formShare(item).page ? " · " : null}
-                    {formShare(item).page ? "Page" : null}
-                    {!formShare(item).embed && !formShare(item).page
-                      ? "Not shared"
-                      : null}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-
+        <div className="schedule-settings-body">
+          <aside className="schedule-settings-rail" aria-label="Your forms">
+            <div className="schedule-settings-rail-head">
+              <div>
+                <strong>Forms</strong>
+                <span>{forms.length ? `${forms.length} ${forms.length === 1 ? "form" : "forms"}` : "None yet"}</span>
+              </div>
+              <button type="button" className="btn-solid" onClick={createForm} disabled={page.links.length >= 16}>New</button>
+            </div>
+            {forms.length ? (
+              <ul className="schedule-settings-events">
+                {forms.map((item) => {
+                  const shareState = formShare(item);
+                  const active = item.id === selected?.id;
+                  return (
+                    <li key={item.id}>
+                      <button type="button" className={active ? "is-active" : undefined} aria-current={active ? "true" : undefined} onClick={() => selectForm(item.id)}>
+                        <strong>{item.label || "Untitled form"}</strong>
+                        <span className="schedule-settings-event-meta">
+                          {shareState.embed ? <em>Embed</em> : null}
+                          {shareState.page ? <em>Page</em> : null}
+                          {!shareState.embed && !shareState.page ? <em>Private</em> : null}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="schedule-settings-rail-empty">Create a form to get a page link and an embed.</p>
+            )}
+          </aside>
           {selected && formConfig ? (
-            <section className="forms-manager-editor" aria-label="Edit form">
+            <section className="schedule-settings-editor" aria-label="Edit form">
+              <div className="schedule-settings-editor-bar">
+                <nav className="schedule-settings-toc" aria-label="Form settings">
+                  {FORM_SECTIONS.map((section) => (
+                    <button
+                      type="button"
+                      key={section.id}
+                      className={pane === section.id ? "is-active" : undefined}
+                      aria-current={pane === section.id ? "page" : undefined}
+                      onClick={() => setPane(section.id)}
+                    >
+                      {section.label}
+                    </button>
+                  ))}
+                </nav>
+                <button type="button" className="btn-ghost schedule-settings-delete" onClick={() => {
+                  if (!window.confirm(`Delete ${selected.label || "this form"}?`)) return;
+                  removeForm(selected.id);
+                  setPane("details");
+                }}>
+                  Delete form
+                </button>
+              </div>
+              <div className="schedule-settings-editor-scroll">
+            {pane === "details" ? (
               <section className="settings-editor-card">
               <h3>Form details</h3>
               <label className="floor-settings-note">
@@ -232,6 +260,8 @@ export function FormsManagerPanel({
               </label>
 
               </section>
+            ) : null}
+            {pane === "fields" ? (
               <section className="quick-build-form-builder settings-editor-card">
                 <div className="quick-build-builder-head">
                   <h3>Fields</h3>
@@ -294,9 +324,10 @@ export function FormsManagerPanel({
                   </div>
                 ))}
               </section>
-
-              <section className="forms-share settings-editor-card">
-                <h3>Share this form</h3>
+            ) : null}
+            {pane === "share" ? (
+              <section className="forms-share schedule-share">
+                <div className="settings-editor-card">
                 <button
                   type="button"
                   className={`components-toggle-row${share.embed ? " is-on" : ""}`}
@@ -335,7 +366,8 @@ export function FormsManagerPanel({
                     </button>
                   </div>
                 ) : null}
-
+                </div>
+                <div className="settings-editor-card">
                 <button
                   type="button"
                   className={`components-toggle-row${share.page ? " is-on" : ""}`}
@@ -382,19 +414,15 @@ export function FormsManagerPanel({
                     </div>
                   </div>
                 ) : null}
+                </div>
               </section>
-
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={() => removeForm(selected.id)}
-              >
-                Delete form
-              </button>
+            ) : null}
+              </div>
             </section>
-          ) : null}
+          ) : (
+            <p className="schedule-settings-editor-empty">Create a form to get a page link and an embed.</p>
+          )}
         </div>
-      )}
     </div>
     {selected ? <ToolPreview slug={slug} link={selected} /> : null}
     </div>

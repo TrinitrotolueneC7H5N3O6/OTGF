@@ -3,9 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IconMaximize, IconMinimize } from "@/components/shared/Icons";
 
-export function PreviewFrame({ children, help, onRestart, controls, screenClassName = "" }: {
+export function PreviewFrame({ children, onRestart, controls, screenClassName = "" }: {
   children: ReactNode;
-  help: string;
   onRestart: () => void;
   controls?: ReactNode;
   screenClassName?: string;
@@ -36,18 +35,17 @@ export function PreviewFrame({ children, help, onRestart, controls, screenClassN
       <header className="tool-preview-header">
         <strong>Live preview</strong>
         <div className="preview-frame-actions">
+          <div className="client-facing-preview-segmented" aria-label="Preview device">
+            {(["mobile", "desktop"] as const).map((mode) => (
+              <button type="button" key={mode} className={device === mode ? "is-active" : undefined} aria-pressed={device === mode} onClick={() => setDevice(mode)}>{mode === "mobile" ? "Mobile" : "Desktop"}</button>
+            ))}
+          </div>
           <button type="button" className="btn-ghost" onClick={onRestart}>Restart</button>
           <button type="button" className="client-facing-preview-fs" onClick={() => setFullscreen((open) => !open)} aria-label={fullscreen ? "Exit full screen" : "Enter full screen"}>
             {fullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
           </button>
         </div>
       </header>
-      <div className="client-facing-preview-segmented" aria-label="Preview device">
-        {(["mobile", "desktop"] as const).map((mode) => (
-          <button type="button" key={mode} className={device === mode ? "is-active" : undefined} aria-pressed={device === mode} onClick={() => setDevice(mode)}>{mode === "mobile" ? "Mobile" : "Desktop"}</button>
-        ))}
-      </div>
-      <p className="floor-settings-help preview-frame-help">{help}</p>
       <div className="tool-preview-stage" ref={stage}>
         <div style={{ width: viewport * scale, height: 680 * scale, margin: "0 auto" }}>
           <div className={`tool-preview-screen is-${device} ${screenClassName}`} style={{ width: viewport, height: 680, transform: `scale(${scale})`, transformOrigin: "top left" }}>

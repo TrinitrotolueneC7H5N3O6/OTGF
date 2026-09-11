@@ -2,18 +2,12 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { SettingsEditorHeader } from "./SettingsEditorHeader";
 import { PreviewFrame } from "./PreviewFrame";
 import { GrowthStory } from "@/components/client/GrowthPublicApp";
 import { dashHref } from "@/lib/workspaceNav";
 import { newGrowthData, growthMetrics, money, type GrowthKind, type GrowthData, type GrowthRecord } from "@/lib/growth";
 
 const LABELS = {referral: "Referral Programs", affiliate: "Affiliates", story: "Storytelling"} as const;
-const SETUP_DESCRIPTIONS = {
-  referral: "Create programs, set rewards, and add referrers.",
-  affiliate: "Create programs, set commissions, and add partners.",
-  story: "Document your work as a story, from the first challenge to the final result.",
-};
 
 export function GrowthToolsPanel({
   slug,
@@ -35,6 +29,7 @@ export function GrowthToolsPanel({
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState("");
   const [previewDraft, setPreviewDraft] = useState<GrowthData | null>(null);
+  const [pane, setPane] = useState<"program" | "people">("program");
   const load = useCallback(async () => {
     try {
       const response = await fetch(`/api/spaces/${encodeURIComponent(slug)}/growth`, {cache: "no-store"});
@@ -72,7 +67,7 @@ export function GrowthToolsPanel({
   }
 
   const programList = programs.length ? (
-    <ul className="forms-manager-list growth-record-list">
+    <ul className={tracking ? "forms-manager-list growth-record-list" : "schedule-settings-events"}>
       {programs.map((r) => (
         <li key={r.id}>
           <button
@@ -225,102 +220,130 @@ export function GrowthToolsPanel({
   }
 
   return (
-    <div className="forms-manager-shell">
+    <div className="forms-manager-shell schedule-settings">
       <div className="dashboard-panel-body forms-manager">
-        <SettingsEditorHeader
-          title={LABELS[kind]}
-          description={SETUP_DESCRIPTIONS[kind]}
-          actions={
-            <button
-              className="btn-solid"
-              disabled={!loaded}
-              onClick={() => {
-                setCreating(true);
-                setPreviewDraft(null);
-                setChild(null);
-              }}
-            >
-              New {kind === "story" ? "story" : "program"}
-            </button>
-          }
-        />
-        {noticeBlock}
-        {loaded && !programs.length && !creating ? (
-          <div className="dashboard-empty">
-            <h3>{kind === "story" ? "Every project has a story" : "Build your first program"}</h3>
-            <p>
-              {kind === "story"
-                ? "Capture the challenge, the work, and the outcome. Start with a private draft."
-                : "Set the reward, add participants, and share their individual links. Activity shows up in Referral Programs or Affiliates."}
-            </p>
-          </div>
-        ) : null}
-        {programList}
-        {(creating || selected) && kind !== "story" ? (
-          <p className="floor-settings-help">
-            After this program is live, leads and rewards appear in {LABELS[kind]}.{" "}
-            <Link href={dashHref(slug, dataNav)}>View program activity</Link>
-          </p>
-        ) : null}
-        {(creating || selected) ? (
-          <GrowthEditor
-            key={creating ? "new" : `${selected.id}-${selected.version}`}
-            kind={kind}
-            record={creating ? undefined : selected}
-            onSave={(data) => save(data, kind, creating ? undefined : selected)}
-            onDraft={setPreviewDraft}
-            onCancel={creating ? () => { setCreating(false); setPreviewDraft(null); } : undefined}
-          />
-        ) : null}
-        {!creating && selected?.kind === "story" && selected.data.status === "published" ? (
-          <section className="settings-editor-card growth-share">
-            <h3>Share your story</h3>
-            <code>{`/${slug}/story/${selected.id}`}</code>
-            <div className="forms-share-actions">
-              <a className="btn-ghost" href={`/${slug}/story/${selected.id}`} target="_blank" rel="noreferrer">Open story</a>
-              <button className="btn-solid" onClick={() => void copyLink(`/${slug}/story/${selected.id}`)}>Copy link</button>
-            </div>
-          </section>
-        ) : null}
-        {!creating && selected && kind !== "story" ? (
-          <section className="settings-editor-card">
-            <div className="growth-section-head">
-              <h3>{kind === "affiliate" ? "Affiliate partners" : "Referrers"}</h3>
-              <button className="btn-solid" onClick={() => setChild({kind: "partner"})}>Add participant</button>
-            </div>
-            {!participants.length ? (
-              <p className="floor-settings-help">Add a participant to generate their individual tracking link.</p>
-            ) : (
-              <div className="growth-table-wrap">
-                <table className="growth-table">
-                  <thead><tr><th>Name</th><th>Status</th><th>Tracking link</th></tr></thead>
-                  <tbody>
-                    {participants.map((r) => (
-                      <tr key={r.id}>
-                        <td><button className="growth-text-button" onClick={() => setChild({kind: "partner", record: r})}>{r.data.title}</button></td>
-                        <td>{r.data.status}</td>
-                        <td><button className="btn-ghost" onClick={() => void copyLink(`/${slug}/r/${r.id}`)}>Copy link</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        <div className="schedule-settings-body">
+          <aside className="schedule-settings-rail" aria-label={LABELS[kind]}>
+            <div className="schedule-settings-rail-head">
+              <div>
+                <strong>{LABELS[kind]}</strong>
+                <span>{programs.length ? `${programs.length} ${programs.length === 1 ? (kind === "story" ? "story" : "program") : (kind === "story" ? "stories" : "programs")}` : "None yet"}</span>
               </div>
-            )}
-            <p className="floor-settings-help">Links accept leads only while both the program and participant are active.</p>
-            {child?.kind === "partner" ? (
-              <GrowthEditor
-                key={child.record?.id ?? "partner"}
-                kind="partner"
-                record={child.record}
-                programId={selected.id}
-                onSave={(data) => save(data, "partner", child.record)}
-                onCancel={() => setChild(null)}
-              />
+              <button
+                type="button"
+                className="btn-solid"
+                disabled={!loaded}
+                onClick={() => {
+                  setCreating(true);
+                  setPreviewDraft(null);
+                  setChild(null);
+                  setPane("program");
+                }}
+              >
+                New
+              </button>
+            </div>
+            {noticeBlock}
+            {loaded && !programs.length && !creating ? (
+              <p className="schedule-settings-rail-empty">
+                {kind === "story" ? "Capture the challenge, the work, and the outcome." : "Create a program, then add participants and share their links."}
+              </p>
             ) : null}
+            {programList}
+          </aside>
+          <section className="schedule-settings-editor" aria-label="Edit program">
+            {(creating || selected) && kind !== "story" ? (
+              <div className="schedule-settings-editor-bar">
+                <nav className="schedule-settings-toc" aria-label="Program settings">
+                  {([
+                    ["program", "Program"],
+                    ["people", kind === "affiliate" ? "Partners" : "Referrers"],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={pane === id ? "is-active" : undefined}
+                      aria-current={pane === id ? "page" : undefined}
+                      onClick={() => setPane(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+            ) : null}
+            <div className="schedule-settings-editor-scroll">
+              {(creating || selected) && kind !== "story" ? (
+                <p className="floor-settings-help">
+                  After this program is live, leads and rewards appear in {LABELS[kind]}.{" "}
+                  <Link href={dashHref(slug, dataNav)}>View program activity</Link>
+                </p>
+              ) : null}
+              {(creating || selected) && (kind === "story" || pane === "program") ? (
+                <GrowthEditor
+                  key={creating ? "new" : `${selected?.id}-${selected?.version}`}
+                  kind={kind}
+                  record={creating ? undefined : selected}
+                  onSave={(data) => save(data, kind, creating ? undefined : selected)}
+                  onDraft={setPreviewDraft}
+                  onCancel={creating ? () => { setCreating(false); setPreviewDraft(null); } : undefined}
+                />
+              ) : null}
+              {!creating && selected?.kind === "story" && selected.data.status === "published" ? (
+                <section className="settings-editor-card growth-share">
+                  <h3>Share your story</h3>
+                  <code>{`/${slug}/story/${selected.id}`}</code>
+                  <div className="forms-share-actions">
+                    <a className="btn-ghost" href={`/${slug}/story/${selected.id}`} target="_blank" rel="noreferrer">Open story</a>
+                    <button className="btn-solid" onClick={() => void copyLink(`/${slug}/story/${selected.id}`)}>Copy link</button>
+                  </div>
+                </section>
+              ) : null}
+              {!creating && selected && kind !== "story" && pane === "people" ? (
+                <section className="settings-editor-card">
+                  <div className="growth-section-head">
+                    <h3>{kind === "affiliate" ? "Affiliate partners" : "Referrers"}</h3>
+                    <button className="btn-solid" onClick={() => setChild({kind: "partner"})}>Add participant</button>
+                  </div>
+                  {!participants.length ? (
+                    <p className="floor-settings-help">Add a participant to generate their individual tracking link.</p>
+                  ) : (
+                    <div className="growth-table-wrap">
+                      <table className="growth-table">
+                        <thead><tr><th>Name</th><th>Status</th><th>Tracking link</th></tr></thead>
+                        <tbody>
+                          {participants.map((r) => (
+                            <tr key={r.id}>
+                              <td><button className="growth-text-button" onClick={() => setChild({kind: "partner", record: r})}>{r.data.title}</button></td>
+                              <td>{r.data.status}</td>
+                              <td><button className="btn-ghost" onClick={() => void copyLink(`/${slug}/r/${r.id}`)}>Copy link</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <p className="floor-settings-help">Links accept leads only while both the program and participant are active.</p>
+                  {child?.kind === "partner" ? (
+                    <GrowthEditor
+                      key={child.record?.id ?? "partner"}
+                      kind="partner"
+                      record={child.record}
+                      programId={selected.id}
+                      onSave={(data) => save(data, "partner", child.record)}
+                      onCancel={() => setChild(null)}
+                    />
+                  ) : null}
+                </section>
+              ) : null}
+              {!creating && !selected ? (
+                <p className="schedule-settings-editor-empty">Create a program to set rewards and share tracking links.</p>
+              ) : null}
+            </div>
           </section>
-        ) : null}
+        </div>
       </div>
-      <PreviewFrame help={kind === "story" ? "Your story preview. Save to keep your changes." : "Your program preview. Save to keep your changes."} onRestart={() => void load()}>
+      <PreviewFrame onRestart={() => void load()}>
         <div className="growth-preview-content">
           {previewData ? kind === "story" ? <GrowthStory data={previewData} /> : (
             <>

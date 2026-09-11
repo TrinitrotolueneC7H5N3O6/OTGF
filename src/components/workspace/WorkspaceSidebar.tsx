@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { FloorSettings } from "@/lib/types";
@@ -73,12 +73,18 @@ function readCollapsed() {
   return window.matchMedia("(max-width: 980px)").matches;
 }
 
+function syncCollapsedAttr(next: boolean) {
+  if (next) document.documentElement.setAttribute("data-nav-collapsed", "1");
+  else document.documentElement.removeAttribute("data-nav-collapsed");
+}
+
 function persistCollapsed(next: boolean) {
   try {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
   } catch {
     // ignore
   }
+  syncCollapsedAttr(next);
 }
 
 function readSections(): Partial<Record<SectionId, boolean>> {
@@ -119,8 +125,13 @@ export function WorkspaceSidebar({ slug, settings }: WorkspaceSidebarProps) {
   const presenceLeaves = visiblePresenceLeaves(settings);
   const toolsLeaves = visibleToolsLeaves(settings);
 
+  useLayoutEffect(() => {
+    const next = readCollapsed();
+    setCollapsed(next);
+    syncCollapsedAttr(next);
+  }, []);
+
   useEffect(() => {
-    setCollapsed(readCollapsed());
     setOpen({
       ...DEFAULT_OPEN,
       ...readSections(),

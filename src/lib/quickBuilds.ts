@@ -27,8 +27,9 @@ export function defaultQuickBuildConfig(
   if (type === "scheduler") {
     return {
       type,
-      title: "Request a time",
-      description: "Choose a time that works and our team will confirm it.",
+      title: "Book an appointment",
+      description: "Choose a time that works for you.",
+      confirmationMode: "instant",
       durationMinutes: 30,
       startTime: "09:00",
       endTime: "17:00",

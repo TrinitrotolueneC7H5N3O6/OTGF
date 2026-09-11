@@ -924,6 +924,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
   } else if (nav === "schedule") {
     main = (
       <SchedulePanel
+        slug={slug}
         requests={space.scheduleRequests ?? []}
         onUpdateStatus={updateScheduleStatus}
       />
@@ -1010,7 +1011,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
       <SettingsArea
         slug={slug}
         title="Tools"
-        help="Settings for tools you turned on."
+        variant="crumb"
         tabs={visibleToolsLeaves(space.settings)}
         active={canonicalNav(nav)}
       >
@@ -1022,7 +1023,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
       <SettingsArea
         slug={slug}
         title="Platforms"
-        help="Settings for where customers find and connect with you."
+        variant="crumb"
         tabs={visiblePresenceLeaves(space.settings)}
         active={canonicalNav(nav)}
       >

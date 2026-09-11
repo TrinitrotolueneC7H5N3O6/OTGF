@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import { Figtree, Syne } from "next/font/google";
 import { CornerTools } from "@/components/shared/CornerTools";
 import { LatencyHud } from "@/components/shared/LatencyHud";
+import { SIDEBAR_COLLAPSED_KEY } from "@/lib/workspaceNav";
 import "./globals.css";
+
+const NAV_COLLAPSE_BOOT = `(function(){try{var v=localStorage.getItem(${JSON.stringify(SIDEBAR_COLLAPSED_KEY)});if(v==="1"||(v!=="0"&&matchMedia("(max-width:980px)").matches))document.documentElement.setAttribute("data-nav-collapsed","1")}catch(e){}})();`;
 
 const syne = Syne({
   variable: "--font-syne",
@@ -30,7 +33,11 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${syne.variable} ${figtree.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: NAV_COLLAPSE_BOOT }} />
+      </head>
       <body className="h-full">
         {children}
         <CornerTools />

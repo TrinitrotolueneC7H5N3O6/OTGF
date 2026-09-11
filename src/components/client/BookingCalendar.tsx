@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { scheduleDate, scheduleDates, scheduleSlots, type SchedulerConfig } from "@/lib/scheduling";
 
-export function BookingCalendar({ config, date, time, onDate, onTime }: {
+export function BookingCalendar({ config, date, time, onDate, onTime, slotsByDate }: {
   config: SchedulerConfig;
+  slotsByDate?: Record<string, { value: string; label: string }[]>;
   date: string;
   time: string;
   onDate: (date: string) => void;
@@ -29,8 +30,8 @@ export function BookingCalendar({ config, date, time, onDate, onTime }: {
   const daysInMonth = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 0)).getUTCDate();
   const available = useMemo(() => new Map(scheduleDates(config, now)
     .filter((day) => day.value.startsWith(shownMonth))
-    .map((day) => [day.value, scheduleSlots(config, day.value, now)])), [config, now, shownMonth]);
-  const slots = date ? scheduleSlots(config, date, now) : [];
+    .map((day) => [day.value, slotsByDate ? slotsByDate[day.value] ?? [] : scheduleSlots(config, day.value, now)])), [config, now, shownMonth, slotsByDate]);
+  const slots = date ? (slotsByDate ? slotsByDate[date] ?? [] : scheduleSlots(config, date, now)) : [];
   const dateLabel = date ? new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`)) : "Choose a date";
 
   function moveMonth(delta: number) {

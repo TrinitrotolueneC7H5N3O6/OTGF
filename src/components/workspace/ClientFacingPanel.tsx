@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Artifact, BusinessSpace, FloorMember, FloorSettings } from "@/lib/types";
 import {
@@ -15,7 +15,6 @@ import { UserPreferencesPanel } from "./UserPreferencesPanel";
 import { ClientFacingPreview } from "./ClientFacingPreview";
 import { EndScreenBehaviorPanel } from "./EndScreenBehaviorPanel";
 import { StaffOutIntakePanel } from "./StaffOutIntakePanel";
-import { SettingsEditorHeader } from "./SettingsEditorHeader";
 import { SurfaceActionToggles } from "./SurfaceActionToggles";
 
 export type ClientFacingSurface = "page" | "chat" | "widget";
@@ -51,9 +50,8 @@ export function ClientFacingPanel({
   const introOn = isSolutionEnabled(settings, "intro");
   const shoutoutsOn = isSolutionEnabled(settings, "shoutouts");
   const photosOn = isSolutionEnabled(settings, "chatInterface");
-  const [active, setActive] = useState<string | null>(null);
+  const [pane, setPane] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const pinActiveUntil = useRef(0);
   const previewSpace = useMemo<BusinessSpace>(
     () => ({ ...space, settings, members }),
     [space, settings, members],
@@ -86,74 +84,15 @@ export function ClientFacingPanel({
     ];
   }, [isPresence, surface, hoursOn, introOn, shoutoutsOn, photosOn]);
 
-  useEffect(() => {
-    const root = document.querySelector(".client-facing-editor");
-    if (!(root instanceof HTMLElement) || toc.length === 0) return;
-    const editorRoot = root;
-    let frame = 0;
-    function updateActive() {
-      if (Date.now() < pinActiveUntil.current) return;
-      const tocEl = editorRoot.querySelector(".client-facing-toc");
-      const offset = tocEl instanceof HTMLElement ? tocEl.offsetHeight + 24 : 24;
-      const y = editorRoot.scrollTop + offset;
-      const current =
-        [...toc]
-          .map((item) => {
-            const el = document.getElementById(item.id);
-            return el instanceof HTMLElement
-              ? { id: item.id, top: el.offsetTop }
-              : null;
-          })
-          .filter((item): item is { id: string; top: number } => Boolean(item))
-          .filter((item) => item.top <= y)
-          .sort((a, b) => b.top - a.top)[0]?.id ?? toc[0]?.id ?? null;
-      setActive((prev) => (prev === current ? prev : current));
-    }
-    function onScroll() {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(updateActive);
-    }
-    updateActive();
-    editorRoot.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.cancelAnimationFrame(frame);
-      editorRoot.removeEventListener("scroll", onScroll);
-    };
-  }, [toc]);
-
-  function scrollSectionIntoView(id: string) {
-    const root = document.querySelector(".client-facing-editor");
-    const el = document.getElementById(id);
-    if (!(root instanceof HTMLElement) || !el) return;
-    const tocEl = root.querySelector(".client-facing-toc");
-    const offset = tocEl instanceof HTMLElement ? tocEl.offsetHeight + 8 : 8;
-    const delta =
-      el.getBoundingClientRect().top -
-      root.getBoundingClientRect().top -
-      offset;
-    root.scrollTop = Math.max(0, root.scrollTop + delta);
-  }
-
-  function pinAndScroll(id: string) {
-    pinActiveUntil.current = Date.now() + 900;
-    scrollSectionIntoView(id);
-    setActive(id);
-  }
+  const active = pane && toc.some((item) => item.id === pane) ? pane : toc[0]?.id ?? null;
 
   useEffect(() => {
     const hash = window.location.hash.replace(/^#/, "");
-    const root = document.querySelector(".client-facing-editor");
-    if (root instanceof HTMLElement && !hash) root.scrollTop = 0;
-    if (!hash) return;
-    const timer = window.setTimeout(() => {
-      if (!document.getElementById(hash)) return;
-      pinAndScroll(hash);
-    }, 50);
-    return () => window.clearTimeout(timer);
-  }, [surface]);
+    if (hash && toc.some((item) => item.id === hash)) setPane(hash);
+  }, [surface, toc]);
 
-  function scrollTo(id: string) {
-    pinAndScroll(id);
+  function selectPane(id: string) {
+    setPane(id);
     window.history.replaceState(null, "", `#${id}`);
   }
 
@@ -206,31 +145,28 @@ export function ClientFacingPanel({
   const actionSurface = surface === "widget" ? "widget" : "page";
 
   return (
-    <div className="client-facing-layout">
+    <div className="client-facing-layout schedule-settings">
       <div className="client-facing-editor dashboard-panel-body is-client-facing">
-      <SettingsEditorHeader
-        title={surface === "page" ? "Micro-landing page" : surface === "widget" ? "Widget" : "Live Chat"}
-        description={surface === "page" ? "Customize your page, choose customer actions, and share your link." : surface === "widget" ? "Customize your website widget, choose customer actions, and install it on your site." : "Customize your chat, notification sounds, opening messages, and follow-up experience."}
-      />
-
       {toc.length > 0 ? (
-        <nav className="client-facing-toc" aria-label="Jump to section">
+        <nav className="schedule-settings-toc client-facing-toc" aria-label="Settings">
           {toc.map((item) => (
             <button
               key={item.id}
               type="button"
               className={active === item.id ? "is-active" : undefined}
-              onClick={() => scrollTo(item.id)}
+              aria-current={active === item.id ? "page" : undefined}
+              onClick={() => selectPane(item.id)}
             >
               {item.label}
             </button>
           ))}
         </nav>
       ) : null}
+      <div className="schedule-settings-editor-scroll">
 
       {isPresence ? (
         <>
-          <section id="cf-share" className="client-facing-section">
+          <section id="cf-share" className="client-facing-section" hidden={active !== "cf-share"}>
             <h3>Share</h3>
             <div className="pre-chat-share website-install-card">
               <div className="pre-chat-widget">
@@ -285,7 +221,7 @@ export function ClientFacingPanel({
             </div>
           </section>
 
-          <section id="cf-contact" className="client-facing-section">
+          <section id="cf-contact" className="client-facing-section" hidden={active !== "cf-contact"}>
             <h3>Call, text & email</h3>
             <SurfaceActionToggles
               slug={slug}
@@ -296,7 +232,7 @@ export function ClientFacingPanel({
             />
           </section>
 
-          <section id="cf-actions" className="client-facing-section">
+          <section id="cf-actions" className="client-facing-section" hidden={active !== "cf-actions"}>
             <h3>Tools</h3>
             <SurfaceActionToggles
               slug={slug}
@@ -309,7 +245,7 @@ export function ClientFacingPanel({
 
           {surface === "page" ? (
             <>
-              <section id="cf-look" className="client-facing-section">
+              <section id="cf-look" className="client-facing-section" hidden={active !== "cf-look"}>
                 <h3>Look</h3>
                 {settingsChunk("brand")}
                 <p className="floor-settings-help">Headline and bio.</p>
@@ -322,7 +258,7 @@ export function ClientFacingPanel({
               </section>
 
               {hoursOn ? (
-                <section id="cf-hours" className="client-facing-section">
+                <section id="cf-hours" className="client-facing-section" hidden={active !== "cf-hours"}>
                   <h3>Hours</h3>
                   {settingsChunk("hours")}
                 </section>
@@ -332,31 +268,31 @@ export function ClientFacingPanel({
         </>
       ) : (
         <>
-          <section id="cf-sounds" className="client-facing-section">
+          <section id="cf-sounds" className="client-facing-section" hidden={active !== "cf-sounds"}>
             <h3>Sounds</h3>
             {prefChunk("sounds")}
           </section>
 
           {introOn ? (
-            <section id="cf-about" className="client-facing-section">
+            <section id="cf-about" className="client-facing-section" hidden={active !== "cf-about"}>
               <h3>About</h3>
               {prefChunk("intro", "about")}
             </section>
           ) : null}
 
-          <section id="cf-links" className="client-facing-section">
+          <section id="cf-links" className="client-facing-section" hidden={active !== "cf-links"}>
             <h3>Chat links</h3>
             {prefChunk("links")}
           </section>
 
           {introOn ? (
-            <section id="cf-initial-messages" className="client-facing-section">
+            <section id="cf-initial-messages" className="client-facing-section" hidden={active !== "cf-initial-messages"}>
               <h3>Opening messages</h3>
               {prefChunk("intro", "messages")}
             </section>
           ) : null}
 
-          <section id="cf-staff-out" className="client-facing-section">
+          <section id="cf-staff-out" className="client-facing-section" hidden={active !== "cf-staff-out"}>
             <h3>When staff out</h3>
             <p className="floor-settings-help">
               Guide visitors through a useful after-hours intake instead of a plain email box.
@@ -367,7 +303,7 @@ export function ClientFacingPanel({
             />
           </section>
 
-          <section id="cf-end-screen" className="client-facing-section">
+          <section id="cf-end-screen" className="client-facing-section" hidden={active !== "cf-end-screen"}>
             <h3>End screen behavior</h3>
             <p className="floor-settings-help">
               Choose what customers see after an employee ends the chat.
@@ -379,20 +315,21 @@ export function ClientFacingPanel({
           </section>
 
           {shoutoutsOn ? (
-            <section id="cf-promos" className="client-facing-section">
+            <section id="cf-promos" className="client-facing-section" hidden={active !== "cf-promos"}>
               <h3>Promo banners</h3>
               {settingsChunk("shoutouts")}
             </section>
           ) : null}
 
           {photosOn ? (
-            <section id="cf-photos" className="client-facing-section">
+            <section id="cf-photos" className="client-facing-section" hidden={active !== "cf-photos"}>
               <h3>Chat photos</h3>
               {prefChunk("chat-interface")}
             </section>
           ) : null}
         </>
       )}
+      </div>
       </div>
       <ClientFacingPreview
         key={surface}

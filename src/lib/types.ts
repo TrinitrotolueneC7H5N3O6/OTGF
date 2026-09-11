@@ -293,12 +293,16 @@ export interface CustomerCase {
 
 export type CustomerCaseStatus = "open" | "in_progress" | "resolved";
 
-export type ScheduleRequestStatus = "requested" | "confirmed" | "declined";
+export type ScheduleRequestStatus = "requested" | "confirmed" | "declined" | "canceled";
 
 export type FormSubmissionStatus = "new" | "read";
 
 /** Appointment request submitted from a scheduler quick build. */
 export interface ScheduleRequest {
+  schedulerId?: string;
+  timeZone?: string;
+  startsAt?: string;
+  endsAt?: string;
   id: string;
   chatId: string;
   name: string;
@@ -604,6 +608,16 @@ export type QuickBuildConfig =
       timeZone?: string;
       location?: string;
       requirePhone?: boolean;
+      choicePrompt?: string;
+      choiceDisplay?: "dropdown" | "list";
+      choiceOptions?: string[];
+      confirmationMode?: "instant" | "approval";
+      weeklyHours?: Record<string, { start: string; end: string }[]>;
+      dateOverrides?: Record<string, { start: string; end: string }[]>;
+      bufferBeforeMinutes?: number;
+      bufferAfterMinutes?: number;
+      slotIntervalMinutes?: number;
+      dailyLimit?: number;
     }
   | {
       type: "sms" | "email";

@@ -120,6 +120,13 @@ model CustomerCase {
 
 /// Appointment request from a scheduler quick build.
 model ScheduleRequest {
+  schedulerId     String   @default("")
+  timeZone        String   @default("UTC")
+  startsAt        DateTime?
+  endsAt          DateTime?
+  bufferBeforeMinutes Int @default(0)
+  bufferAfterMinutes Int @default(0)
+  managementTokenHash String? @unique
   id              String   @id
   spaceSlug       String
   space           Space    @relation(fields: [spaceSlug], references: [slug], onDelete: Cascade)

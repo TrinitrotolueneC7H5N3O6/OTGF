@@ -1,6 +1,6 @@
-import { scheduleSlots } from "./scheduling";
+import { createBooking, changeBooking } from "./bookingServer";
+import { getSessionUser } from "./auth";
 import { quickBuildConfigForLink } from "./quickBuilds";
-import { isPublicActionEnabled } from "./toolPublic";
 import { randomBytes } from "crypto";
 import type { Prisma } from "@prisma/client";
 import type { AutoAnswerDraft, Business, BusinessSpace, ChatParticipant, Client, CustomerCase, Message, Offering, KnowledgeNote, FormSubmission, ScheduleRequest, Trade } from "./types";
@@ -385,6 +385,10 @@ async function loadCases(slug: string): Promise<CustomerCase[]> {
 }
 
 function scheduleRequestFromRow(row: {
+  schedulerId?: string;
+  timeZone?: string;
+  startsAt?: Date | null;
+  endsAt?: Date | null;
   id: string;
   chatId: string;
   name: string;
@@ -402,6 +406,10 @@ function scheduleRequestFromRow(row: {
   const [item] = normalizeScheduleRequests([
     {
       id: row.id,
+      schedulerId: row.schedulerId,
+      timeZone: row.timeZone,
+      startsAt: row.startsAt?.toISOString(),
+      endsAt: row.endsAt?.toISOString(),
       chatId: row.chatId,
       name: row.name,
       email: row.email,
@@ -450,34 +458,14 @@ async function insertScheduleRequest(
   slug: string,
   request: ScheduleRequest,
 ): Promise<ScheduleRequest | null> {
-  const [item] = normalizeScheduleRequests([request]);
-  if (!item || !prisma.scheduleRequest) return null;
-  try {
-    const row = await prisma.scheduleRequest.create({
-      data: {
-        id: item.id,
-        spaceSlug: slug,
-        chatId: item.chatId,
-        name: item.name,
-        email: item.email ?? "",
-        phone: item.phone ?? "",
-        date: item.date,
-        time: item.time,
-        durationMinutes: item.durationMinutes,
-        notes: item.notes ?? "",
-        title: item.title ?? "",
-        status: item.status,
-      },
-    });
-    return scheduleRequestFromRow(row);
-  } catch (err) {
-    const code =
-      err && typeof err === "object" && "code" in err
-        ? String((err as { code?: string }).code)
-        : "";
-    if (code === "P2002") return null;
-    throw err;
-  }
+  const space = await dbGetSpace(slug);
+  const schedulerId = request.schedulerId || space?.settings.preChat?.links.find((link) => {
+    const config = quickBuildConfigForLink(link);
+    return config?.type === "scheduler" && config.title === request.title;
+  })?.id;
+  if (!schedulerId) throw new Error("Choose an available event type.");
+  const result = await createBooking(slug, { ...request, schedulerId });
+  return scheduleRequestFromRow(result.booking);
 }
 
 function formSubmissionFromRow(row: {
@@ -1460,35 +1448,14 @@ async function applyOpToDb(slug: string, op: SpaceOp) {
       return;
     }
     case "createScheduleRequest": {
-      if (op.schedulerId) {
-        const space = await dbGetSpace(slug);
-        const link = space?.settings.preChat?.links.find((item) => item.id === op.schedulerId);
-        const config = link ? quickBuildConfigForLink(link) : null;
-        if (!space || !isPublicActionEnabled(space.settings, "scheduler") || config?.type !== "scheduler") {
-          throw new Error("This scheduler is no longer available.");
-        }
-        const request = op.scheduleRequest;
-        if (!request.name?.trim() || !request.email?.trim() || (config.requirePhone && !request.phone?.trim())) {
-          throw new Error("Please provide the required contact details.");
-        }
-        if (!scheduleSlots(config, request.date).some((slot) => slot.value === request.time)) {
-          throw new Error("That time is no longer available. Choose another time.");
-        }
-        request.durationMinutes = config.durationMinutes;
-        request.title = config.title;
-        request.status = "requested";
-      }
-      await insertScheduleRequest(slug, op.scheduleRequest);
+      const saved = await insertScheduleRequest(slug, { ...op.scheduleRequest, schedulerId: op.schedulerId });
+      if (saved) op.scheduleRequest = saved;
       return;
     }
     case "updateScheduleStatus": {
-      const status = normalizeScheduleRequestStatus(op.status);
-      if (!prisma.scheduleRequest) return;
-      const updated = await prisma.scheduleRequest.updateMany({
-        where: { id: op.id, spaceSlug: slug },
-        data: { status },
-      });
-      if (updated.count === 0) throw new Error("Schedule request not found");
+      const user = await getSessionUser();
+      if (!user) throw new Error("Sign in to manage appointments.");
+      await changeBooking(slug, op.id, { ownerId: user.id }, { action: "status", status: op.status });
       return;
     }
     case "createFormSubmission": {

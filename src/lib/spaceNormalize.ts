@@ -1,3 +1,4 @@
+import { normalizeSchedulingRules } from "./scheduling";
 import type {
   Artifact,
   BusinessSpace,
@@ -689,6 +690,12 @@ function normalizeQuickBuild(raw: unknown): QuickBuildConfig | undefined {
       timeZone: (() => { try { const zone = typeof row.timeZone === "string" && row.timeZone ? row.timeZone : "UTC"; new Intl.DateTimeFormat("en", { timeZone: zone }); return zone; } catch { return "UTC"; } })(),
       location: typeof row.location === "string" ? row.location.trim().slice(0, 240) : "",
       requirePhone: row.requirePhone === true,
+      choicePrompt: typeof row.choicePrompt === "string" ? row.choicePrompt.trim().slice(0, 80) : "",
+      choiceDisplay: row.choiceDisplay === "list" ? "list" as const : "dropdown" as const,
+      choiceOptions: Array.isArray(row.choiceOptions)
+        ? row.choiceOptions.filter((item): item is string => typeof item === "string").map((item) => item.trim().slice(0, 80)).filter(Boolean).slice(0, 20)
+        : [],
+      ...normalizeSchedulingRules(row),
       daysAhead: Number.isFinite(daysAhead) ? Math.min(180, Math.max(7, Math.round(daysAhead))) : fallbackSchedule.daysAhead,
     };
   }
@@ -1586,7 +1593,7 @@ const SCHEDULE_DURATIONS = new Set([15, 30, 45, 60, 90]);
 export function normalizeScheduleRequestStatus(
   raw: unknown,
 ): ScheduleRequestStatus {
-  if (raw === "confirmed" || raw === "declined") return raw;
+  if (raw === "confirmed" || raw === "declined" || raw === "canceled") return raw;
   return "requested";
 }
 
@@ -1626,6 +1633,10 @@ export function normalizeScheduleRequests(raw: unknown): ScheduleRequest[] {
         ...(typeof row.title === "string" && row.title.trim()
           ? { title: row.title.trim().slice(0, 80) }
           : {}),
+        ...(row.schedulerId ? { schedulerId: row.schedulerId } : {}),
+        ...(row.timeZone ? { timeZone: row.timeZone } : {}),
+        ...(row.startsAt ? { startsAt: row.startsAt } : {}),
+        ...(row.endsAt ? { endsAt: row.endsAt } : {}),
         status: normalizeScheduleRequestStatus(row.status),
         createdAt:
           typeof row.createdAt === "string" && row.createdAt.trim()

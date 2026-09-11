@@ -1,8 +1,8 @@
 "use client";
 
-import { SettingsEditorHeader } from "./SettingsEditorHeader";
 import { PreviewFrame } from "./PreviewFrame";
 import { GrowthStory } from "@/components/client/GrowthPublicApp";
+import { useState } from "react";
 import type { FloorSettings } from "@/lib/types";
 import {
   STORY_PHOTO_STYLES,
@@ -28,6 +28,7 @@ export function StoryTemplatePanel({
   settings: FloorSettings;
   onChangeSettings: (settings: FloorSettings) => void;
 }) {
+  const [pane, setPane] = useState<"feel" | "parts" | "search">("feel");
   const template = normalizeStoryTemplate(settings.storyTemplate);
 
   function patch(next: Partial<StoryTemplate>) {
@@ -50,12 +51,30 @@ export function StoryTemplatePanel({
       : "Replaced the upstairs AC";
 
   return (
-    <div className="forms-manager-shell">
+    <div className="forms-manager-shell schedule-settings">
       <div className="dashboard-panel-body forms-manager">
-        <SettingsEditorHeader
-          title="Storytelling"
-          description="Set the shape of every story so you don't have to invent the writing from scratch. Owners fill in what happened; customers read a finished case."
-        />
+        <section className="schedule-settings-editor" aria-label="Story template">
+          <div className="schedule-settings-editor-bar">
+            <nav className="schedule-settings-toc" aria-label="Story settings">
+              {([
+                ["feel", "Feel"],
+                ["parts", "Parts"],
+                ["search", "Search"],
+              ] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={pane === id ? "is-active" : undefined}
+                  aria-current={pane === id ? "page" : undefined}
+                  onClick={() => setPane(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+          </div>
+          <div className="schedule-settings-editor-scroll">
+        {pane === "feel" ? (
         <section className="settings-editor-card growth-editor">
           <h3>How stories should feel</h3>
           <label className="floor-settings-note">
@@ -95,6 +114,8 @@ export function StoryTemplatePanel({
             <span>Show the job date on published stories</span>
           </label>
         </section>
+        ) : null}
+        {pane === "parts" ? (
         <section className="settings-editor-card growth-editor">
           <h3>The parts you fill in</h3>
           <p className="floor-settings-help">Each part becomes a heading customers see. The prompt is the reminder you get when writing — keep it specific enough that a tired owner can answer it.</p>
@@ -126,6 +147,8 @@ export function StoryTemplatePanel({
             <button type="button" className="btn-solid" onClick={() => patch({ sections: [...template.sections, newStorySection()] })}>Add another part</button>
           ) : null}
         </section>
+        ) : null}
+        {pane === "search" ? (
         <section className="settings-editor-card growth-editor">
           <h3>Customer search</h3>
           <label className="floor-settings-note">
@@ -134,11 +157,14 @@ export function StoryTemplatePanel({
           </label>
           <p className="floor-settings-help">People type the problem they have. Keywords you add on each story are what this search matches.</p>
         </section>
+        ) : null}
         <p className="floor-settings-help">
           <button type="button" className="btn-ghost" onClick={() => patch(defaultStoryTemplate())}>Reset to the starter template</button>
         </p>
+          </div>
+        </section>
       </div>
-      <PreviewFrame help="A sample story using this template. Real jobs are written under Stories." onRestart={() => undefined}>
+      <PreviewFrame onRestart={() => undefined}>
         <div className="growth-preview-content story-preview-frame">
           <GrowthStory
             data={{

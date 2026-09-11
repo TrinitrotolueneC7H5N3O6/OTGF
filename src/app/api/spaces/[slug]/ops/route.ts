@@ -12,6 +12,8 @@ export async function POST(
     return NextResponse.json({ error: "Invalid op" }, { status: 400 });
   }
 
+  if (op.type === "createScheduleRequest" && !op.schedulerId) return NextResponse.json({ error: "Choose an event type." }, { status: 400 });
+
   try {
     await dbApplySpaceOp(slug, op);
     return NextResponse.json({ ok: true });
