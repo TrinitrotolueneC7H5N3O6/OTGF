@@ -1314,27 +1314,11 @@ html[data-nav-collapsed="1"] .workspace-sidebar {
   padding-right: 0.35rem;
 }
 
-.workspace-sidebar-live,
 .workspace-sidebar-work,
 .workspace-sidebar-settings {
   display: flex;
   flex-direction: column;
   gap: 0.12rem;
-  padding: 0.22rem;
-  border-radius: 0.9rem;
-}
-
-.workspace-sidebar-live {
-  background: #fff;
-  box-shadow: var(--shadow-box);
-}
-
-.workspace-sidebar-live.is-active {
-  background: #efe8f6;
-}
-
-.workspace-sidebar-work {
-  background: #f7f5fa;
 }
 
 .workspace-sidebar-scroll {
@@ -1349,8 +1333,9 @@ html[data-nav-collapsed="1"] .workspace-sidebar {
 
 .workspace-sidebar-settings {
   position: relative;
-  margin-top: 0.1rem;
-  background: #f7f5fa;
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--line);
 }
 
 .workspace-sidebar-item,
