@@ -846,7 +846,7 @@ export function ClientChat({
                 id: `contact-reason-${chatId}`,
                 from: "client",
                 kind: "text",
-                preview: `Contact reason: ${selectedReason}`,
+                preview: `Contact Reason: ${selectedReason}`,
               },
             }
           : {}),
@@ -969,7 +969,7 @@ export function ClientChat({
                   id: `contact-reason-${chatId}`,
                   from: "client",
                   kind: "text",
-                  preview: `Contact reason: ${selectedReason}`,
+                  preview: `Contact Reason: ${selectedReason}`,
                 },
               }
             : {}),
@@ -2965,7 +2965,7 @@ export function ClientChat({
             {!replyTo && contactReason ? (
               <div className="composer-reply composer-reason" role="status">
                 <div className="composer-reply-body">
-                  <span className="composer-reply-label">Contact reason</span>
+                  <span className="composer-reply-label">Contact Reason</span>
                   <span className="composer-reply-text">{contactReason}</span>
                 </div>
                 <button

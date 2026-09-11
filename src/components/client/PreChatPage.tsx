@@ -229,7 +229,7 @@ export function PreChatPage({
       return (
         <div className="pre-chat is-embedded is-preview">
           <main className="pre-chat-card">
-            <h1>Micro-landing page is off</h1>
+            <h1>Front Desk is off</h1>
             <p className="pre-chat-bio">
               Turn it on in Tools to show this micro-landing page.
             </p>

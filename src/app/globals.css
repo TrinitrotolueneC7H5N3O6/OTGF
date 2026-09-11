@@ -1313,11 +1313,27 @@ a {
   padding-right: 0.35rem;
 }
 
+.workspace-sidebar-live,
 .workspace-sidebar-work,
 .workspace-sidebar-settings {
   display: flex;
   flex-direction: column;
   gap: 0.12rem;
+  padding: 0.22rem;
+  border-radius: 0.9rem;
+}
+
+.workspace-sidebar-live {
+  background: #fff;
+  box-shadow: var(--shadow-box);
+}
+
+.workspace-sidebar-live.is-active {
+  background: #efe8f6;
+}
+
+.workspace-sidebar-work {
+  background: #f7f5fa;
 }
 
 .workspace-sidebar-scroll {
@@ -1332,9 +1348,8 @@ a {
 
 .workspace-sidebar-settings {
   position: relative;
-  margin-top: 0.45rem;
-  padding-top: 0.45rem;
-  border-top: 1px solid var(--line);
+  margin-top: 0.1rem;
+  background: #f7f5fa;
 }
 
 .workspace-sidebar-item,
@@ -1737,6 +1752,33 @@ a {
 
 .settings-area-body .client-facing-editor {
   padding-top: 0.85rem;
+}
+
+.settings-area-body .client-facing-stack {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 1.15rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.95rem;
+  background: var(--surface);
+}
+
+.settings-area-body .client-facing-stack .settings-editor-head {
+  margin-bottom: 0;
+}
+
+.settings-area-body .client-facing-stack .client-facing-toc {
+  position: static;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border-bottom: none;
+}
+
+.client-facing-stack-passthrough {
+  display: contents;
 }
 
 .dashboard-panel-body {
@@ -5983,50 +6025,65 @@ a {
 }
 
 .rail-quick-filters {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: 0.35rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.28rem;
   margin-top: 0.65rem;
 }
 
 .rail-quick-filters button {
-  flex: 1;
   min-width: 0;
+  min-height: 3.45rem;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.28rem;
-  border: 1px solid var(--line);
-  border-radius: 0.7rem;
-  background: var(--bg);
-  color: var(--muted);
-  padding: 0.42rem 0.35rem;
+  gap: 0.12rem;
+  border: none;
+  border-radius: 0.8rem;
+  background: #e2d4f0;
+  color: var(--ink);
+  box-shadow: var(--shadow-box);
+  padding: 0.34rem 0.12rem 0.3rem;
   font: inherit;
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 650;
+  line-height: 1.15;
   cursor: pointer;
-  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.rail-quick-filters button:hover,
+.rail-quick-filters button:active {
+  background: #efe8f6;
+}
+
+.rail-quick-filters button.is-active {
+  background: #e2d4f0;
+}
+
+.rail-quick-filters button.is-active:hover {
+  background: #efe8f6;
+}
+
+.rail-quick-filters button span {
+  display: block;
+  width: 100%;
+  text-align: center;
+  white-space: normal;
 }
 
 .rail-quick-filters button strong {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  padding: 0 0.35rem;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.22rem;
   border-radius: 999px;
-  background: var(--accent-soft);
+  background: rgb(255 255 255 / 0.55);
   color: var(--ink);
-  font-size: 0.68rem;
-}
-
-.rail-quick-filters button.is-active {
-  border-color: color-mix(in oklab, var(--send-accent) 30%, var(--line));
-  background: color-mix(in oklab, var(--send-accent) 8%, var(--surface));
-  color: var(--ink);
+  font-size: 0.6rem;
 }
 
 .rail-advanced-toggle {
@@ -12479,41 +12536,51 @@ html:has(.otgf-embed-root) body {
   font-size: 0.72rem;
 }
 
-.contact-reason-options-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.4rem;
+.contact-reason-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .contact-reason-option {
-  display: grid;
-  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
-  gap: 0.35rem;
+  display: flex;
   align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.4rem 0.5rem 0.4rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: var(--bg);
 }
 
 .contact-reason-option > span {
-  display: grid;
-  place-items: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 999px;
-  background: var(--bg);
-  color: var(--muted);
-  font-size: 0.68rem;
-  font-weight: 750;
+  min-width: 0;
+  flex: 1;
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 550;
 }
 
-.contact-reason-option input {
+.contact-reason-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.contact-reason-add input {
   width: 100%;
   border: 1px solid var(--line);
   background: var(--bg);
   color: var(--ink);
   border-radius: 0.45rem;
-  padding: 0.45rem 0.55rem;
+  padding: 0.5rem 0.6rem;
   outline: none;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.85rem;
 }
 
 .contact-reason-style-switch {
@@ -12567,7 +12634,6 @@ html:has(.otgf-embed-root) body {
 
 @media (max-width: 520px) {
   .opening-specialties-fields,
-  .contact-reason-options-grid,
   .staff-out-copy-grid,
   .staff-out-toggle-grid,
   .email-alert-grid,
@@ -15302,6 +15368,7 @@ html.floor-lock .corner-tools {
   border-radius: 0.95rem;
   background: var(--surface);
 }
+.settings-area-body .client-facing-section[hidden] { display: none; }
 .settings-area-body .client-facing-section { margin-bottom: 1rem; }
 .settings-area-body .client-facing-section > h3,
 .settings-editor-card h3 {

@@ -118,6 +118,10 @@ export function WorkspaceSidebar({ slug, settings }: WorkspaceSidebarProps) {
   const settingsId = settingsNavIdFor(active);
   const presenceLeaves = visiblePresenceLeaves(settings);
   const toolsLeaves = visibleToolsLeaves(settings);
+  const workItems = visibleWorkNav(settings);
+  const liveChat = workItems.find((item) => item.id === "floor");
+  const otherWork = workItems.filter((item) => item.id !== "floor");
+  const LiveChatIcon = liveChat ? WORK_ICONS[liveChat.id] : null;
 
   useEffect(() => {
     setCollapsed(readCollapsed());
@@ -173,8 +177,25 @@ export function WorkspaceSidebar({ slug, settings }: WorkspaceSidebarProps) {
       </button>
 
       <div className="workspace-sidebar-scroll">
+      {liveChat && LiveChatIcon ? (
+        <div
+          className={`workspace-sidebar-live${active === liveChat.id ? " is-active" : ""}`}
+        >
+          <Link
+            href={dashHref(slug, liveChat.id)}
+            scroll={false}
+            title={liveChat.label}
+            className={`workspace-sidebar-item${active === liveChat.id ? " is-active" : ""}`}
+            aria-current={active === liveChat.id ? "page" : undefined}
+          >
+            <LiveChatIcon size={18} />
+            <span className="workspace-sidebar-label">{liveChat.label}</span>
+          </Link>
+        </div>
+      ) : null}
+      {otherWork.length > 0 ? (
       <div className="workspace-sidebar-work">
-        {visibleWorkNav(settings).map((item) => {
+        {otherWork.map((item) => {
           const Icon = WORK_ICONS[item.id];
           return (
             <Link
@@ -191,6 +212,7 @@ export function WorkspaceSidebar({ slug, settings }: WorkspaceSidebarProps) {
           );
         })}
       </div>
+      ) : null}
 
       <div className="workspace-sidebar-settings">
         {SETTINGS_NAV.map((item) => {
@@ -201,7 +223,7 @@ export function WorkspaceSidebar({ slug, settings }: WorkspaceSidebarProps) {
           const groups = item.id === "tools"
             ? [
                 { id: "tools" as const, label: "Tools", leaves: toolsLeaves },
-                { id: "platforms" as const, label: "Platforms", leaves: presenceLeaves },
+                { id: "platforms" as const, label: "Get In Touch", leaves: presenceLeaves },
               ].filter((group) => group.leaves.length > 0)
             : item.id === "account"
               ? [{ id: "account" as const, label: "", leaves: ACCOUNT_SETTINGS_NAV_TABS }]

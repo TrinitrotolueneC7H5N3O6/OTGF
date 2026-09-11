@@ -48,12 +48,12 @@ export interface WorkNavItem {
 
 export const WORK_NAV: WorkNavItem[] = [
   { id: "floor", label: "Live Chat" },
-  { id: "schedule", label: "Schedule" },
+  { id: "schedule", label: "Appointments" },
   { id: "forms", label: "Forms" },
   { id: "referrals", label: "Referral Programs" },
   { id: "affiliates", label: "Affiliates" },
-  { id: "storytelling", label: "Stories" },
-  { id: "insights", label: "Watch" },
+  { id: "storytelling", label: "Blog" },
+  { id: "insights", label: "Site Activity" },
 ];
 
 const WORK_NAV_COMPONENT: Record<WorkNavItem["id"], WorkspaceComponentId> = {
@@ -76,7 +76,7 @@ export const SETTINGS_NAV: {
 ];
 
 export const PUBLIC_SETTINGS_TABS: { nav: DashNav; label: string }[] = [
-  { nav: "client:page", label: "Micro-landing page" },
+  { nav: "client:page", label: "Front Desk" },
   { nav: "client:chat", label: "Widget" },
 ];
 
@@ -98,10 +98,10 @@ export function presenceHomeNav(settings?: FloorSettings | null): DashNav {
 export const TOOL_SETTINGS_LEAVES: { nav: DashNav; label: string }[] = [
   { nav: "tools:live-chat", label: "Live Chat" },
   { nav: "tools:forms", label: "Forms" },
-  { nav: "tools:schedule", label: "Schedule" },
+  { nav: "tools:schedule", label: "Appointments" },
   { nav: "tools:referrals", label: "Referral Programs" },
   { nav: "tools:affiliates", label: "Affiliates" },
-  { nav: "tools:storytelling", label: "Storytelling" },
+  { nav: "tools:storytelling", label: "Blog" },
 ];
 
 export function visibleToolsLeaves(settings?: FloorSettings | null) {
@@ -220,12 +220,10 @@ export const HASH_TO_NAV: Record<string, DashNav> = {
   "cf-look": "client:page",
   "cf-hours": "client:page",
   "cf-promos": "tools:live-chat",
-  "cf-about": "tools:live-chat",
   "cf-links": "tools:live-chat",
   "cf-initial-messages": "tools:live-chat",
   "cf-staff-out": "tools:live-chat",
   "cf-end-screen": "tools:live-chat",
-  "cf-photos": "tools:live-chat",
   "cf-sounds": "tools:live-chat",
   "cf-bubble": "client:chat",
 };
@@ -235,12 +233,10 @@ export const WIDGET_BUILD_CHAT_HASHES = new Set(["chat", "cf-bubble"]);
 export const LIVE_CHAT_SETTINGS_HASHES = new Set([
   "cf-sounds",
   "cf-promos",
-  "cf-about",
   "cf-links",
   "cf-initial-messages",
   "cf-staff-out",
   "cf-end-screen",
-  "cf-photos",
 ]);
 
 export function canonicalNav(nav: DashNav): DashNav {

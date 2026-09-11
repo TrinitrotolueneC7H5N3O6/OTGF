@@ -58,7 +58,7 @@ const ACTIONS: ActionTemplate[] = [
     id: "scheduler",
     eyebrow: "DATE",
     title: "Schedule a time",
-    description: "Requests land in Schedule.",
+    description: "Requests land in Appointments.",
     defaultLabel: "Schedule a time",
     fieldLabel: "Scheduling URL",
     placeholder: "https://cal.example.com/your-business",
@@ -177,7 +177,7 @@ function PlacementChips({
   if (!pageAllowed && !widgetAllowed) {
     return (
       <p className="floor-settings-help">
-        Turn on Micro-landing page or Widget under Workspace setup → Platforms first.
+        Turn on Front Desk or Widget under Workspace setup → Get In Touch first.
       </p>
     );
   }
@@ -412,7 +412,7 @@ export function QuickBuildsPanel({
     const onPage = showOnPage && pageAllowed;
     const inWidget = showInWidget && widgetAllowed;
     if (!onPage && !inWidget) {
-      setError("Turn on Micro-landing page or Widget under Workspace setup → Platforms first.");
+      setError("Turn on Front Desk or Widget under Workspace setup → Get In Touch first.");
       return;
     }
     const nextLabel = label.trim();
@@ -462,7 +462,7 @@ export function QuickBuildsPanel({
       )}
       {hideTitle ? (
         <p className="floor-settings-help quick-builds-intro">
-          Turn on tools first, then choose Micro-landing page, Widget, or both.
+          Turn on tools first, then choose Front Desk, Widget, or both.
         </p>
       ) : null}
 
@@ -534,7 +534,7 @@ export function QuickBuildsPanel({
             <div className="quick-build-destinations">
               {pageAllowed ? (
               <Link href={dashHref(slug, "client:page")} className="btn-ghost" scroll={false}>
-                Micro-landing page look
+                Front Desk look
               </Link>
               ) : null}
               {widgetAllowed ? (

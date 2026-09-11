@@ -1021,7 +1021,7 @@ export function EmployeeDashboard({ slug }: EmployeeDashboardProps) {
     main = (
       <SettingsArea
         slug={slug}
-        title="Platforms"
+        title="Get In Touch"
         help="Settings for where customers find and connect with you."
         tabs={visiblePresenceLeaves(space.settings)}
         active={canonicalNav(nav)}

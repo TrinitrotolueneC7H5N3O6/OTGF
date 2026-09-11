@@ -40,9 +40,9 @@ export type PrefSection =
 export const PREF_SECTIONS: { id: PrefSection; label: string }[] = [
   { id: "sounds", label: "Sounds" },
   { id: "intro", label: "About & greeting" },
-  { id: "links", label: "Chat links" },
+  { id: "links", label: "Link Displays" },
   { id: "chat-interface", label: "Chat photos" },
-  { id: "pre-chat", label: "Micro-landing page" },
+  { id: "pre-chat", label: "Front Desk" },
 ];
 
 export function visiblePrefSections(settings: FloorSettings) {
@@ -89,6 +89,7 @@ export function UserPreferencesPanel({
   const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [reasonDraft, setReasonDraft] = useState("");
   const [origin, setOrigin] = useState("");
   const [widgetCopied, setWidgetCopied] = useState(false);
 
@@ -161,22 +162,20 @@ export function UserPreferencesPanel({
     });
   }
 
-  function updateContactReasonOption(index: number, label: string) {
-    patchIntroMessages({
-      contactReasonOptions: chatIntro.contactReasonOptions.map((option, i) =>
-        i === index ? label : option,
-      ),
-    });
-  }
-
   function addContactReasonOption() {
-    if (chatIntro.contactReasonOptions.length >= 20) return;
+    const next = reasonDraft.trim().slice(0, 80);
+    if (!next || chatIntro.contactReasonOptions.length >= 20) return;
+    const exists = chatIntro.contactReasonOptions.some(
+      (option) => option.toLowerCase() === next.toLowerCase(),
+    );
+    if (exists) {
+      setReasonDraft("");
+      return;
+    }
     patchIntroMessages({
-      contactReasonOptions: [
-        ...chatIntro.contactReasonOptions,
-        `Option ${chatIntro.contactReasonOptions.length + 1}`,
-      ],
+      contactReasonOptions: [...chatIntro.contactReasonOptions, next],
     });
+    setReasonDraft("");
   }
 
   function removeContactReasonOption(index: number) {
@@ -365,9 +364,9 @@ export function UserPreferencesPanel({
           {showMessageEditor ? (
             <div className="opening-messages-editor">
               {variant === "page" && !hideTitle ? (
-                <h2 className="dashboard-panel-title">Opening messages</h2>
+                <h2 className="dashboard-panel-title">Open Screen</h2>
               ) : variant === "page" ? null : (
-                <h3>Opening messages</h3>
+                <h3>Open Screen</h3>
               )}
               <p className="floor-settings-help">
                 Build the automated sequence customers see before they type.
@@ -395,32 +394,6 @@ export function UserPreferencesPanel({
                   />
                 </label>
                 <p className="editor-hint">{chatIntro.welcome.length}/2000</p>
-              </div>
-
-              <div className="opening-message-card">
-                <div className="opening-message-head">
-                  <div>
-                    <strong>Follow-up</strong>
-                    <span>Optional second nudge or promo</span>
-                  </div>
-                </div>
-                <label className="floor-settings-note">
-                  <span className="sr-only">Follow-up message</span>
-                  <textarea
-                    rows={2}
-                    value={chatIntro.promoFollowUp}
-                    onChange={(e) =>
-                      patchIntroMessages({
-                        promoFollowUp: e.target.value.slice(0, 500),
-                      })
-                    }
-                    placeholder="Shown right after the welcome…"
-                    maxLength={500}
-                  />
-                </label>
-                <p className="editor-hint">
-                  {chatIntro.promoFollowUp.length}/500
-                </p>
               </div>
 
               {chatIntro.extraMessages.map((message, index) => (
@@ -470,7 +443,7 @@ export function UserPreferencesPanel({
               <div className="opening-message-card">
                 <div className="opening-message-head">
                   <div>
-                    <strong>Contact reason dropdown</strong>
+                    <strong>Contact Reason</strong>
                     <span>
                       Ask why they are reaching out, then show editable choices
                     </span>
@@ -546,48 +519,58 @@ export function UserPreferencesPanel({
                 <div className="contact-reason-options">
                   <div className="contact-reason-options-head">
                     <strong>Dropdown choices</strong>
-                    <span>Edit what customers can pick from.</span>
+                    <span>Type an option and add it.</span>
                   </div>
-                  <div className="contact-reason-options-grid">
-                    {chatIntro.contactReasonOptions.map((option, index) => (
-                      <label
-                        key={index}
-                        className="contact-reason-option"
-                      >
-                        <span>{index + 1}</span>
-                        <input
-                          type="text"
-                          value={option}
-                          onChange={(e) =>
-                            updateContactReasonOption(
-                              index,
-                              e.target.value.slice(0, 80),
-                            )
+                  {chatIntro.contactReasonOptions.length > 0 ? (
+                    <ul className="contact-reason-options-list">
+                      {chatIntro.contactReasonOptions.map((option, index) => (
+                        <li key={`${option}-${index}`} className="contact-reason-option">
+                          <span>{option}</span>
+                          <button
+                            type="button"
+                            className="floor-banner-remove icon-btn"
+                            onClick={() => removeContactReasonOption(index)}
+                            aria-label={`Remove ${option}`}
+                            title="Remove"
+                          >
+                            <IconTrash size={13} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="floor-settings-help">
+                      No choices yet. Add the options customers can pick.
+                    </p>
+                  )}
+                  {chatIntro.contactReasonOptions.length < 20 ? (
+                    <div className="contact-reason-add">
+                      <input
+                        type="text"
+                        value={reasonDraft}
+                        onChange={(e) =>
+                          setReasonDraft(e.target.value.slice(0, 80))
+                        }
+                        placeholder="Type an option…"
+                        aria-label="New dropdown choice"
+                        maxLength={80}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addContactReasonOption();
                           }
-                          placeholder={`Option ${index + 1}`}
-                          maxLength={80}
-                        />
-                        <button
-                          type="button"
-                          className="floor-banner-remove icon-btn"
-                          onClick={() => removeContactReasonOption(index)}
-                          aria-label={`Remove dropdown choice ${index + 1}`}
-                          title="Remove"
-                          disabled={chatIntro.contactReasonOptions.length <= 1}
-                        >
-                          <IconTrash size={13} />
-                        </button>
-                      </label>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-ghost opening-message-add"
-                    onClick={addContactReasonOption}
-                    disabled={chatIntro.contactReasonOptions.length >= 20}
-                  >
-                    Add dropdown choice
-                  </button>
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn-solid"
+                        onClick={addContactReasonOption}
+                        disabled={!reasonDraft.trim()}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -640,9 +623,9 @@ export function UserPreferencesPanel({
       {show("links") ? (
         <section className="floor-settings-section">
           {variant === "page" && !hideTitle ? (
-            <h2 className="dashboard-panel-title">Chat links</h2>
+            <h2 className="dashboard-panel-title">Link Displays</h2>
           ) : variant === "page" ? null : (
-            <h3>Chat links</h3>
+            <h3>Link Displays</h3>
           )}
           <p className="floor-settings-help">
             Buttons under your intro (Instagram, booking site, menu, etc.).
@@ -736,9 +719,9 @@ export function UserPreferencesPanel({
       {show("pre-chat") ? (
         <section className="floor-settings-section">
           {variant === "page" && !hideTitle ? (
-            <h2 className="dashboard-panel-title">Micro-landing page</h2>
+            <h2 className="dashboard-panel-title">Front Desk</h2>
           ) : variant === "page" ? null : (
-            <h3>Micro-landing page</h3>
+            <h3>Front Desk</h3>
           )}
           {hideTitle ? null : (
           <p className="floor-settings-help">
