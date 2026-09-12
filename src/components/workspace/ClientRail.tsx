@@ -51,7 +51,7 @@ const QUICK_FILTERS: { id: InboxQuickFilter; label: string }[] = [
   { id: "read", label: "Read" },
   { id: "unread", label: "Unread" },
   { id: "cases", label: "Cases" },
-  { id: "ai", label: "AI" },
+  { id: "ai", label: "AI Norma Assist" },
 ];
 
 function awaitingReply(clientId: string, messages: Message[], ended?: boolean) {
@@ -157,7 +157,7 @@ export function ClientRail({
     <div className="rail">
       <div className="rail-head">
         <div className="rail-head-row">
-          <h2>{quickFilter === "cases" ? "Cases" : quickFilter === "ai" ? "AI" : "Inbox"}</h2>
+          <h2>{quickFilter === "cases" ? "Cases" : quickFilter === "ai" ? "AI Norma Assist" : "Inbox"}</h2>
           <span className="rail-count">{clients.length}</span>
         </div>
         <div className="rail-quick-filters" aria-label="Inbox filters">
