@@ -38,7 +38,7 @@ export interface WorkspaceComponentInfo {
 export const WORKSPACE_COMPONENT_CATALOG: WorkspaceComponentInfo[] = [
   { id: "referrals", label: "Referral Programs", blurb: "Set up programs in settings. Track leads and rewards in Referral Programs." },
   { id: "affiliates", label: "Affiliates", blurb: "Set up partners in settings. Track sales and payouts in Affiliates." },
-  { id: "storytelling", label: "Storytelling", blurb: "Set a story template in settings. Write cases under Stories. Customers can search them." },
+  { id: "storytelling", label: "Storytelling", blurb: "Pick photo stories or written cases. Publish short job snaps or one-page writeups customers can search." },
   {
     id: "liveChat",
     label: "Live Chat",

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newGrowthData, validateGrowthData, commissionFor, growthMetrics } from '../src/lib/growth.ts';
+import { normalizeStoryTemplate } from '../src/lib/storytelling.ts';
 
 test('validates program rates, amounts, status, and currency', () => {
   const data = {...newGrowthData('affiliate'), title:'Partner program', rewardType:'percent', reward:15};
@@ -15,6 +16,16 @@ test('only complete stories may be published', () => {
   assert.equal(validateGrowthData('story',{...story,challenge:'Before',process:'Work',outcome:'After'}).status,'published');
   assert.equal(validateGrowthData('story',{...story,status:'draft'}).status,'draft');
   assert.equal(validateGrowthData('story',{...story,challenge:'',process:'',outcome:'',chapters:{situation:'Before',work:'Work',result:'After'}}).chapters.result,'After');
+  const photo = normalizeStoryTemplate({ format: 'photo' });
+  assert.throws(() => validateGrowthData('story', {...story, chapters: { caption: 'Fixed it.' }}, photo));
+  const published = validateGrowthData('story', {
+    ...story,
+    title: '',
+    photos: ['https://example.com/before.jpg', 'https://example.com/after.jpg'],
+    chapters: { caption: 'The pipe burst. We replaced the valve.' },
+  }, photo);
+  assert.equal(published.title, 'The pipe burst');
+  assert.equal(published.chapters.caption.includes('valve'), true);
 });
 test('monitoring excludes rejected leads and separates owed from paid rewards', () => {
   const record = (status,amount,commission) => ({kind:'conversion',data:{...newGrowthData('conversion'),programId:'p',status,amount,commission}});

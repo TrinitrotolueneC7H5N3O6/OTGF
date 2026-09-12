@@ -45,6 +45,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
       tags,
       excerpt: storyExcerpt(chapters, template, data.description ?? ""),
       photo: photos[0] ?? "",
+      photos,
+      description: data.description ?? "",
+      chapters,
+      challenge: data.challenge ?? "",
+      process: data.process ?? "",
+      outcome: data.outcome ?? "",
     });
   }
   return NextResponse.json({

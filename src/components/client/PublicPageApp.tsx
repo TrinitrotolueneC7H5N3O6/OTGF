@@ -11,22 +11,57 @@ import {
 } from "@/lib/chatMemory";
 import { EmbedChat } from "./EmbedChat";
 import { PreChatPage } from "./PreChatPage";
+import { StoriesBrowseApp } from "./StoriesBrowseApp";
 
 interface PublicPageAppProps {
   slug: string;
 }
 
-const CHAT_HISTORY_KEY = "otgfChatOverlay";
+const OVERLAY_KEY = "otgfPublicOverlay";
+type PublicOverlay = "chat" | "stories";
 
 export function PublicPageApp({ slug }: PublicPageAppProps) {
   const [chatMounted, setChatMounted] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [storiesMounted, setStoriesMounted] = useState(false);
+  const [storiesOpen, setStoriesOpen] = useState(false);
   const [chatOpenSignal, setChatOpenSignal] = useState(0);
   const [requestedChatId, setRequestedChatId] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState<RememberedChat[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const storiesDialogRef = useRef<HTMLDialogElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+
+  const applyOverlay = useCallback((kind: PublicOverlay | null) => {
+    setHistoryOpen(false);
+    setChatOpen(kind === "chat");
+    setStoriesOpen(kind === "stories");
+    if (kind === "chat") {
+      setChatMounted(true);
+      setChatOpenSignal((signal) => signal + 1);
+    }
+    if (kind === "stories") setStoriesMounted(true);
+  }, []);
+
+  const pushOverlay = useCallback((kind: PublicOverlay) => {
+    const current = window.history.state?.[OVERLAY_KEY] as PublicOverlay | undefined;
+    const next = { ...window.history.state, [OVERLAY_KEY]: kind };
+    if (current) {
+      window.history.replaceState(next, "", window.location.href);
+    } else {
+      window.history.pushState(next, "", window.location.href);
+    }
+  }, []);
+
+  const closeOverlay = useCallback(() => {
+    setHistoryOpen(false);
+    setChatOpen(false);
+    setStoriesOpen(false);
+    if (window.history.state?.[OVERLAY_KEY]) {
+      window.history.back();
+    }
+  }, []);
 
   const refreshChatHistory = useCallback(() => {
     setChatHistory(recallChatHistory(slug));
@@ -61,44 +96,33 @@ export function PublicPageApp({ slug }: PublicPageAppProps) {
   );
 
   const openChat = useCallback(() => {
-    setChatMounted(true);
-    setChatOpen(true);
-    setChatOpenSignal((signal) => signal + 1);
-    if (!window.history.state?.[CHAT_HISTORY_KEY]) {
-      window.history.pushState(
-        { ...window.history.state, [CHAT_HISTORY_KEY]: true },
-        "",
-        window.location.href,
-      );
-    }
-  }, []);
+    applyOverlay("chat");
+    pushOverlay("chat");
+  }, [applyOverlay, pushOverlay]);
 
-  const closeChat = useCallback(() => {
-    setHistoryOpen(false);
-    setChatOpen(false);
-    if (window.history.state?.[CHAT_HISTORY_KEY]) {
-      window.history.back();
-    }
-  }, []);
+  const openStories = useCallback(() => {
+    applyOverlay("stories");
+    pushOverlay("stories");
+  }, [applyOverlay, pushOverlay]);
 
   useEffect(() => {
     function onPopState(event: PopStateEvent) {
-      const nextOpen = Boolean(event.state?.[CHAT_HISTORY_KEY]);
-      if (nextOpen) setChatMounted(true);
-      if (nextOpen) setChatOpenSignal((signal) => signal + 1);
-      setChatOpen(nextOpen);
+      const kind = event.state?.[OVERLAY_KEY] as PublicOverlay | undefined;
+      applyOverlay(kind === "chat" || kind === "stories" ? kind : null);
     }
 
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  }, [applyOverlay]);
 
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (chatOpen && !dialog.open) dialog.showModal();
-    if (!chatOpen && dialog.open) dialog.close();
-  }, [chatOpen, chatMounted]);
+    const chatDialog = dialogRef.current;
+    const storiesDialog = storiesDialogRef.current;
+    if (chatDialog && !chatOpen && chatDialog.open) chatDialog.close();
+    if (storiesDialog && !storiesOpen && storiesDialog.open) storiesDialog.close();
+    if (chatDialog && chatOpen && !chatDialog.open) chatDialog.showModal();
+    if (storiesDialog && storiesOpen && !storiesDialog.open) storiesDialog.showModal();
+  }, [chatOpen, chatMounted, storiesOpen, storiesMounted]);
 
   useEffect(() => {
     if (!historyOpen) return;
@@ -116,7 +140,7 @@ export function PublicPageApp({ slug }: PublicPageAppProps) {
   return (
     <LinkSheetProvider>
       <div className="public-page-app">
-        <PreChatPage slug={slug} onOpenChat={openChat} modalChat />
+        <PreChatPage slug={slug} onOpenChat={openChat} onOpenStories={openStories} modalChat />
 
         {chatMounted ? (
           <dialog
@@ -129,10 +153,10 @@ export function PublicPageApp({ slug }: PublicPageAppProps) {
                 setHistoryOpen(false);
                 return;
               }
-              closeChat();
+              closeOverlay();
             }}
             onClick={(event) => {
-              if (event.target === event.currentTarget) closeChat();
+              if (event.target === event.currentTarget) closeOverlay();
             }}
           >
             <header className="public-chat-dialog-toolbar">
@@ -162,7 +186,7 @@ export function PublicPageApp({ slug }: PublicPageAppProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={closeChat}
+                  onClick={closeOverlay}
                   aria-label="Minimize live chat"
                   title="Minimize"
                 >
@@ -209,6 +233,38 @@ export function PublicPageApp({ slug }: PublicPageAppProps) {
                 requestedChatId={requestedChatId}
                 onChatOpened={handleChatOpened}
               />
+            </div>
+          </dialog>
+        ) : null}
+
+        {storiesMounted ? (
+          <dialog
+            ref={storiesDialogRef}
+            className="public-chat-dialog public-stories-dialog"
+            aria-label="Our work"
+            onCancel={(event) => {
+              event.preventDefault();
+              closeOverlay();
+            }}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) closeOverlay();
+            }}
+          >
+            <header className="public-chat-dialog-toolbar">
+              <strong>Our work</strong>
+              <div className="public-chat-dialog-actions">
+                <button
+                  type="button"
+                  onClick={closeOverlay}
+                  aria-label="Close our work"
+                  title="Close"
+                >
+                  <IconX size={16} />
+                </button>
+              </div>
+            </header>
+            <div className="public-chat-dialog-body">
+              <StoriesBrowseApp slug={slug} embedded />
             </div>
           </dialog>
         ) : null}

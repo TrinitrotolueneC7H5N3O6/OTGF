@@ -30,6 +30,7 @@ interface PreChatPageProps {
   preview?: boolean;
   previewSpace?: BusinessSpace;
   onOpenChat?: () => void;
+  onOpenStories?: () => void;
   /** Keep the public page mounted while chat opens in a modal layer. */
   modalChat?: boolean;
 }
@@ -76,6 +77,7 @@ export function PreChatPage({
   preview = false,
   previewSpace,
   onOpenChat,
+  onOpenStories,
   modalChat = false,
 }: PreChatPageProps) {
   const router = useRouter();
@@ -403,11 +405,16 @@ export function PreChatPage({
             );
           })}
           {isWorkspaceComponentEnabled(settings, "storytelling") ? (
-            preview ? (
+            preview && !onOpenStories ? (
               <span className="pre-chat-link">
                 <span className="pre-chat-link-label">See our work</span>
                 <span className="pre-chat-link-meta">Search finished jobs</span>
               </span>
+            ) : onOpenStories ? (
+              <button type="button" className="pre-chat-link is-chat" onClick={onOpenStories}>
+                <span className="pre-chat-link-label">See our work</span>
+                <span className="pre-chat-link-meta">Search finished jobs</span>
+              </button>
             ) : (
               <a href={`/${slug}/stories`} className="pre-chat-link">
                 <span className="pre-chat-link-label">See our work</span>

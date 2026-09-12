@@ -18,6 +18,7 @@ import {
 } from "@/lib/chatMemory";
 import { EmbedChat } from "./EmbedChat";
 import { PreChatPage } from "./PreChatPage";
+import { StoriesBrowseApp } from "./StoriesBrowseApp";
 import { QuickContactModal } from "./QuickContactModal";
 import { QuickBuildModal } from "./QuickBuildModal";
 import { formShare, quickBuildConfigForLink } from "@/lib/quickBuilds";
@@ -30,7 +31,7 @@ interface EmbedAppProps {
 }
 
 export function EmbedApp({ slug, start, widget = false, actionId }: EmbedAppProps) {
-  const [view, setView] = useState<"page" | "chat">(start);
+  const [view, setView] = useState<"page" | "chat" | "stories">(start);
   const [requestedChatId, setRequestedChatId] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState<RememberedChat[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -232,7 +233,26 @@ export function EmbedApp({ slug, start, widget = false, actionId }: EmbedAppProp
   return (
     <div className="otgf-embed-root">
       {view === "page" ? (
-        <PreChatPage slug={slug} embedded onOpenChat={openChat} />
+        <PreChatPage slug={slug} embedded onOpenChat={openChat} onOpenStories={() => setView("stories")} />
+      ) : view === "stories" ? (
+        <>
+          <header className="public-chat-dialog-toolbar otgf-widget-toolbar">
+            <strong>Our work</strong>
+            <div className="public-chat-dialog-actions">
+              <button
+                type="button"
+                onClick={() => setView("page")}
+                aria-label="Close our work"
+                title="Close"
+              >
+                <IconX size={16} />
+              </button>
+            </div>
+          </header>
+          <div className="otgf-widget-chat-body">
+            <StoriesBrowseApp slug={slug} embedded />
+          </div>
+        </>
       ) : widget ? (
         <>
           <header className="public-chat-dialog-toolbar otgf-widget-toolbar">

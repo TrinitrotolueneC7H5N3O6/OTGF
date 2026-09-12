@@ -1,0 +1,2 @@
+.preview { height: 100%; overflow: auto; background: #f6f7f8; }
+.outputActions { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; }

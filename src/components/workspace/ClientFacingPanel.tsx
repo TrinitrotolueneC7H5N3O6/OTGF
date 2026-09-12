@@ -145,19 +145,21 @@ export function ClientFacingPanel({
     <div className="client-facing-layout schedule-settings">
       <div className="client-facing-editor dashboard-panel-body is-client-facing">
       {toc.length > 0 ? (
-        <nav className="schedule-settings-toc client-facing-toc" aria-label="Settings">
-          {toc.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={active === item.id ? "is-active" : undefined}
-              aria-current={active === item.id ? "page" : undefined}
-              onClick={() => selectPane(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
+        <div className="schedule-settings-editor-bar">
+          <nav className="schedule-settings-toc" aria-label="Settings">
+            {toc.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={active === item.id ? "is-active" : undefined}
+                aria-current={active === item.id ? "page" : undefined}
+                onClick={() => selectPane(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        </div>
       ) : null}
       <div className="schedule-settings-editor-scroll">
 

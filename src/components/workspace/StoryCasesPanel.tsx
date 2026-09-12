@@ -1,49 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
-import Link from "next/link";
-import { dashHref } from "@/lib/workspaceNav";
+import { useRef, useState, type FormEvent, type RefObject } from "react";
 import { newGrowthData, type GrowthData, type GrowthRecord } from "@/lib/growth";
 import { readMediaFile } from "@/lib/store";
-import { storyDateLabel, titleStyleHint, voiceOpener, type StoryTemplate } from "@/lib/storytelling";
+import { storyDateLabel, titleStyleHint, voiceOpener, isPhotoStory, storyCaption, storyTitleFromCaption, type StoryTemplate } from "@/lib/storytelling";
 import { IconX } from "@/components/shared/Icons";
 
 export function StoryCasesPanel({
   slug,
   template,
+  records,
+  loaded,
+  error,
+  onReload,
+  onRecordSaved,
 }: {
   slug: string;
   template: StoryTemplate;
+  records: GrowthRecord[];
+  loaded: boolean;
+  error: string;
+  onReload: () => void;
+  onRecordSaved: (record: GrowthRecord) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [records, setRecords] = useState<GrowthRecord[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState<GrowthData | null>(null);
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/spaces/${encodeURIComponent(slug)}/growth`, { cache: "no-store" });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Could not load stories.");
-      setRecords(result);
-      setLoaded(true);
-      setError("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load stories.");
-    }
-  }, [slug]);
-  useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
 
   const stories = records.filter((record) => record.kind === "story");
   const selected = stories.find((record) => record.id === selectedId) ?? (creating ? undefined : stories[0]);
   const writing = creating || Boolean(selected);
   const data = draft ?? (creating ? { ...newGrowthData("story"), description: voiceOpener(template.voice) } : selected?.data);
+  const photo = isPhotoStory(template);
 
   async function save(next: GrowthData, record?: GrowthRecord) {
     const response = await fetch(`/api/spaces/${encodeURIComponent(slug)}/growth`, {
@@ -53,7 +43,7 @@ export function StoryCasesPanel({
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not save.");
-    setRecords((all) => [result, ...all.filter((item) => item.id !== result.id)]);
+    onRecordSaved(result);
     setSelectedId(result.id);
     setCreating(false);
     setDraft(null);
@@ -68,69 +58,76 @@ export function StoryCasesPanel({
   }
 
   return (
-    <div className="story-studio">
-      <aside className="story-studio-rail">
-        <div className="story-studio-rail-head">
-          <div>
-            <p className="dashboard-kicker">Stories</p>
-            <h2>Posts</h2>
-          </div>
-          <button className="btn-solid" disabled={!loaded} onClick={startNew}>New post</button>
+    <div className={`forms-manager-shell schedule-settings story-studio${photo ? " is-photo" : ""}`}>
+      <div className="dashboard-panel-body forms-manager">
+        <div className="schedule-settings-body">
+          <aside className="schedule-settings-rail" aria-label="Stories">
+            <div className="schedule-settings-rail-head">
+              <div>
+                <strong>Stories</strong>
+                <span>
+                  {!loaded ? "Loading…" : stories.length ? `${stories.length} ${stories.length === 1 ? "story" : "stories"}` : "None yet"}
+                </span>
+              </div>
+              <button type="button" className="btn-solid" disabled={!loaded} onClick={startNew}>New</button>
+            </div>
+            {error ? (
+              <p className="editor-error" role="alert">
+                {error} <button type="button" className="btn-ghost" onClick={() => void onReload()}>Retry</button>
+              </p>
+            ) : null}
+            {notice ? <p className="growth-notice" role="status">{notice}</p> : null}
+            {loaded && !stories.length ? (
+              <p className="schedule-settings-rail-empty">{photo ? "New, then add photos from a finished job." : "New, then write up a finished job."}</p>
+            ) : (
+              <ul className="schedule-settings-events">
+                {stories.map((record) => {
+                  const active = !creating && selected?.id === record.id;
+                  return (
+                    <li key={record.id}>
+                      <button
+                        type="button"
+                        className={active ? "is-active" : undefined}
+                        aria-current={active ? "true" : undefined}
+                        onClick={() => {
+                          setSelectedId(record.id);
+                          setCreating(false);
+                          setDraft(null);
+                          setNotice("");
+                        }}
+                      >
+                        <strong>{record.data.title || storyCaption(record.data.chapters, record.data.description).slice(0, 48) || "Untitled"}</strong>
+                        <span className="schedule-settings-event-meta">
+                          <em>{record.data.status === "published" ? "Published" : "Draft"}</em>
+                          {record.data.date ? <em>{storyDateLabel(record.data.date)}</em> : null}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </aside>
+          <section className="schedule-settings-editor" aria-label="Edit story">
+            {writing && data ? (
+              <StoryEditor
+                key={creating ? "new" : `${selected?.id}-${selected?.version}`}
+                slug={slug}
+                template={template}
+                record={creating ? undefined : selected}
+                data={data}
+                fileRef={fileRef}
+                onChange={setDraft}
+                onSave={(next) => save(next, creating ? undefined : selected)}
+                onCancel={creating ? () => { setCreating(false); setDraft(null); } : undefined}
+              />
+            ) : (
+              <p className="schedule-settings-editor-empty">
+                {loaded ? "Pick a story on the left, or start a new one." : "Loading…"}
+              </p>
+            )}
+          </section>
         </div>
-        <p className="floor-settings-help">
-          Write like a publication. Customers read and search these the same way.{" "}
-          <Link href={dashHref(slug, "tools:storytelling")}>Template</Link>
-        </p>
-        {error ? <p className="editor-error" role="alert">{error} <button className="btn-ghost" onClick={() => void load()}>Retry</button></p> : null}
-        <p className="growth-notice" role="status">{notice}</p>
-        {!loaded && !error ? <p>Loading…</p> : null}
-        {loaded && !stories.length ? (
-          <p className="story-studio-empty">No posts yet. Start with a job you already finished.</p>
-        ) : (
-          <ul className="story-studio-list">
-            {stories.map((record) => (
-              <li key={record.id}>
-                <button
-                  type="button"
-                  className={!creating && selected?.id === record.id ? "is-active" : undefined}
-                  onClick={() => {
-                    setSelectedId(record.id);
-                    setCreating(false);
-                    setDraft(null);
-                    setNotice("");
-                  }}
-                >
-                  <strong>{record.data.title || "Untitled"}</strong>
-                  <span>
-                    {record.data.status === "published" ? "Published" : "Draft"}
-                    {record.data.date ? ` · ${storyDateLabel(record.data.date)}` : ""}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </aside>
-      <div className="story-studio-page">
-        {writing && data ? (
-          <StoryEditor
-            key={creating ? "new" : `${selected?.id}-${selected?.version}`}
-            slug={slug}
-            template={template}
-            record={creating ? undefined : selected}
-            data={data}
-            fileRef={fileRef}
-            onChange={setDraft}
-            onSave={(next) => save(next, creating ? undefined : selected)}
-            onCancel={creating ? () => { setCreating(false); setDraft(null); } : undefined}
-          />
-        ) : (
-          <div className="story-studio-blank">
-            <h2>Write the next post</h2>
-            <p>Open a draft from the left, or start a new one. You write in the same layout customers read.</p>
-            <button className="btn-solid" disabled={!loaded} onClick={startNew}>New post</button>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -166,7 +163,15 @@ function StoryEditor({
     setSaving(true);
     setError("");
     try {
-      await onSave({ ...data, status });
+      const caption = storyCaption(data.chapters, data.description);
+      const next = {
+        ...data,
+        status,
+        ...(isPhotoStory(template) && !data.title.trim() && caption
+          ? { title: storyTitleFromCaption(caption), description: data.description || caption, chapters: { ...data.chapters, caption } }
+          : {}),
+      };
+      await onSave(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save.");
     } finally {
@@ -195,112 +200,196 @@ function StoryEditor({
     }
   }
   const cover = data.photos[0];
+  const photo = isPhotoStory(template);
+  const caption = data.chapters.caption ?? data.description;
+  const pair = template.photoStyle === "beforeAfter";
+  const extraStart = photo && pair ? 2 : 1;
   return (
-    <form className="story-doc" onSubmit={(event) => void submit(event, data.status === "published" ? "published" : "draft")}>
-      <div className="story-doc-bar">
+    <form className={`story-doc${photo ? " is-snap" : ""}`} onSubmit={(event) => void submit(event, data.status === "published" ? "published" : "draft")}>
+      <div className="schedule-settings-editor-bar story-doc-bar">
         <span className={`story-doc-state is-${data.status === "published" ? "live" : "draft"}`}>
           {data.status === "published" ? "Published" : "Draft"}
         </span>
         <div className="story-doc-actions">
           {onCancel ? <button className="btn-ghost" type="button" onClick={onCancel}>Cancel</button> : null}
           <button className="btn-ghost" type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
-          <button className="btn-solid" type="button" disabled={saving} onClick={(event) => void submit(event, "published")}>Publish</button>
           {data.status === "published" ? (
             <button className="btn-ghost" type="button" disabled={saving} onClick={(event) => void submit(event, "draft")}>Unpublish</button>
           ) : null}
+          <button className="btn-solid" type="button" disabled={saving} onClick={(event) => void submit(event, "published")}>Publish</button>
         </div>
       </div>
-      <div className="story-doc-canvas">
+      <div className="schedule-settings-editor-scroll">
         <input ref={fileRef} type="file" accept="image/*" multiple className="sr-only" id="story-photos" onChange={(e) => void addPhotos(e.target.files)} />
-        {cover ? (
-          <div className="story-doc-cover">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={cover} alt="" />
-            <button type="button" className="btn-ghost" onClick={() => patch({ photos: data.photos.slice(1) })}>
-              <IconX /> Remove cover
-            </button>
-          </div>
+        <section className="settings-editor-card">
+        {photo ? (
+          <>
+            {pair ? (
+              <div className="story-snap-pair">
+                {[0, 1].map((index) => {
+                  const url = data.photos[index];
+                  const label = index === 0 ? "Before" : "After";
+                  return url ? (
+                    <div className="story-snap-slot" key={`${label}-${url.slice(0, 24)}`}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt={label} />
+                      <span>{label}</span>
+                      <button type="button" className="btn-ghost icon-btn" aria-label={`Remove ${label.toLowerCase()} photo`} onClick={() => patch({ photos: data.photos.filter((_, i) => i !== index) })}>
+                        <IconX />
+                      </button>
+                    </div>
+                  ) : (
+                    <label key={label} htmlFor="story-photos" className="story-snap-slot is-empty">
+                      {busyPhoto ? "Adding…" : label}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : cover ? (
+              <div className="story-doc-cover">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={cover} alt="" />
+                <button type="button" className="btn-ghost icon-btn" aria-label="Remove photo" onClick={() => patch({ photos: data.photos.slice(1) })}>
+                  <IconX />
+                </button>
+              </div>
+            ) : (
+              <label htmlFor="story-photos" className="story-doc-cover is-empty">
+                {busyPhoto ? "Adding photo…" : "Add a photo"}
+              </label>
+            )}
+            {data.photos.length > extraStart ? (
+              <div className="story-photo-grid">
+                {data.photos.slice(extraStart).map((url, index) => (
+                  <div key={`${index}-${url.slice(0, 24)}`} className="story-photo-slot">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt="" />
+                    <button type="button" className="btn-ghost icon-btn" aria-label="Remove photo" onClick={() => patch({ photos: data.photos.filter((_, i) => i !== index + extraStart) })}>
+                      <IconX />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {data.photos.length > 0 && data.photos.length < 6 ? (
+              <button type="button" className="btn-ghost story-doc-add-btn" disabled={busyPhoto} onClick={() => fileRef.current?.click()}>
+                {busyPhoto ? "Adding…" : "Add photo"}
+              </button>
+            ) : null}
+            <label className="floor-settings-note">
+              <span>Caption</span>
+              <textarea
+                rows={4}
+                maxLength={800}
+                placeholder={template.sections[0]?.prompt || "A few sentences."}
+                value={caption}
+                onChange={(e) => patch({
+                  description: e.target.value,
+                  chapters: { ...data.chapters, caption: e.target.value },
+                })}
+              />
+            </label>
+            <label className="floor-settings-note">
+              <span>Title (optional)</span>
+              <input
+                maxLength={200}
+                placeholder="Uses the first line of the caption if blank"
+                value={data.title}
+                onChange={(e) => patch({ title: e.target.value })}
+              />
+            </label>
+          </>
         ) : (
-          <label htmlFor="story-photos" className="story-doc-cover is-empty">
-            {busyPhoto ? "Adding photo…" : "Add a cover photo"}
-          </label>
+          <>
+            {cover ? (
+              <div className="story-doc-cover">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={cover} alt="" />
+                <button type="button" className="btn-ghost icon-btn" aria-label="Remove cover" onClick={() => patch({ photos: data.photos.slice(1) })}>
+                  <IconX />
+                </button>
+              </div>
+            ) : null}
+            {data.photos.length > 1 ? (
+              <div className="story-photo-grid">
+                {data.photos.slice(1).map((url, index) => (
+                  <div key={`${index}-${url.slice(0, 24)}`} className="story-photo-slot">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt="" />
+                    <button type="button" className="btn-ghost icon-btn" aria-label="Remove photo" onClick={() => patch({ photos: data.photos.filter((_, i) => i !== index + 1) })}>
+                      <IconX />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {data.photos.length < 6 ? (
+              <button type="button" className="btn-ghost story-doc-add-btn" disabled={busyPhoto} onClick={() => fileRef.current?.click()}>
+                {busyPhoto ? "Adding…" : cover ? "Add photo" : "Add a photo (optional)"}
+              </button>
+            ) : null}
+            <label className="floor-settings-note">
+              <span>Title</span>
+              <input
+                required
+                maxLength={200}
+                placeholder="Title"
+                value={data.title}
+                onChange={(e) => patch({ title: e.target.value })}
+              />
+            </label>
+            <p className="floor-settings-help">{titleStyleHint(template.titleStyle)}</p>
+            <label className="floor-settings-note">
+              <span>Summary</span>
+              <textarea
+                rows={2}
+                maxLength={3000}
+                placeholder="One-line summary"
+                value={data.description}
+                onChange={(e) => patch({ description: e.target.value })}
+              />
+            </label>
+            {template.sections.map((section) => (
+              <label key={section.id} className="floor-settings-note">
+                <span>{section.label}{section.required ? "" : " (optional)"}</span>
+                <textarea
+                  rows={5}
+                  maxLength={4000}
+                  placeholder={section.prompt || "Write this part…"}
+                  value={data.chapters[section.id] ?? ""}
+                  onChange={(e) => patch({ chapters: { ...data.chapters, [section.id]: e.target.value } })}
+                />
+              </label>
+            ))}
+          </>
         )}
-        <p className="story-post-kicker">{template.eyebrow}</p>
-        <textarea
-          className="story-doc-title"
-          required
-          rows={2}
-          maxLength={200}
-          placeholder="Title"
-          value={data.title}
-          onChange={(e) => patch({ title: e.target.value })}
-        />
-        <p className="floor-settings-help">{titleStyleHint(template.titleStyle)}</p>
-        <textarea
-          className="story-doc-dek"
-          rows={2}
-          maxLength={3000}
-          placeholder="Subtitle"
-          value={data.description}
-          onChange={(e) => patch({ description: e.target.value })}
-        />
         <div className="story-doc-meta">
           {template.showDate ? (
-            <label>
+            <label className="floor-settings-note">
               <span>Date</span>
               <input type="date" value={data.date} onChange={(e) => patch({ date: e.target.value })} />
             </label>
           ) : null}
-          <label>
+          <label className="floor-settings-note">
             <span>Search keywords</span>
             <input
               value={data.tags.join(", ")}
-              placeholder="ac, leak, kitchen"
+              placeholder={photo ? "leak, drain, kitchen" : "contract, dispute, closing"}
               onChange={(e) => patch({
                 tags: e.target.value.split(",").map((tag) => tag.trim()).filter(Boolean).slice(0, 8),
               })}
             />
           </label>
         </div>
-        {template.sections.map((section) => (
-          <section key={section.id} className="story-doc-section">
-            <h2>{section.label}{section.required ? "" : " (optional)"}</h2>
-            <textarea
-              rows={7}
-              maxLength={12000}
-              placeholder={section.prompt || "Write this part…"}
-              value={data.chapters[section.id] ?? ""}
-              onChange={(e) => patch({ chapters: { ...data.chapters, [section.id]: e.target.value } })}
-            />
-          </section>
-        ))}
-        {data.photos.length > 1 ? (
-          <div className="story-photo-grid">
-            {data.photos.slice(1).map((url, index) => (
-              <div key={`${index}-${url.slice(0, 24)}`} className="story-photo-slot">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt={template.photoStyle === "beforeAfter" && index < 1 ? "After" : `Photo ${index + 2}`} />
-                {template.photoStyle === "beforeAfter" && index === 0 ? <span>After</span> : null}
-                <button type="button" className="btn-ghost icon-btn" aria-label="Remove photo" onClick={() => patch({ photos: data.photos.filter((_, i) => i !== index + 1) })}>
-                  <IconX />
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {data.photos.length < 6 ? (
-          <label htmlFor="story-photos" className="story-doc-add-photo">
-            {busyPhoto ? "Adding…" : template.photoStyle === "beforeAfter" && data.photos.length === 1 ? "Add the after photo" : "Add more photos"}
-          </label>
-        ) : null}
         {record?.data.status === "published" ? (
           <p className="story-doc-share">
             Live at <a href={`/${slug}/story/${record.id}`} target="_blank" rel="noreferrer">{`/${slug}/story/${record.id}`}</a>
             {" · "}
-            <a href={`/${slug}/stories`} target="_blank" rel="noreferrer">Publication page</a>
+            <a href={`/${slug}/stories`} target="_blank" rel="noreferrer">All stories</a>
           </p>
         ) : null}
         {error ? <p className="editor-error" role="alert">{error}</p> : null}
+        </section>
       </div>
     </form>
   );

@@ -83,7 +83,15 @@ export function validateGrowthData(kind: GrowthKind, raw: unknown, template?: St
     result.process = result.chapters.work ?? result.process;
     result.outcome = result.chapters.result ?? result.outcome;
   }
-  if (!result.title) throw new Error("Enter a name or title.");
+  if (!result.title) {
+    if (kind === "story" && template?.format === "photo") {
+      const caption = result.chapters.caption?.trim() || result.description;
+      result.title = caption
+        ? (caption.replace(/\s+/g, " ").split(/[.!?]/).find((part) => part.trim()) || caption).trim().slice(0, 80)
+        : result.status === "published" ? "" : "Untitled";
+    }
+    if (!result.title) throw new Error("Enter a name or title.");
+  }
   if (result.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(result.email)) throw new Error("Enter a valid email.");
   const statuses: Record<GrowthKind, GrowthStatus[]> = {
     referral: ["draft", "active", "paused", "archived"], affiliate: ["draft", "active", "paused", "archived"],
@@ -101,19 +109,31 @@ export function validateGrowthData(kind: GrowthKind, raw: unknown, template?: St
   if (typeof input.currency !== "string" || !["USD", "CAD", "EUR", "GBP", "AUD"].includes(input.currency)) throw new Error("Choose a supported currency.");
   result.currency = input.currency;
   if (kind === "story" && result.status === "published") {
+    const format = template?.format ?? "writing";
     const chapters = Object.keys(result.chapters).length
       ? result.chapters
       : { situation: result.challenge, work: result.process, result: result.outcome };
-    const required = (template?.sections ?? [
-      { id: "situation", required: true },
-      { id: "work", required: true },
-      { id: "result", required: true },
-    ]).filter((section) => section.required);
-    if (required.some((section) => !chapters[section.id]?.trim())) {
-      throw new Error("Fill every required part of the story before publishing.");
-    }
-    if (template?.photoStyle === "beforeAfter" && result.photos.length < 2) {
-      throw new Error("Add a before photo and an after photo before publishing.");
+    if (format === "photo") {
+      const caption = chapters.caption?.trim() || result.description.trim();
+      if (!caption) throw new Error("Add a short caption before publishing.");
+      if (!result.photos.length) throw new Error("Add at least one photo before publishing.");
+      if ((template?.photoStyle ?? "beforeAfter") === "beforeAfter" && result.photos.length < 2) {
+        throw new Error("Add a before photo and an after photo before publishing.");
+      }
+      result.chapters = { ...chapters, caption };
+      result.description = result.description.trim() || caption;
+    } else {
+      const required = (template?.sections ?? [
+        { id: "situation", required: true },
+        { id: "work", required: true },
+        { id: "result", required: true },
+      ]).filter((section) => section.required);
+      if (required.some((section) => !chapters[section.id]?.trim())) {
+        throw new Error("Fill every required part of the story before publishing.");
+      }
+      if (template?.photoStyle === "beforeAfter" && result.photos.length < 2) {
+        throw new Error("Add a before photo and an after photo before publishing.");
+      }
     }
   }
   return result;
