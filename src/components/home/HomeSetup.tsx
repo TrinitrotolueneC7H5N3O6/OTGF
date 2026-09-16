@@ -145,6 +145,9 @@ export function HomeSetup() {
           <span className="brand-mark" aria-hidden />
           <p className="brand-name">OTGF</p>
         </div>
+        <Link href="/build" className="home-routecraft-link">
+          Try the RouteCraft funnel builder →
+        </Link>
       </header>
 
       <div className="home-stage">
